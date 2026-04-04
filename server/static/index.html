@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="icon" href="/static/images/logo.png">
+    <title>Openfy - Web Player</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="main">
+        <div class="sidebar">
+            <div class="nav">
+                <div class="nav-option nav-link active" data-page="home" style="opacity: 1;">
+                    <i class="fa-solid fa-house"></i>
+                    <a href="#">Home</a>
+                </div>
+                <div class="nav-option nav-link" data-page="uploads">
+                    <i class="fa-solid fa-upload"></i>
+                    <a href="#">Uploads</a>
+                </div>
+            </div>
+            <div class="library">
+                <div class="options">
+                    <div class="lib-option nav-option">
+                        <img src="/static/images/library_icon.png">
+                        <a href="#">Your Library</a>
+                    </div>
+                    <div class="icons">
+                        <i class="fa-solid fa-plus"></i>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </div>
+                </div>
+                <div class="lib-box"></div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="sticky-nav">
+                <div class="nav-icons">
+                    <img src="/static/images/backward_icon.png">
+                    <img src="/static/images/forward_icon.png" class="hide">
+                </div>
+                <div class="sticky-nav-options">
+                    <i class="fa-regular fa-user nav-item"></i>
+                </div>
+           </div>
+
+            <div class="page active" id="page-home">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Search</h2>
+                    </div>
+                    <div class="add-form">
+                        <input
+                            id="search-input"
+                            type="text"
+                            placeholder="Search your library"
+                            autocomplete="off"
+                        />
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Most Played</h2>
+                    </div>
+                    <div class="cards-container" id="most-played-grid"></div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Library</h2>
+                    </div>
+                    <div class="cards-container" id="tracks-grid"></div>
+                </div>
+
+                <div class="footer">
+                    <div class="line"></div>
+                </div>
+            </div>
+
+            <div class="page" id="page-uploads">
+                <div class="section">
+                    <h2>Upload Audio</h2>
+                    <div class="add-form" id="upload-form">
+                        <input id="song-file" type="file" accept="audio/*" />
+                        <button class="badge" id="upload-button">Upload</button>
+                    </div>
+                    <p class="status" id="upload-status"></p>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Manage Library</h2>
+                    </div>
+                    <div class="add-form">
+                        <input id="upload-search-input" type="text" placeholder="Search and delete tracks" autocomplete="off" />
+                    </div>
+                    <div class="cards-container" id="upload-library-grid"></div>
+                </div>
+
+                <div class="footer">
+                    <div class="line"></div>
+                </div>
+            </div>
+        </div>
+        <div class="music-player">
+            <div class="album">
+                <canvas class="art-canvas" id="now-cover" width="48" height="48"></canvas>
+                <div class="album-meta">
+                    <p class="album-title" id="now-title"></p>
+                    <p class="album-artist" id="now-artist"></p>
+                </div>
+            </div>
+            <div class="player">
+                <div class="player-controls">
+                    <button class="player-btn" id="btn-shuffle" aria-label="Shuffle">
+                        <img src="/static/images/player_icon1.png" class="player-control-icon">
+                    </button>
+                    <button class="player-btn" id="btn-prev" aria-label="Previous">
+                        <img src="/static/images/player_icon2.png" class="player-control-icon">
+                    </button>
+                    <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause">
+                        <i class="fa-solid fa-play play-icon"></i>
+                        <i class="fa-solid fa-pause pause-icon"></i>
+                    </button>
+                    <button class="player-btn" id="btn-next" aria-label="Next">
+                        <img src="/static/images/player_icon4.png" class="player-control-icon">
+                    </button>
+                    <button class="player-btn" id="btn-repeat" aria-label="Repeat">
+                        <img src="/static/images/player_icon5.png" class="player-control-icon">
+                    </button>
+                </div>
+                <div class="playback-bar">
+                    <span class="curr-time" id="curr-time">00:00</span>
+                    <input type="range" min="0" max="100" class="progress-bar" step="1" id="progress-bar">
+                    <span class="tot-time" id="tot-time">00:00</span>
+                </div>
+            </div>
+            <div class="controls"></div>
+            <audio id="audio-player" preload="metadata"></audio>
+        </div>
+    </div>
+
+<script>
+    const apiBase = localStorage.getItem("openfy_api") || "";
+    const tracksGrid = document.getElementById("tracks-grid");
+    const mostPlayedGrid = document.getElementById("most-played-grid");
+    const openUpload = document.getElementById("open-upload");
+    const uploadButton = document.getElementById("upload-button");
+    const uploadStatus = document.getElementById("upload-status");
+    const songFile = document.getElementById("song-file");
+    const searchInput = document.getElementById("search-input");
+    const uploadSearchInput = document.getElementById("upload-search-input");
+    const uploadLibraryGrid = document.getElementById("upload-library-grid");
+    const audioPlayer = document.getElementById("audio-player");
+    const nowTitle = document.getElementById("now-title");
+    const nowArtist = document.getElementById("now-artist");
+    const nowCover = document.getElementById("now-cover");
+    const progressBar = document.getElementById("progress-bar");
+    const currTime = document.getElementById("curr-time");
+    const totTime = document.getElementById("tot-time");
+
+    const pages = {
+        home: document.getElementById("page-home"),
+        uploads: document.getElementById("page-uploads"),
+    };
+    const btnPlay = document.getElementById("btn-play");
+    const btnPrev = document.getElementById("btn-prev");
+    const btnNext = document.getElementById("btn-next");
+
+    let currentQueue = [];
+    let currentIndex = -1;
+
+    function withBase(path) {
+        return apiBase ? `${apiBase}${path}` : path;
+    }
+
+    function setActivePage(pageId) {
+        Object.values(pages).forEach((page) => page.classList.remove("active"));
+        const target = pages[pageId] || pages.home;
+        target.classList.add("active");
+        document.querySelectorAll(".nav-link").forEach((link) => {
+            link.classList.toggle("active", link.dataset.page === pageId);
+        });
+    }
+
+    function formatDuration(seconds) {
+        if (!seconds || Number.isNaN(seconds)) return "00:00";
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
+        return `${mins}:${secs}`;
+    }
+
+    function seededColor(seed) {
+        let hash = 0;
+        for (let i = 0; i < seed.length; i++) {
+            hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const hue = Math.abs(hash) % 360;
+        return `hsl(${hue}, 70%, 50%)`;
+    }
+
+    function drawCanvas(canvas, title, artist) {
+        const ctx = canvas.getContext("2d");
+        const label = `${title || ""} ${artist || ""}`.trim() || "Openfy";
+        const colorA = seededColor(label);
+        const colorB = seededColor(label.split(" ").reverse().join(" "));
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, colorA);
+        gradient.addColorStop(1, colorB);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = `${Math.floor(canvas.width / 5)}px Montserrat, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const initials = label.split(" ").filter(Boolean).slice(0, 2).map(word => word[0].toUpperCase()).join("");
+        ctx.fillText(initials || "OF", canvas.width / 2, canvas.height / 2);
+    }
+
+    function clearCanvas(canvas) {
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function createArtCanvas(title, artist) {
+        const canvas = document.createElement("canvas");
+        canvas.className = "art-canvas";
+        canvas.width = 180;
+        canvas.height = 180;
+        drawCanvas(canvas, title, artist);
+        return canvas;
+    }
+
+    function buildTrackCard(track, list, index) {
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const art = createArtCanvas(track.title, track.artist?.name);
+
+        const img = document.createElement("img");
+        img.className = "card-img";
+        img.src = withBase(`/tracks/${track.id}/artwork?v=${encodeURIComponent(track.updated_at || "")}`);
+        img.alt = track.title;
+        img.style.display = "none";
+
+        img.addEventListener("load", () => {
+            art.style.display = "none";
+            img.style.display = "block";
+        });
+
+        img.addEventListener("error", () => {
+            img.style.display = "none";
+            art.style.display = "block";
+        });
+
+        card.appendChild(art);
+        card.appendChild(img);
+
+        const title = document.createElement("p");
+        title.className = "card-title";
+        title.textContent = track.title;
+        const info = document.createElement("p");
+        info.className = "card-info";
+        info.textContent = `${track.artist?.name || "Unknown"} • ${formatDuration(track.duration)}`;
+
+        card.appendChild(title);
+        card.appendChild(info);
+        card.addEventListener("click", () => {
+            currentQueue = list;
+            currentIndex = index;
+            playTrack(track);
+        });
+        return card;
+    }
+
+    function renderTracks(tracks) {
+        tracksGrid.innerHTML = "";
+        if (!tracks.length) {
+            tracksGrid.innerHTML = `
+                <div class="card">
+                    <p class="card-title">No tracks yet</p>
+                    <p class="card-info">Upload a file to start</p>
+                </div>
+            `;
+            return;
+        }
+        tracks.forEach((track, index) => tracksGrid.appendChild(buildTrackCard(track, tracks, index)));
+    }
+
+    function renderMostPlayed(tracks) {
+        mostPlayedGrid.innerHTML = "";
+        if (!tracks.length) {
+            mostPlayedGrid.innerHTML = `
+                <div class="card">
+                    <p class="card-title">No plays yet</p>
+                    <p class="card-info">Play a track to build this list</p>
+                </div>
+            `;
+            return;
+        }
+        tracks.forEach((track, index) => mostPlayedGrid.appendChild(buildTrackCard(track, tracks, index)));
+    }
+
+    function renderUploadLibrary(tracks) {
+        uploadLibraryGrid.innerHTML = "";
+        if (!tracks.length) {
+            uploadLibraryGrid.innerHTML = `
+                <div class="card">
+                    <p class="card-title">No tracks found</p>
+                    <p class="card-info">Upload or search again</p>
+                </div>
+            `;
+            return;
+        }
+        tracks.forEach((track) => uploadLibraryGrid.appendChild(buildManageCard(track)));
+    }
+
+    function buildManageCard(track) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const art = createArtCanvas(track.title, track.artist?.name);
+        const title = document.createElement("p");
+        title.className = "card-title";
+        title.textContent = track.title;
+        const info = document.createElement("p");
+        info.className = "card-info";
+        info.textContent = track.artist?.name || "Unknown";
+        const del = document.createElement("button");
+        del.className = "delete-btn";
+        del.textContent = "Delete";
+        del.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            await deleteTrack(track.id);
+        });
+        card.appendChild(art);
+        card.appendChild(title);
+        card.appendChild(info);
+        card.appendChild(del);
+        return card;
+    }
+
+    async function loadTracks() {
+        try {
+            const res = await fetch(withBase("/tracks?limit=24"));
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            renderTracks(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error(err);
+            tracksGrid.innerHTML = `
+                <div class="card">
+                    <p class="card-title">Failed to load tracks</p>
+                    <p class="card-info">Check server connection</p>
+                </div>
+            `;
+        }
+    }
+
+    async function loadMostPlayed() {
+        try {
+            const res = await fetch(withBase("/tracks/most-played?limit=12"));
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            renderMostPlayed(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error(err);
+            mostPlayedGrid.innerHTML = `
+                <div class="card">
+                    <p class="card-title">Failed to load most played</p>
+                    <p class="card-info">Check server connection</p>
+                </div>
+            `;
+        }
+    }
+
+    async function loadUploadLibrary(query = "") {
+        try {
+            const url = query
+                ? withBase(`/search?q=${encodeURIComponent(query)}&limit=50`)
+                : withBase("/tracks?limit=50");
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            renderUploadLibrary(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error(err);
+            uploadLibraryGrid.innerHTML = `
+                <div class="card">
+                    <p class="card-title">Failed to load library</p>
+                    <p class="card-info">Check server connection</p>
+                </div>
+            `;
+        }
+    }
+
+    async function uploadTrack() {
+        if (!songFile.files || songFile.files.length === 0) {
+            uploadStatus.textContent = "Choose a file first.";
+            return;
+        }
+        uploadStatus.textContent = "Uploading…";
+        const form = new FormData();
+        form.append("file", songFile.files[0]);
+        try {
+            const res = await fetch(withBase("/tracks/upload"), {
+                method: "POST",
+                body: form,
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Upload failed");
+            }
+            await res.json();
+            uploadStatus.textContent = "Uploaded successfully.";
+            songFile.value = "";
+            loadTracks();
+            loadMostPlayed();
+            loadUploadLibrary(uploadSearchInput.value.trim());
+            setTimeout(() => {
+                uploadStatus.textContent = "";
+                setActivePage("home");
+            }, 800);
+        } catch (err) {
+            console.error(err);
+            uploadStatus.textContent = `Upload failed. ${err.message || ""}`;
+        }
+    }
+
+    async function runSearch() {
+        const query = searchInput.value.trim();
+        if (!query) {
+            loadTracks();
+            return;
+        }
+        try {
+            const res = await fetch(withBase(`/search?q=${encodeURIComponent(query)}&limit=24`));
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            renderTracks(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function deleteTrack(trackId) {
+        try {
+            const res = await fetch(withBase(`/tracks/${trackId}`), {
+                method: "DELETE",
+            });
+            if (!res.ok) throw new Error(await res.text());
+            loadTracks();
+            loadMostPlayed();
+            loadUploadLibrary(uploadSearchInput.value.trim());
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function playTrack(track) {
+        const streamUrl = withBase(`/tracks/${track.id}/stream`);
+        audioPlayer.src = streamUrl;
+        audioPlayer.play().catch((err) => console.error(err));
+        nowTitle.textContent = track.title || "";
+        nowArtist.textContent = track.artist?.name || "";
+        clearCanvas(nowCover);
+        const img = new Image();
+        img.onload = () => {
+            const ctx = nowCover.getContext("2d");
+            ctx.clearRect(0, 0, nowCover.width, nowCover.height);
+            ctx.drawImage(img, 0, 0, nowCover.width, nowCover.height);
+        };
+        img.onerror = () => {
+            drawCanvas(nowCover, track.title, track.artist?.name || "");
+        };
+        img.src = withBase(`/tracks/${track.id}/artwork?v=${encodeURIComponent(track.updated_at || "")}`);
+    }
+
+    function togglePlay() {
+        if (audioPlayer.paused) {
+            audioPlayer.play().catch((err) => console.error(err));
+        } else {
+            audioPlayer.pause();
+        }
+    }
+
+    function playByIndex(index) {
+        if (!currentQueue.length) return;
+        const safeIndex = (index + currentQueue.length) % currentQueue.length;
+        currentIndex = safeIndex;
+        playTrack(currentQueue[safeIndex]);
+    }
+
+    audioPlayer.addEventListener("loadedmetadata", () => {
+        totTime.textContent = formatDuration(audioPlayer.duration);
+    });
+
+    audioPlayer.addEventListener("play", () => {
+        btnPlay.classList.add("playing");
+    });
+
+    audioPlayer.addEventListener("pause", () => {
+        btnPlay.classList.remove("playing");
+    });
+
+    audioPlayer.addEventListener("timeupdate", () => {
+        currTime.textContent = formatDuration(audioPlayer.currentTime);
+        if (audioPlayer.duration) {
+            progressBar.value = Math.floor((audioPlayer.currentTime / audioPlayer.duration) * 100);
+        }
+    });
+
+    audioPlayer.addEventListener("ended", () => {
+        playByIndex(currentIndex + 1);
+    });
+
+    progressBar.addEventListener("input", () => {
+        if (audioPlayer.duration) {
+            audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration;
+        }
+    });
+
+    document.querySelectorAll(".nav-link").forEach((link) => {
+        link.addEventListener("click", (event) => {
+            event.preventDefault();
+            setActivePage(link.dataset.page || "home");
+        });
+    });
+
+    if (openUpload) {
+        openUpload.addEventListener("click", (event) => {
+            event.preventDefault();
+            setActivePage("uploads");
+            songFile.focus();
+        });
+    }
+
+    uploadButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        uploadTrack();
+    });
+
+    searchInput.addEventListener("input", () => {
+        runSearch();
+    });
+
+    uploadSearchInput.addEventListener("input", () => {
+        loadUploadLibrary(uploadSearchInput.value.trim());
+    });
+
+    btnPlay.addEventListener("click", (event) => {
+        event.preventDefault();
+        togglePlay();
+    });
+
+    btnPrev.addEventListener("click", (event) => {
+        event.preventDefault();
+        playByIndex(currentIndex - 1);
+    });
+
+    btnNext.addEventListener("click", (event) => {
+        event.preventDefault();
+        playByIndex(currentIndex + 1);
+    });
+
+    clearCanvas(nowCover);
+
+    setActivePage("home");
+    loadTracks();
+    loadMostPlayed();
+    loadUploadLibrary();
+    setInterval(loadTracks, 5000);
+    setInterval(loadMostPlayed, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+services:
+  openfy-server:
+    build:
+      context: ./server
+    ports:
+      - "8000:8000"
+    volumes:
+      - openfy_data:/data
+    environment:
+      - OPENFY_ALLOWED_ORIGINS=*
+      - OPENFY_ONTHESPOT_CONFIG_DIR=/data/onthespot
+      - OPENFY_VOTIFY_CONFIG_DIR=/data/votify
+      - OPENFY_VOTIFY_COOKIES_PATH=/data/votify/cookies.txt
+      - OPENFY_VOTIFY_WVD_PATH=/data/votify/device.wvd
+
+volumes:
+  openfy_data:
