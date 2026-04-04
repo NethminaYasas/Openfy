@@ -66,6 +66,25 @@ class PlaylistOut(BaseModel):
     id: str
     name: str
     description: str | None = None
+    user_hash: str | None = None
+    is_liked: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserSignup(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class UserSignin(BaseModel):
+    auth_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class UserOut(BaseModel):
+    name: str
+    auth_hash: str
     created_at: datetime
 
     class Config:

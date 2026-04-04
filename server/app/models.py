@@ -1,7 +1,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, UniqueConstraint, Float
+from sqlalchemy import (
+    String,
+    Integer,
+    DateTime,
+    ForeignKey,
+    Text,
+    UniqueConstraint,
+    Float,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -56,7 +64,9 @@ class Track(Base):
     disc_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     play_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
     album_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("albums.id"))
@@ -65,22 +75,46 @@ class Track(Base):
     album = relationship("Album", back_populates="tracks")
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    auth_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    playlists = relationship(
+        "Playlist", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
 class Playlist(Base):
     __tablename__ = "playlists"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_hash: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.auth_hash"), index=True
+    )
+    is_liked: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    tracks = relationship("PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan")
+    user = relationship("User", back_populates="playlists")
+    tracks = relationship(
+        "PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan"
+    )
 
 
 class PlaylistTrack(Base):
     __tablename__ = "playlist_tracks"
 
-    playlist_id: Mapped[str] = mapped_column(String(36), ForeignKey("playlists.id"), primary_key=True)
-    track_id: Mapped[str] = mapped_column(String(36), ForeignKey("tracks.id"), primary_key=True)
+    playlist_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("playlists.id"), primary_key=True
+    )
+    track_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tracks.id"), primary_key=True
+    )
     position: Mapped[int] = mapped_column(Integer, default=0)
 
     playlist = relationship("Playlist", back_populates="tracks")
@@ -97,4 +131,6 @@ class DownloadJob(Base):
     output_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     log: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )

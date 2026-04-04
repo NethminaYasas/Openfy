@@ -1,5 +1,5 @@
-from __future__ import annotations
-
+import hashlib
+import secrets
 from pathlib import Path
 import json
 import time
@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy import delete
 
 from .db import Base, engine, get_db, SessionLocal
-from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob
+from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob, User
 from .schemas import (
     TrackOut,
     ArtistOut,
@@ -24,6 +24,9 @@ from .schemas import (
     PlaylistTrackOut,
     DownloadRequest,
     DownloadJobOut,
+    UserSignup,
+    UserSignin,
+    UserOut,
 )
 from .settings import settings
 from .services.storage import ensure_dirs, store_upload
@@ -35,7 +38,9 @@ app = FastAPI(title=settings.app_name)
 
 static_dir = Path(__file__).resolve().parent.parent / "static"
 if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
+    app.mount(
+        "/static", StaticFiles(directory=str(static_dir), html=True), name="static"
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,9 +57,14 @@ def _startup():
     Base.metadata.create_all(bind=engine)
     if settings.database_url.startswith("sqlite"):
         with engine.connect() as conn:
-            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(tracks)")).fetchall()]
+            cols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(tracks)")).fetchall()
+            ]
             if "play_count" not in cols:
-                conn.execute(text("ALTER TABLE tracks ADD COLUMN play_count INTEGER DEFAULT 0"))
+                conn.execute(
+                    text("ALTER TABLE tracks ADD COLUMN play_count INTEGER DEFAULT 0")
+                )
                 conn.commit()
 
 
@@ -134,7 +144,11 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
 
 @app.get("/tracks/most-played", response_model=List[TrackOut])
 def most_played(limit: int = Query(12, ge=1, le=100), db: Session = Depends(get_db)):
-    stmt = select(Track).order_by(Track.play_count.desc(), Track.created_at.desc()).limit(limit)
+    stmt = (
+        select(Track)
+        .order_by(Track.play_count.desc(), Track.created_at.desc())
+        .limit(limit)
+    )
     return db.execute(stmt).scalars().all()
 
 
@@ -181,7 +195,12 @@ def stream_track(track_id: str, request: Request, db: Session = Depends(get_db))
         "Accept-Ranges": "bytes",
         "Content-Length": str(end - start + 1),
     }
-    return StreamingResponse(iterfile(), status_code=206, headers=headers, media_type=track.mime_type or "audio/mpeg")
+    return StreamingResponse(
+        iterfile(),
+        status_code=206,
+        headers=headers,
+        media_type=track.mime_type or "audio/mpeg",
+    )
 
 
 @app.post("/tracks/upload", response_model=TrackOut)
@@ -194,7 +213,9 @@ def upload_track(file: UploadFile = File(...), db: Session = Depends(get_db)):
     final_path = store_upload(temp_path, settings.music_dir)
     scan_paths(db, [final_path])
 
-    track = db.execute(select(Track).where(Track.file_path == str(final_path))).scalar_one_or_none()
+    track = db.execute(
+        select(Track).where(Track.file_path == str(final_path))
+    ).scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=500, detail="Track not indexed")
     return track
@@ -240,7 +261,11 @@ def create_playlist(payload: PlaylistCreate, db: Session = Depends(get_db)):
 
 @app.get("/playlists", response_model=List[PlaylistOut])
 def list_playlists(db: Session = Depends(get_db)):
-    return db.execute(select(Playlist).order_by(Playlist.created_at.desc())).scalars().all()
+    return (
+        db.execute(select(Playlist).order_by(Playlist.created_at.desc()))
+        .scalars()
+        .all()
+    )
 
 
 @app.get("/playlists/{playlist_id}", response_model=PlaylistOut)
@@ -257,12 +282,18 @@ def get_playlist_tracks(playlist_id: str, db: Session = Depends(get_db)):
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    stmt = select(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_id).order_by(PlaylistTrack.position.asc())
+    stmt = (
+        select(PlaylistTrack)
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position.asc())
+    )
     return db.execute(stmt).scalars().all()
 
 
 @app.post("/playlists/{playlist_id}/tracks", response_model=PlaylistTrackOut)
-def add_track_to_playlist(playlist_id: str, track_id: str, db: Session = Depends(get_db)):
+def add_track_to_playlist(
+    playlist_id: str, track_id: str, db: Session = Depends(get_db)
+):
     playlist = db.get(Playlist, playlist_id)
     track = db.get(Track, track_id)
     if not playlist or not track:
@@ -278,11 +309,15 @@ def add_track_to_playlist(playlist_id: str, track_id: str, db: Session = Depends
         return existing
 
     position = db.execute(
-        select(PlaylistTrack.position).where(PlaylistTrack.playlist_id == playlist_id).order_by(PlaylistTrack.position.desc())
+        select(PlaylistTrack.position)
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position.desc())
     ).scalar_one_or_none()
     next_position = (position or 0) + 1
 
-    link = PlaylistTrack(playlist_id=playlist_id, track_id=track_id, position=next_position)
+    link = PlaylistTrack(
+        playlist_id=playlist_id, track_id=track_id, position=next_position
+    )
     db.add(link)
     db.commit()
     db.refresh(link)
@@ -290,7 +325,9 @@ def add_track_to_playlist(playlist_id: str, track_id: str, db: Session = Depends
 
 
 @app.delete("/playlists/{playlist_id}/tracks/{track_id}")
-def remove_track_from_playlist(playlist_id: str, track_id: str, db: Session = Depends(get_db)):
+def remove_track_from_playlist(
+    playlist_id: str, track_id: str, db: Session = Depends(get_db)
+):
     link = db.execute(
         select(PlaylistTrack).where(
             PlaylistTrack.playlist_id == playlist_id,
@@ -313,7 +350,11 @@ def create_download(payload: DownloadRequest, db: Session = Depends(get_db)):
 
 @app.get("/downloads", response_model=List[DownloadJobOut])
 def list_downloads(db: Session = Depends(get_db)):
-    return db.execute(select(DownloadJob).order_by(DownloadJob.created_at.desc())).scalars().all()
+    return (
+        db.execute(select(DownloadJob).order_by(DownloadJob.created_at.desc()))
+        .scalars()
+        .all()
+    )
 
 
 @app.get("/downloads/{job_id}", response_model=DownloadJobOut)
@@ -330,8 +371,16 @@ def download_events():
         while True:
             db = SessionLocal()
             try:
-                jobs = db.execute(select(DownloadJob).order_by(DownloadJob.created_at.desc())).scalars().all()
-                payload = [DownloadJobOut.model_validate(job).model_dump() for job in jobs]
+                jobs = (
+                    db.execute(
+                        select(DownloadJob).order_by(DownloadJob.created_at.desc())
+                    )
+                    .scalars()
+                    .all()
+                )
+                payload = [
+                    DownloadJobOut.model_validate(job).model_dump() for job in jobs
+                ]
                 yield f"data: {json.dumps(payload, default=str)}\n\n"
             finally:
                 db.close()

@@ -32,7 +32,12 @@
                     </div>
                     <div class="icons">
                         <i class="fa-solid fa-plus"></i>
-                        <i class="fa-solid fa-arrow-right"></i>
+                    </div>
+                </div>
+                <div class="lib-box"></div>
+            </div>
+                    <div class="icons">
+                        <i class="fa-solid fa-plus"></i>
                     </div>
                 </div>
                 <div class="lib-box"></div>
@@ -109,39 +114,81 @@
             </div>
         </div>
         <div class="music-player">
-            <div class="album">
-                <canvas class="art-canvas" id="now-cover" width="48" height="48"></canvas>
-                <div class="album-meta">
-                    <p class="album-title" id="now-title"></p>
-                    <p class="album-artist" id="now-artist"></p>
+            <div class="player-top">
+                <div class="album">
+                    <canvas class="art-canvas" id="now-cover" width="56" height="56"></canvas>
+                    <div class="album-meta">
+                        <p class="album-title" id="now-title"></p>
+                        <p class="album-artist" id="now-artist"></p>
+                    </div>
+                </div>
+                <div class="player">
+                    <div class="player-controls">
+                        <button class="player-btn" id="btn-shuffle" aria-label="Shuffle">
+                            <i class="fa-solid fa-shuffle"></i>
+                        </button>
+                        <button class="player-btn" id="btn-prev" aria-label="Previous">
+                            <i class="fa-solid fa-backward-step"></i>
+                        </button>
+                        <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause">
+                            <i class="fa-solid fa-play play-icon"></i>
+                            <i class="fa-solid fa-pause pause-icon"></i>
+                        </button>
+                        <button class="player-btn" id="btn-next" aria-label="Next">
+                            <i class="fa-solid fa-forward-step"></i>
+                        </button>
+                        <button class="player-btn" id="btn-repeat" aria-label="Repeat">
+                            <i class="fa-solid fa-repeat"></i>
+                        </button>
+                    </div>
+                    <div class="playback-bar">
+                        <span class="curr-time" id="curr-time">00:00</span>
+                        <input type="range" min="0" max="100" class="progress-bar" step="1" id="progress-bar">
+                        <span class="tot-time" id="tot-time">00:00</span>
+                    </div>
+                </div>
+                <div class="controls">
+                    <div class="volume-bar">
+                        <i class="fa-solid fa-volume-high" id="volume-icon"></i>
+                        <input type="range" min="0" max="100" class="volume-slider" step="1" id="volume-slider" value="100">
+                    </div>
                 </div>
             </div>
-            <div class="player">
-                <div class="player-controls">
-                    <button class="player-btn" id="btn-shuffle" aria-label="Shuffle">
-                        <img src="/static/images/player_icon1.png" class="player-control-icon">
-                    </button>
-                    <button class="player-btn" id="btn-prev" aria-label="Previous">
-                        <img src="/static/images/player_icon2.png" class="player-control-icon">
-                    </button>
-                    <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause">
-                        <i class="fa-solid fa-play play-icon"></i>
-                        <i class="fa-solid fa-pause pause-icon"></i>
-                    </button>
-                    <button class="player-btn" id="btn-next" aria-label="Next">
-                        <img src="/static/images/player_icon4.png" class="player-control-icon">
-                    </button>
-                    <button class="player-btn" id="btn-repeat" aria-label="Repeat">
-                        <img src="/static/images/player_icon5.png" class="player-control-icon">
-                    </button>
+            <audio id="audio-player" preload="metadata"></audio>
+        </div>
                 </div>
-                <div class="playback-bar">
-                    <span class="curr-time" id="curr-time">00:00</span>
-                    <input type="range" min="0" max="100" class="progress-bar" step="1" id="progress-bar">
-                    <span class="tot-time" id="tot-time">00:00</span>
+                <div class="player">
+                    <div class="player-controls">
+                        <button class="player-btn" id="btn-shuffle" aria-label="Shuffle">
+                            <i class="fa-solid fa-shuffle"></i>
+                        </button>
+                        <button class="player-btn" id="btn-prev" aria-label="Previous">
+                            <i class="fa-solid fa-backward-step"></i>
+                        </button>
+                        <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause">
+                            <i class="fa-solid fa-play play-icon"></i>
+                            <i class="fa-solid fa-pause pause-icon"></i>
+                        </button>
+                        <button class="player-btn" id="btn-next" aria-label="Next">
+                            <i class="fa-solid fa-forward-step"></i>
+                        </button>
+                        <button class="player-btn" id="btn-repeat" aria-label="Repeat">
+                            <i class="fa-solid fa-repeat"></i>
+                        </button>
+                    </div>
+                    <div class="playback-bar">
+                        <span class="curr-time" id="curr-time">00:00</span>
+                        <input type="range" min="0" max="100" class="progress-bar" step="1" id="progress-bar">
+                        <span class="tot-time" id="tot-time">00:00</span>
+                    </div>
+                </div>
+                <div class="controls">
+                    <div class="volume-bar">
+                        <i class="fa-solid fa-volume-high" id="volume-icon"></i>
+                        <input type="range" min="0" max="100" class="volume-slider" step="1" id="volume-slider" value="100">
+                    </div>
                 </div>
             </div>
-            <div class="controls"></div>
             <audio id="audio-player" preload="metadata"></audio>
         </div>
     </div>
@@ -513,10 +560,27 @@
         btnPlay.classList.remove("playing");
     });
 
+    function updateProgressFill() {
+        const pct = audioPlayer.duration ? (audioPlayer.currentTime / audioPlayer.duration) * 100 : 0;
+        progressBar.style.setProperty("--progress", pct + "%");
+    }
+
     audioPlayer.addEventListener("timeupdate", () => {
         currTime.textContent = formatDuration(audioPlayer.currentTime);
         if (audioPlayer.duration) {
             progressBar.value = Math.floor((audioPlayer.currentTime / audioPlayer.duration) * 100);
+        }
+        updateProgressFill();
+    });
+
+    audioPlayer.addEventListener("ended", () => {
+        playByIndex(currentIndex + 1);
+    });
+
+    progressBar.addEventListener("input", () => {
+        if (audioPlayer.duration) {
+            audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration;
+            updateProgressFill();
         }
     });
 
@@ -527,6 +591,7 @@
     progressBar.addEventListener("input", () => {
         if (audioPlayer.duration) {
             audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration;
+            updateProgressFill();
         }
     });
 
@@ -565,12 +630,46 @@
 
     btnPrev.addEventListener("click", (event) => {
         event.preventDefault();
-        playByIndex(currentIndex - 1);
+        if (audioPlayer.currentTime > 3) {
+            audioPlayer.currentTime = 0;
+        } else {
+            playByIndex(currentIndex - 1);
+        }
     });
 
     btnNext.addEventListener("click", (event) => {
         event.preventDefault();
         playByIndex(currentIndex + 1);
+    });
+
+    const volumeSlider = document.getElementById("volume-slider");
+    const volumeIcon = document.getElementById("volume-icon");
+
+    audioPlayer.volume = 1;
+
+    volumeSlider.addEventListener("input", () => {
+        audioPlayer.volume = volumeSlider.value / 100;
+        if (audioPlayer.volume === 0) {
+            volumeIcon.className = "fa-solid fa-volume-xmark";
+        } else if (audioPlayer.volume < 0.5) {
+            volumeIcon.className = "fa-solid fa-volume-low";
+        } else {
+            volumeIcon.className = "fa-solid fa-volume-high";
+        }
+    });
+
+    volumeIcon.addEventListener("click", () => {
+        if (audioPlayer.volume > 0) {
+            audioPlayer.dataset.prevVolume = audioPlayer.volume;
+            audioPlayer.volume = 0;
+            volumeSlider.value = 0;
+            volumeIcon.className = "fa-solid fa-volume-xmark";
+        } else {
+            const prev = parseFloat(audioPlayer.dataset.prevVolume) || 1;
+            audioPlayer.volume = prev;
+            volumeSlider.value = Math.round(prev * 100);
+            volumeIcon.className = prev < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high";
+        }
     });
 
     clearCanvas(nowCover);
