@@ -215,8 +215,30 @@ a {
     width: 100%;
     height: auto;
     border-radius: 0.5rem;
+    display: none;
+    object-fit: cover;
+}
+
+#now-cover {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    display: none;
+}
+
+#now-cover.visible {
     display: block;
-    background: #1f1f1f;
+}
+
+#now-cover {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    display: none;
+}
+
+#now-cover.visible {
+    display: block;
 }
 
 .card-title {

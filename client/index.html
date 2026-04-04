@@ -475,7 +475,10 @@
         img.onload = () => {
             const ctx = nowCover.getContext("2d");
             ctx.clearRect(0, 0, nowCover.width, nowCover.height);
-            ctx.drawImage(img, 0, 0, nowCover.width, nowCover.height);
+            const size = Math.min(img.width, img.height);
+            const x = (img.width - size) / 2;
+            const y = (img.height - size) / 2;
+            ctx.drawImage(img, x, y, size, size, 0, 0, nowCover.width, nowCover.height);
         };
         img.onerror = () => {
             drawCanvas(nowCover, track.title, track.artist?.name || "");
