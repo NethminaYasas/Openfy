@@ -63,6 +63,9 @@ class Track(Base):
     track_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     disc_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     play_count: Mapped[int] = mapped_column(Integer, default=0)
+    user_hash: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.auth_hash"), index=True, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

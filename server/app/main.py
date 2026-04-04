@@ -5,7 +5,16 @@ import json
 import time
 from typing import List
 
-from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Query, Request
+from fastapi import (
+    FastAPI,
+    Depends,
+    UploadFile,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Header,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
@@ -67,6 +76,71 @@ def _startup():
                 )
                 conn.commit()
 
+            if "user_hash" not in cols:
+                conn.execute(
+                    text("ALTER TABLE tracks ADD COLUMN user_hash VARCHAR(64)")
+                )
+                conn.commit()
+
+            pcols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(playlists)")).fetchall()
+            ]
+            if "user_hash" not in pcols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE playlists ADD COLUMN user_hash VARCHAR(64) DEFAULT ''"
+                    )
+                )
+                conn.commit()
+            if "is_liked" not in pcols:
+                conn.execute(
+                    text("ALTER TABLE playlists ADD COLUMN is_liked INTEGER DEFAULT 0")
+                )
+                conn.commit()
+
+    db = SessionLocal()
+    try:
+        users = db.execute(select(User)).scalars().all()
+        for u in users:
+            existing = db.execute(
+                select(Playlist).where(
+                    Playlist.user_hash == u.auth_hash, Playlist.is_liked == 1
+                )
+            ).scalar_one_or_none()
+            if not existing:
+                db.add(
+                    Playlist(
+                        name="Liked Songs",
+                        description="",
+                        user_hash=u.auth_hash,
+                        is_liked=True,
+                    )
+                )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _get_user(db: Session, auth_hash: str) -> "User | None":
+    return db.execute(
+        select(User).where(User.auth_hash == auth_hash)
+    ).scalar_one_or_none()
+
+
+def _ensure_liked_songs(db: Session, user_hash: str) -> Playlist:
+    playlist = db.execute(
+        select(Playlist).where(Playlist.user_hash == user_hash, Playlist.is_liked == 1)
+    ).scalar_one_or_none()
+    if not playlist:
+        playlist = Playlist(
+            name="Liked Songs", description="", user_hash=user_hash, is_liked=True
+        )
+        db.add(playlist)
+        db.commit()
+        db.refresh(playlist)
+    return playlist
+
 
 @app.get("/health")
 def health():
@@ -97,9 +171,12 @@ def scan_library(path: str | None = None, db: Session = Depends(get_db)):
 def list_tracks(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
+    if x_auth_hash:
+        stmt = stmt.where(Track.user_hash == x_auth_hash)
     tracks = db.execute(stmt).scalars().all()
     return tracks
 
@@ -204,7 +281,11 @@ def stream_track(track_id: str, request: Request, db: Session = Depends(get_db))
 
 
 @app.post("/tracks/upload", response_model=TrackOut)
-def upload_track(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def upload_track(
+    file: UploadFile = File(...),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
     ensure_dirs()
     temp_path = settings.downloads_dir / file.filename
     with temp_path.open("wb") as buffer:
@@ -218,6 +299,9 @@ def upload_track(file: UploadFile = File(...), db: Session = Depends(get_db)):
     ).scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=500, detail="Track not indexed")
+    if x_auth_hash:
+        track.user_hash = x_auth_hash
+        db.commit()
     return track
 
 
@@ -234,7 +318,12 @@ def list_albums(db: Session = Depends(get_db)):
 
 
 @app.get("/search", response_model=List[TrackOut])
-def search(q: str, limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+def search(
+    q: str,
+    limit: int = Query(50, ge=1, le=200),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
     pattern = f"%{q}%"
     stmt = (
         select(Track)
@@ -245,59 +334,29 @@ def search(q: str, limit: int = Query(50, ge=1, le=200), db: Session = Depends(g
             | (Artist.name.ilike(pattern))
             | (Album.title.ilike(pattern))
         )
-        .limit(limit)
     )
-    return db.execute(stmt).scalars().all()
-
-
-@app.post("/playlists", response_model=PlaylistOut)
-def create_playlist(payload: PlaylistCreate, db: Session = Depends(get_db)):
-    playlist = Playlist(name=payload.name, description=payload.description)
-    db.add(playlist)
-    db.commit()
-    db.refresh(playlist)
-    return playlist
-
-
-@app.get("/playlists", response_model=List[PlaylistOut])
-def list_playlists(db: Session = Depends(get_db)):
-    return (
-        db.execute(select(Playlist).order_by(Playlist.created_at.desc()))
-        .scalars()
-        .all()
-    )
-
-
-@app.get("/playlists/{playlist_id}", response_model=PlaylistOut)
-def get_playlist(playlist_id: str, db: Session = Depends(get_db)):
-    playlist = db.get(Playlist, playlist_id)
-    if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found")
-    return playlist
-
-
-@app.get("/playlists/{playlist_id}/tracks", response_model=List[PlaylistTrackOut])
-def get_playlist_tracks(playlist_id: str, db: Session = Depends(get_db)):
-    playlist = db.get(Playlist, playlist_id)
-    if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found")
-
-    stmt = (
-        select(PlaylistTrack)
-        .where(PlaylistTrack.playlist_id == playlist_id)
-        .order_by(PlaylistTrack.position.asc())
-    )
-    return db.execute(stmt).scalars().all()
+    if x_auth_hash:
+        stmt = stmt.where(Track.user_hash == x_auth_hash)
+    return db.execute(stmt.limit(limit)).scalars().all()
 
 
 @app.post("/playlists/{playlist_id}/tracks", response_model=PlaylistTrackOut)
 def add_track_to_playlist(
-    playlist_id: str, track_id: str, db: Session = Depends(get_db)
+    playlist_id: str,
+    track_id: str,
+    x_auth_hash: str | None = None,
+    db: Session = Depends(get_db),
 ):
     playlist = db.get(Playlist, playlist_id)
     track = db.get(Track, track_id)
     if not playlist or not track:
         raise HTTPException(status_code=404, detail="Playlist or track not found")
+    if x_auth_hash and playlist.user_hash != x_auth_hash:
+        raise HTTPException(status_code=403, detail="Not your playlist")
+    if playlist.is_liked:
+        raise HTTPException(
+            status_code=403, detail="Cannot manually add to Liked Songs"
+        )
 
     existing = db.execute(
         select(PlaylistTrack).where(
@@ -326,8 +385,19 @@ def add_track_to_playlist(
 
 @app.delete("/playlists/{playlist_id}/tracks/{track_id}")
 def remove_track_from_playlist(
-    playlist_id: str, track_id: str, db: Session = Depends(get_db)
+    playlist_id: str,
+    track_id: str,
+    x_auth_hash: str | None = None,
+    db: Session = Depends(get_db),
 ):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.is_liked:
+        raise HTTPException(status_code=403, detail="Cannot remove from Liked Songs")
+    if x_auth_hash and playlist.user_hash != x_auth_hash:
+        raise HTTPException(status_code=403, detail="Not your playlist")
+
     link = db.execute(
         select(PlaylistTrack).where(
             PlaylistTrack.playlist_id == playlist_id,
@@ -342,48 +412,109 @@ def remove_track_from_playlist(
     return {"status": "removed"}
 
 
-@app.post("/downloads", response_model=DownloadJobOut)
-def create_download(payload: DownloadRequest, db: Session = Depends(get_db)):
-    job = queue_download(db, payload.query, payload.source)
-    return job
+@app.delete("/playlists/{playlist_id}")
+def delete_playlist(
+    playlist_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)
+):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.is_liked:
+        raise HTTPException(status_code=403, detail="Cannot delete Liked Songs")
+    if x_auth_hash and playlist.user_hash != x_auth_hash:
+        raise HTTPException(status_code=403, detail="Not your playlist")
+
+    db.delete(playlist)
+    db.commit()
+    return {"status": "deleted"}
 
 
-@app.get("/downloads", response_model=List[DownloadJobOut])
-def list_downloads(db: Session = Depends(get_db)):
-    return (
-        db.execute(select(DownloadJob).order_by(DownloadJob.created_at.desc()))
-        .scalars()
-        .all()
-    )
+@app.post("/liked/{track_id}")
+def toggle_liked(
+    track_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    liked = _ensure_liked_songs(db, user.auth_hash)
+    existing = db.execute(
+        select(PlaylistTrack).where(
+            PlaylistTrack.playlist_id == liked.id,
+            PlaylistTrack.track_id == track_id,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"status": "unliked"}
+    else:
+        position = db.execute(
+            select(PlaylistTrack.position)
+            .where(PlaylistTrack.playlist_id == liked.id)
+            .order_by(PlaylistTrack.position.desc())
+        ).scalar_one_or_none()
+        link = PlaylistTrack(
+            playlist_id=liked.id, track_id=track_id, position=(position or 0) + 1
+        )
+        db.add(link)
+        db.commit()
+        return {"status": "liked"}
 
 
-@app.get("/downloads/{job_id}", response_model=DownloadJobOut)
-def get_download(job_id: str, db: Session = Depends(get_db)):
-    job = db.get(DownloadJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+@app.get("/liked/{track_id}")
+def is_track_liked(
+    track_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)
+):
+    if not x_auth_hash:
+        return {"liked": False}
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        return {"liked": False}
+    liked = _ensure_liked_songs(db, user.auth_hash)
+    existing = db.execute(
+        select(PlaylistTrack).where(
+            PlaylistTrack.playlist_id == liked.id,
+            PlaylistTrack.track_id == track_id,
+        )
+    ).scalar_one_or_none()
+    return {"liked": existing is not None}
 
 
-@app.get("/events/downloads")
-def download_events():
-    def event_stream():
-        while True:
-            db = SessionLocal()
-            try:
-                jobs = (
-                    db.execute(
-                        select(DownloadJob).order_by(DownloadJob.created_at.desc())
-                    )
-                    .scalars()
-                    .all()
-                )
-                payload = [
-                    DownloadJobOut.model_validate(job).model_dump() for job in jobs
-                ]
-                yield f"data: {json.dumps(payload, default=str)}\n\n"
-            finally:
-                db.close()
-            time.sleep(1.5)
+@app.post("/auth/signup", response_model=UserOut)
+def signup(payload: UserSignup, db: Session = Depends(get_db)):
+    existing = db.execute(
+        select(User).where(User.name == payload.name)
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Username taken")
+    auth_hash = secrets.token_hex(32)
+    user = User(name=payload.name, auth_hash=auth_hash)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _ensure_liked_songs(db, user.auth_hash)
+    return user
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@app.post("/auth/signin", response_model=UserOut)
+def signin(payload: UserSignin, db: Session = Depends(get_db)):
+    user = _get_user(db, payload.auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    return user
+
+
+@app.get("/auth/me")
+def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    return user

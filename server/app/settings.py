@@ -1,6 +1,8 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
 
 class Settings(BaseSettings):
     app_name: str = "Openfy Server"
@@ -24,7 +26,9 @@ class Settings(BaseSettings):
     votify_cookies_path: Path = Path("./data/votify/cookies.txt")
     votify_wvd_path: Path = Path("./data/votify/device.wvd")
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="OPENFY_")
+    model_config = SettingsConfigDict(
+        env_file=str(BASE_DIR / ".env"), env_prefix="OPENFY_"
+    )
 
 
 settings = Settings()

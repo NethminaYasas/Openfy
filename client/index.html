@@ -12,7 +12,24 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="main">
+    <div class="auth-overlay" id="auth-overlay">
+        <div class="auth-box">
+            <div class="auth-logo"><i class="fa-solid fa-music"></i></div>
+            <h2>Log in to Openfy</h2>
+            <div class="auth-form" id="auth-signin">
+                <input type="text" id="signin-hash" placeholder="Auth Hash" autocomplete="off" />
+                <button class="auth-btn" id="signin-btn">Log In</button>
+                <p class="auth-status" id="signin-status"></p>
+            </div>
+            <div class="auth-divider"><span>or</span></div>
+            <div class="auth-form" id="auth-signup">
+                <input type="text" id="signup-name" placeholder="Username" autocomplete="off" />
+                <button class="auth-btn auth-btn-outline" id="signup-btn">Sign Up</button>
+                <p class="auth-status" id="signup-status"></p>
+            </div>
+        </div>
+    </div>
+    <div class="main" id="app-main" style="display:none;">
         <div class="sidebar">
             <div class="nav">
                 <div class="nav-option nav-link active" data-page="home" style="opacity: 1;">
@@ -31,16 +48,10 @@
                         <a href="#">Your Library</a>
                     </div>
                     <div class="icons">
-                        <i class="fa-solid fa-plus"></i>
+                        <i class="fa-solid fa-plus" id="new-playlist-btn"></i>
                     </div>
                 </div>
-                <div class="lib-box"></div>
-            </div>
-                    <div class="icons">
-                        <i class="fa-solid fa-plus"></i>
-                    </div>
-                </div>
-                <div class="lib-box"></div>
+                <div class="lib-box" id="lib-box"></div>
             </div>
         </div>
         <div class="main-content">
@@ -50,7 +61,8 @@
                     <img src="/static/images/forward_icon.png" class="hide">
                 </div>
                 <div class="sticky-nav-options">
-                    <i class="fa-regular fa-user nav-item"></i>
+                    <span class="user-display" id="user-display"></span>
+                    <i class="fa-solid fa-right-from-bracket nav-item" id="logout-btn" title="Logout"></i>
                 </div>
            </div>
 
@@ -60,32 +72,18 @@
                         <h2>Search</h2>
                     </div>
                     <div class="add-form">
-                        <input
-                            id="search-input"
-                            type="text"
-                            placeholder="Search your library"
-                            autocomplete="off"
-                        />
+                        <input id="search-input" type="text" placeholder="Search your library" autocomplete="off" />
                     </div>
                 </div>
-
                 <div class="section">
-                    <div class="section-header">
-                        <h2>Most Played</h2>
-                    </div>
+                    <div class="section-header"><h2>Most Played</h2></div>
                     <div class="cards-container" id="most-played-grid"></div>
                 </div>
-
                 <div class="section">
-                    <div class="section-header">
-                        <h2>Library</h2>
-                    </div>
+                    <div class="section-header"><h2>Library</h2></div>
                     <div class="cards-container" id="tracks-grid"></div>
                 </div>
-
-                <div class="footer">
-                    <div class="line"></div>
-                </div>
+                <div class="footer"><div class="line"></div></div>
             </div>
 
             <div class="page" id="page-uploads">
@@ -97,19 +95,29 @@
                     </div>
                     <p class="status" id="upload-status"></p>
                 </div>
-
                 <div class="section">
-                    <div class="section-header">
-                        <h2>Manage Library</h2>
-                    </div>
+                    <div class="section-header"><h2>Manage Library</h2></div>
                     <div class="add-form">
                         <input id="upload-search-input" type="text" placeholder="Search and delete tracks" autocomplete="off" />
                     </div>
                     <div class="cards-container" id="upload-library-grid"></div>
                 </div>
+                <div class="footer"><div class="line"></div></div>
+            </div>
 
-                <div class="footer">
-                    <div class="line"></div>
+            <div class="page" id="page-playlist">
+                <div class="section">
+                    <div class="playlist-header">
+                        <div class="playlist-cover" id="playlist-cover"></div>
+                        <div class="playlist-info">
+                            <p class="playlist-type" id="playlist-type">Playlist</p>
+                            <h1 id="playlist-name"></h1>
+                            <p class="playlist-meta" id="playlist-meta"></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="section">
+                    <div class="playlist-tracks" id="playlist-tracks"></div>
                 </div>
             </div>
         </div>
@@ -124,22 +132,11 @@
                 </div>
                 <div class="player">
                     <div class="player-controls">
-                        <button class="player-btn" id="btn-shuffle" aria-label="Shuffle">
-                            <i class="fa-solid fa-shuffle"></i>
-                        </button>
-                        <button class="player-btn" id="btn-prev" aria-label="Previous">
-                            <i class="fa-solid fa-backward-step"></i>
-                        </button>
-                        <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause">
-                            <i class="fa-solid fa-play play-icon"></i>
-                            <i class="fa-solid fa-pause pause-icon"></i>
-                        </button>
-                        <button class="player-btn" id="btn-next" aria-label="Next">
-                            <i class="fa-solid fa-forward-step"></i>
-                        </button>
-                        <button class="player-btn" id="btn-repeat" aria-label="Repeat">
-                            <i class="fa-solid fa-repeat"></i>
-                        </button>
+                        <button class="player-btn" id="btn-shuffle" aria-label="Shuffle"><i class="fa-solid fa-shuffle"></i></button>
+                        <button class="player-btn" id="btn-prev" aria-label="Previous"><i class="fa-solid fa-backward-step"></i></button>
+                        <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause"><i class="fa-solid fa-play play-icon"></i><i class="fa-solid fa-pause pause-icon"></i></button>
+                        <button class="player-btn" id="btn-next" aria-label="Next"><i class="fa-solid fa-forward-step"></i></button>
+                        <button class="player-btn" id="btn-repeat" aria-label="Repeat"><i class="fa-solid fa-repeat"></i></button>
                     </div>
                     <div class="playback-bar">
                         <span class="curr-time" id="curr-time">00:00</span>
@@ -148,41 +145,7 @@
                     </div>
                 </div>
                 <div class="controls">
-                    <div class="volume-bar">
-                        <i class="fa-solid fa-volume-high" id="volume-icon"></i>
-                        <input type="range" min="0" max="100" class="volume-slider" step="1" id="volume-slider" value="100">
-                    </div>
-                </div>
-            </div>
-            <audio id="audio-player" preload="metadata"></audio>
-        </div>
-                </div>
-                <div class="player">
-                    <div class="player-controls">
-                        <button class="player-btn" id="btn-shuffle" aria-label="Shuffle">
-                            <i class="fa-solid fa-shuffle"></i>
-                        </button>
-                        <button class="player-btn" id="btn-prev" aria-label="Previous">
-                            <i class="fa-solid fa-backward-step"></i>
-                        </button>
-                        <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause">
-                            <i class="fa-solid fa-play play-icon"></i>
-                            <i class="fa-solid fa-pause pause-icon"></i>
-                        </button>
-                        <button class="player-btn" id="btn-next" aria-label="Next">
-                            <i class="fa-solid fa-forward-step"></i>
-                        </button>
-                        <button class="player-btn" id="btn-repeat" aria-label="Repeat">
-                            <i class="fa-solid fa-repeat"></i>
-                        </button>
-                    </div>
-                    <div class="playback-bar">
-                        <span class="curr-time" id="curr-time">00:00</span>
-                        <input type="range" min="0" max="100" class="progress-bar" step="1" id="progress-bar">
-                        <span class="tot-time" id="tot-time">00:00</span>
-                    </div>
-                </div>
-                <div class="controls">
+                    <button class="player-btn" id="btn-like" aria-label="Like"><i class="fa-regular fa-heart" id="like-icon"></i></button>
                     <div class="volume-bar">
                         <i class="fa-solid fa-volume-high" id="volume-icon"></i>
                         <input type="range" min="0" max="100" class="volume-slider" step="1" id="volume-slider" value="100">
@@ -195,9 +158,13 @@
 
 <script>
     const apiBase = localStorage.getItem("openfy_api") || "";
+    let authHash = localStorage.getItem("openfy_auth") || "";
+    let currentUser = null;
+    let currentPlaylistId = null;
+    let userPlaylists = [];
+
     const tracksGrid = document.getElementById("tracks-grid");
     const mostPlayedGrid = document.getElementById("most-played-grid");
-    const openUpload = document.getElementById("open-upload");
     const uploadButton = document.getElementById("upload-button");
     const uploadStatus = document.getElementById("upload-status");
     const songFile = document.getElementById("song-file");
@@ -211,53 +178,62 @@
     const progressBar = document.getElementById("progress-bar");
     const currTime = document.getElementById("curr-time");
     const totTime = document.getElementById("tot-time");
+    const libBox = document.getElementById("lib-box");
+    const userDisplay = document.getElementById("user-display");
+    const authOverlay = document.getElementById("auth-overlay");
+    const appMain = document.getElementById("app-main");
+    const likeIcon = document.getElementById("like-icon");
 
-    const pages = {
-        home: document.getElementById("page-home"),
-        uploads: document.getElementById("page-uploads"),
-    };
+    const pages = { home: document.getElementById("page-home"), uploads: document.getElementById("page-uploads"), playlist: document.getElementById("page-playlist") };
     const btnPlay = document.getElementById("btn-play");
     const btnPrev = document.getElementById("btn-prev");
     const btnNext = document.getElementById("btn-next");
 
     let currentQueue = [];
     let currentIndex = -1;
+    let currentTrackId = null;
 
-    function withBase(path) {
-        return apiBase ? `${apiBase}${path}` : path;
+    function withBase(path) { return apiBase ? apiBase + path : path; }
+    function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
+
+    async function api(url, opts) {
+        opts = opts || {};
+        const headers = Object.assign({}, apiHeaders(), opts.headers || {});
+        if (opts.body && typeof opts.body === "string" && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+        const res = await fetch(withBase(url), Object.assign({}, opts, { headers: headers }));
+        if (!res.ok) { const text = await res.text(); throw new Error(text || ("HTTP " + res.status)); }
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) return res.json();
+        return res.text();
     }
 
     function setActivePage(pageId) {
-        Object.values(pages).forEach((page) => page.classList.remove("active"));
-        const target = pages[pageId] || pages.home;
+        Object.values(pages).forEach(function(p) { p.classList.remove("active"); });
+        var target = pages[pageId] || pages.home;
         target.classList.add("active");
-        document.querySelectorAll(".nav-link").forEach((link) => {
-            link.classList.toggle("active", link.dataset.page === pageId);
-        });
+        document.querySelectorAll(".nav-link").forEach(function(link) { link.classList.toggle("active", link.dataset.page === pageId); });
     }
 
     function formatDuration(seconds) {
         if (!seconds || Number.isNaN(seconds)) return "00:00";
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
-        return `${mins}:${secs}`;
+        var mins = Math.floor(seconds / 60);
+        var secs = Math.floor(seconds % 60).toString().padStart(2, "0");
+        return mins + ":" + secs;
     }
 
     function seededColor(seed) {
-        let hash = 0;
-        for (let i = 0; i < seed.length; i++) {
-            hash = seed.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        const hue = Math.abs(hash) % 360;
-        return `hsl(${hue}, 70%, 50%)`;
+        var hash = 0;
+        for (var i = 0; i < seed.length; i++) { hash = seed.charCodeAt(i) + ((hash << 5) - hash); }
+        var hue = Math.abs(hash) % 360;
+        return "hsl(" + hue + ", 70%, 50%)";
     }
 
     function drawCanvas(canvas, title, artist) {
-        const ctx = canvas.getContext("2d");
-        const label = `${title || ""} ${artist || ""}`.trim() || "Openfy";
-        const colorA = seededColor(label);
-        const colorB = seededColor(label.split(" ").reverse().join(" "));
-        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        var ctx = canvas.getContext("2d");
+        var label = ((title || "") + " " + (artist || "")).trim() || "Openfy";
+        var colorA = seededColor(label);
+        var colorB = seededColor(label.split(" ").reverse().join(" "));
+        var gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
         gradient.addColorStop(0, colorA);
         gradient.addColorStop(1, colorB);
         ctx.fillStyle = gradient;
@@ -265,20 +241,17 @@
         ctx.fillStyle = "rgba(0,0,0,0.35)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#fff";
-        ctx.font = `${Math.floor(canvas.width / 5)}px Montserrat, sans-serif`;
+        ctx.font = Math.floor(canvas.width / 5) + "px Montserrat, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        const initials = label.split(" ").filter(Boolean).slice(0, 2).map(word => word[0].toUpperCase()).join("");
+        var initials = label.split(" ").filter(Boolean).slice(0, 2).map(function(w) { return w[0].toUpperCase(); }).join("");
         ctx.fillText(initials || "OF", canvas.width / 2, canvas.height / 2);
     }
 
-    function clearCanvas(canvas) {
-        const ctx = canvas.getContext("2d");
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+    function clearCanvas(canvas) { var ctx = canvas.getContext("2d"); ctx.clearRect(0, 0, canvas.width, canvas.height); }
 
     function createArtCanvas(title, artist) {
-        const canvas = document.createElement("canvas");
+        var canvas = document.createElement("canvas");
         canvas.className = "art-canvas";
         canvas.width = 180;
         canvas.height = 180;
@@ -287,106 +260,62 @@
     }
 
     function buildTrackCard(track, list, index) {
-        const card = document.createElement("div");
+        var card = document.createElement("div");
         card.className = "card";
-
-        const art = createArtCanvas(track.title, track.artist?.name);
-
-        const img = document.createElement("img");
+        var art = createArtCanvas(track.title, track.artist && track.artist.name);
+        var img = document.createElement("img");
         img.className = "card-img";
-        img.src = withBase(`/tracks/${track.id}/artwork?v=${encodeURIComponent(track.updated_at || "")}`);
+        img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
         img.alt = track.title;
         img.style.display = "none";
-
-        img.addEventListener("load", () => {
-            art.style.display = "none";
-            img.style.display = "block";
-        });
-
-        img.addEventListener("error", () => {
-            img.style.display = "none";
-            art.style.display = "block";
-        });
-
+        img.addEventListener("load", function() { art.style.display = "none"; img.style.display = "block"; });
+        img.addEventListener("error", function() { img.style.display = "none"; art.style.display = "block"; });
         card.appendChild(art);
         card.appendChild(img);
-
-        const title = document.createElement("p");
+        var title = document.createElement("p");
         title.className = "card-title";
         title.textContent = track.title;
-        const info = document.createElement("p");
+        var info = document.createElement("p");
         info.className = "card-info";
-        info.textContent = `${track.artist?.name || "Unknown"} • ${formatDuration(track.duration)}`;
-
+        info.textContent = (track.artist && track.artist.name ? track.artist.name : "Unknown") + " \u2022 " + formatDuration(track.duration);
         card.appendChild(title);
         card.appendChild(info);
-        card.addEventListener("click", () => {
-            currentQueue = list;
-            currentIndex = index;
-            playTrack(track);
-        });
+        card.addEventListener("click", function() { currentQueue = list; currentIndex = index; playTrack(track); });
         return card;
     }
 
     function renderTracks(tracks) {
         tracksGrid.innerHTML = "";
-        if (!tracks.length) {
-            tracksGrid.innerHTML = `
-                <div class="card">
-                    <p class="card-title">No tracks yet</p>
-                    <p class="card-info">Upload a file to start</p>
-                </div>
-            `;
-            return;
-        }
-        tracks.forEach((track, index) => tracksGrid.appendChild(buildTrackCard(track, tracks, index)));
+        if (!tracks.length) { tracksGrid.innerHTML = '<div class="card"><p class="card-title">No tracks yet</p><p class="card-info">Upload a file to start</p></div>'; return; }
+        tracks.forEach(function(track, index) { tracksGrid.appendChild(buildTrackCard(track, tracks, index)); });
     }
 
     function renderMostPlayed(tracks) {
         mostPlayedGrid.innerHTML = "";
-        if (!tracks.length) {
-            mostPlayedGrid.innerHTML = `
-                <div class="card">
-                    <p class="card-title">No plays yet</p>
-                    <p class="card-info">Play a track to build this list</p>
-                </div>
-            `;
-            return;
-        }
-        tracks.forEach((track, index) => mostPlayedGrid.appendChild(buildTrackCard(track, tracks, index)));
+        if (!tracks.length) { mostPlayedGrid.innerHTML = '<div class="card"><p class="card-title">No plays yet</p><p class="card-info">Play a track to build this list</p></div>'; return; }
+        tracks.forEach(function(track, index) { mostPlayedGrid.appendChild(buildTrackCard(track, tracks, index)); });
     }
 
     function renderUploadLibrary(tracks) {
         uploadLibraryGrid.innerHTML = "";
-        if (!tracks.length) {
-            uploadLibraryGrid.innerHTML = `
-                <div class="card">
-                    <p class="card-title">No tracks found</p>
-                    <p class="card-info">Upload or search again</p>
-                </div>
-            `;
-            return;
-        }
-        tracks.forEach((track) => uploadLibraryGrid.appendChild(buildManageCard(track)));
+        if (!tracks.length) { uploadLibraryGrid.innerHTML = '<div class="card"><p class="card-title">No tracks found</p><p class="card-info">Upload or search again</p></div>'; return; }
+        tracks.forEach(function(track) { uploadLibraryGrid.appendChild(buildManageCard(track)); });
     }
 
     function buildManageCard(track) {
-        const card = document.createElement("div");
+        var card = document.createElement("div");
         card.className = "card";
-        const art = createArtCanvas(track.title, track.artist?.name);
-        const title = document.createElement("p");
+        var art = createArtCanvas(track.title, track.artist && track.artist.name);
+        var title = document.createElement("p");
         title.className = "card-title";
         title.textContent = track.title;
-        const info = document.createElement("p");
+        var info = document.createElement("p");
         info.className = "card-info";
-        info.textContent = track.artist?.name || "Unknown";
-        const del = document.createElement("button");
+        info.textContent = track.artist && track.artist.name ? track.artist.name : "Unknown";
+        var del = document.createElement("button");
         del.className = "delete-btn";
         del.textContent = "Delete";
-        del.addEventListener("click", async (event) => {
-            event.stopPropagation();
-            await deleteTrack(track.id);
-        });
+        del.addEventListener("click", function(event) { event.stopPropagation(); deleteTrack(track.id); });
         card.appendChild(art);
         card.appendChild(title);
         card.appendChild(info);
@@ -395,289 +324,221 @@
     }
 
     async function loadTracks() {
-        try {
-            const res = await fetch(withBase("/tracks?limit=24"));
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            renderTracks(Array.isArray(data) ? data : []);
-        } catch (err) {
-            console.error(err);
-            tracksGrid.innerHTML = `
-                <div class="card">
-                    <p class="card-title">Failed to load tracks</p>
-                    <p class="card-info">Check server connection</p>
-                </div>
-            `;
-        }
+        try { var data = await api("/tracks?limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
     }
 
     async function loadMostPlayed() {
-        try {
-            const res = await fetch(withBase("/tracks/most-played?limit=12"));
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            renderMostPlayed(Array.isArray(data) ? data : []);
-        } catch (err) {
-            console.error(err);
-            mostPlayedGrid.innerHTML = `
-                <div class="card">
-                    <p class="card-title">Failed to load most played</p>
-                    <p class="card-info">Check server connection</p>
-                </div>
-            `;
-        }
+        try { var data = await api("/tracks/most-played?limit=12"); renderMostPlayed(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
     }
 
-    async function loadUploadLibrary(query = "") {
-        try {
-            const url = query
-                ? withBase(`/search?q=${encodeURIComponent(query)}&limit=50`)
-                : withBase("/tracks?limit=50");
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            renderUploadLibrary(Array.isArray(data) ? data : []);
-        } catch (err) {
-            console.error(err);
-            uploadLibraryGrid.innerHTML = `
-                <div class="card">
-                    <p class="card-title">Failed to load library</p>
-                    <p class="card-info">Check server connection</p>
-                </div>
-            `;
-        }
+    async function loadUploadLibrary(query) {
+        query = query || "";
+        try { var url = query ? "/search?q=" + encodeURIComponent(query) + "&limit=50" : "/tracks?limit=50"; var data = await api(url); renderUploadLibrary(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
     }
 
     async function uploadTrack() {
-        if (!songFile.files || songFile.files.length === 0) {
-            uploadStatus.textContent = "Choose a file first.";
-            return;
-        }
-        uploadStatus.textContent = "Uploading…";
-        const form = new FormData();
+        if (!songFile.files || songFile.files.length === 0) { uploadStatus.textContent = "Choose a file first."; return; }
+        uploadStatus.textContent = "Uploading\u2026";
+        var form = new FormData();
         form.append("file", songFile.files[0]);
         try {
-            const res = await fetch(withBase("/tracks/upload"), {
-                method: "POST",
-                body: form,
-            });
-            if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || "Upload failed");
-            }
+            var res = await fetch(withBase("/tracks/upload"), { method: "POST", body: form });
+            if (!res.ok) throw new Error(await res.text());
             await res.json();
             uploadStatus.textContent = "Uploaded successfully.";
             songFile.value = "";
-            loadTracks();
-            loadMostPlayed();
-            loadUploadLibrary(uploadSearchInput.value.trim());
-            setTimeout(() => {
-                uploadStatus.textContent = "";
-                setActivePage("home");
-            }, 800);
-        } catch (err) {
-            console.error(err);
-            uploadStatus.textContent = `Upload failed. ${err.message || ""}`;
-        }
+            loadTracks(); loadMostPlayed(); loadUploadLibrary(uploadSearchInput.value.trim());
+            setTimeout(function() { uploadStatus.textContent = ""; setActivePage("home"); }, 800);
+        } catch (err) { console.error(err); uploadStatus.textContent = "Upload failed. " + (err.message || ""); }
     }
 
     async function runSearch() {
-        const query = searchInput.value.trim();
-        if (!query) {
-            loadTracks();
-            return;
-        }
-        try {
-            const res = await fetch(withBase(`/search?q=${encodeURIComponent(query)}&limit=24`));
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            renderTracks(Array.isArray(data) ? data : []);
-        } catch (err) {
-            console.error(err);
-        }
+        var query = searchInput.value.trim();
+        if (!query) { loadTracks(); return; }
+        try { var data = await api("/search?q=" + encodeURIComponent(query) + "&limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
     }
 
     async function deleteTrack(trackId) {
-        try {
-            const res = await fetch(withBase(`/tracks/${trackId}`), {
-                method: "DELETE",
-            });
-            if (!res.ok) throw new Error(await res.text());
-            loadTracks();
-            loadMostPlayed();
-            loadUploadLibrary(uploadSearchInput.value.trim());
-        } catch (err) {
-            console.error(err);
-        }
+        try { await api("/tracks/" + trackId, { method: "DELETE" }); loadTracks(); loadMostPlayed(); loadUploadLibrary(uploadSearchInput.value.trim()); } catch (err) { console.error(err); }
     }
 
     function playTrack(track) {
-        const streamUrl = withBase(`/tracks/${track.id}/stream`);
-        audioPlayer.src = streamUrl;
-        audioPlayer.play().catch((err) => console.error(err));
+        currentTrackId = track.id;
+        audioPlayer.src = withBase("/tracks/" + track.id + "/stream");
+        audioPlayer.play().catch(function(err) { console.error(err); });
         nowTitle.textContent = track.title || "";
-        nowArtist.textContent = track.artist?.name || "";
+        nowArtist.textContent = (track.artist && track.artist.name) || "";
         clearCanvas(nowCover);
-        const img = new Image();
-        img.onload = () => {
-            const ctx = nowCover.getContext("2d");
+        var img = new Image();
+        img.onload = function() {
+            var ctx = nowCover.getContext("2d");
             ctx.clearRect(0, 0, nowCover.width, nowCover.height);
-            const size = Math.min(img.width, img.height);
-            const x = (img.width - size) / 2;
-            const y = (img.height - size) / 2;
-            ctx.drawImage(img, x, y, size, size, 0, 0, nowCover.width, nowCover.height);
+            var size = Math.min(img.width, img.height);
+            ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, nowCover.width, nowCover.height);
         };
-        img.onerror = () => {
-            drawCanvas(nowCover, track.title, track.artist?.name || "");
-        };
-        img.src = withBase(`/tracks/${track.id}/artwork?v=${encodeURIComponent(track.updated_at || "")}`);
+        img.onerror = function() { drawCanvas(nowCover, track.title, (track.artist && track.artist.name) || ""); };
+        img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+        checkLiked(track.id);
     }
 
-    function togglePlay() {
-        if (audioPlayer.paused) {
-            audioPlayer.play().catch((err) => console.error(err));
-        } else {
-            audioPlayer.pause();
-        }
-    }
+    function togglePlay() { if (audioPlayer.paused) { audioPlayer.play().catch(function(err) { console.error(err); }); } else { audioPlayer.pause(); } }
 
     function playByIndex(index) {
         if (!currentQueue.length) return;
-        const safeIndex = (index + currentQueue.length) % currentQueue.length;
+        var safeIndex = (index + currentQueue.length) % currentQueue.length;
         currentIndex = safeIndex;
         playTrack(currentQueue[safeIndex]);
     }
 
-    audioPlayer.addEventListener("loadedmetadata", () => {
-        totTime.textContent = formatDuration(audioPlayer.duration);
-    });
-
-    audioPlayer.addEventListener("play", () => {
-        btnPlay.classList.add("playing");
-    });
-
-    audioPlayer.addEventListener("pause", () => {
-        btnPlay.classList.remove("playing");
-    });
+    audioPlayer.addEventListener("loadedmetadata", function() { totTime.textContent = formatDuration(audioPlayer.duration); });
+    audioPlayer.addEventListener("play", function() { btnPlay.classList.add("playing"); });
+    audioPlayer.addEventListener("pause", function() { btnPlay.classList.remove("playing"); });
 
     function updateProgressFill() {
-        const pct = audioPlayer.duration ? (audioPlayer.currentTime / audioPlayer.duration) * 100 : 0;
+        var pct = audioPlayer.duration ? (audioPlayer.currentTime / audioPlayer.duration) * 100 : 0;
         progressBar.style.setProperty("--progress", pct + "%");
     }
 
-    audioPlayer.addEventListener("timeupdate", () => {
+    audioPlayer.addEventListener("timeupdate", function() {
         currTime.textContent = formatDuration(audioPlayer.currentTime);
-        if (audioPlayer.duration) {
-            progressBar.value = Math.floor((audioPlayer.currentTime / audioPlayer.duration) * 100);
-        }
+        if (audioPlayer.duration) { progressBar.value = Math.floor((audioPlayer.currentTime / audioPlayer.duration) * 100); }
         updateProgressFill();
     });
 
-    audioPlayer.addEventListener("ended", () => {
-        playByIndex(currentIndex + 1);
+    audioPlayer.addEventListener("ended", function() { playByIndex(currentIndex + 1); });
+
+    progressBar.addEventListener("input", function() {
+        if (audioPlayer.duration) { audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration; updateProgressFill(); }
     });
 
-    progressBar.addEventListener("input", () => {
-        if (audioPlayer.duration) {
-            audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration;
-            updateProgressFill();
-        }
+    async function checkLiked(trackId) {
+        if (!authHash) return;
+        try { var data = await api("/liked/" + trackId); likeIcon.className = data.liked ? "fa-solid fa-heart" : "fa-regular fa-heart"; } catch (err) { likeIcon.className = "fa-regular fa-heart"; }
+    }
+
+    document.getElementById("btn-like").addEventListener("click", async function() {
+        if (!currentTrackId || !authHash) return;
+        try { await api("/liked/" + currentTrackId, { method: "POST" }); checkLiked(currentTrackId); if (currentPlaylistId) openPlaylist(currentPlaylistId); } catch (err) { console.error(err); }
     });
 
-    audioPlayer.addEventListener("ended", () => {
-        playByIndex(currentIndex + 1);
+    document.querySelectorAll(".nav-link").forEach(function(link) { link.addEventListener("click", function(event) { event.preventDefault(); setActivePage(link.dataset.page || "home"); }); });
+    uploadButton.addEventListener("click", function(event) { event.preventDefault(); uploadTrack(); });
+    searchInput.addEventListener("input", function() { runSearch(); });
+    uploadSearchInput.addEventListener("input", function() { loadUploadLibrary(uploadSearchInput.value.trim()); });
+    btnPlay.addEventListener("click", function(event) { event.preventDefault(); togglePlay(); });
+    btnPrev.addEventListener("click", function(event) { event.preventDefault(); if (audioPlayer.currentTime > 3) { audioPlayer.currentTime = 0; } else { playByIndex(currentIndex - 1); } });
+    btnNext.addEventListener("click", function(event) { event.preventDefault(); playByIndex(currentIndex + 1); });
+
+    var volumeSlider = document.getElementById("volume-slider");
+    var volumeIcon = document.getElementById("volume-icon");
+    audioPlayer.volume = 1;
+    volumeSlider.addEventListener("input", function() {
+        audioPlayer.volume = volumeSlider.value / 100;
+        volumeIcon.className = audioPlayer.volume === 0 ? "fa-solid fa-volume-xmark" : audioPlayer.volume < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high";
+    });
+    volumeIcon.addEventListener("click", function() {
+        if (audioPlayer.volume > 0) { audioPlayer.dataset.prevVolume = audioPlayer.volume; audioPlayer.volume = 0; volumeSlider.value = 0; volumeIcon.className = "fa-solid fa-volume-xmark"; }
+        else { var prev = parseFloat(audioPlayer.dataset.prevVolume) || 1; audioPlayer.volume = prev; volumeSlider.value = Math.round(prev * 100); volumeIcon.className = prev < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high"; }
     });
 
-    progressBar.addEventListener("input", () => {
-        if (audioPlayer.duration) {
-            audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration;
-            updateProgressFill();
-        }
-    });
+    async function loadPlaylists() {
+        try { userPlaylists = await api("/playlists"); renderLibrary(); } catch (err) { console.error(err); }
+    }
 
-    document.querySelectorAll(".nav-link").forEach((link) => {
-        link.addEventListener("click", (event) => {
-            event.preventDefault();
-            setActivePage(link.dataset.page || "home");
-        });
-    });
-
-    if (openUpload) {
-        openUpload.addEventListener("click", (event) => {
-            event.preventDefault();
-            setActivePage("uploads");
-            songFile.focus();
+    function renderLibrary() {
+        libBox.innerHTML = "";
+        userPlaylists.forEach(function(pl) {
+            var item = document.createElement("div");
+            item.className = "lib-item";
+            var bg = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
+            var icon = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<i class="fa-solid fa-list"></i>';
+            item.innerHTML = '<div class="lib-item-cover" style="background:' + bg + '">' + icon + '</div><div class="lib-item-info"><p class="lib-item-name">' + pl.name + '</p><p class="lib-item-type">Playlist</p></div>';
+            item.addEventListener("click", function() { openPlaylist(pl.id); });
+            libBox.appendChild(item);
         });
     }
 
-    uploadButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        uploadTrack();
+    async function openPlaylist(playlistId) {
+        currentPlaylistId = playlistId;
+        try {
+            var pl = await api("/playlists/" + playlistId);
+            var tracks = await api("/playlists/" + playlistId + "/tracks");
+            document.getElementById("playlist-name").textContent = pl.name;
+            document.getElementById("playlist-type").textContent = pl.is_liked ? "Playlist" : "Playlist";
+            document.getElementById("playlist-meta").textContent = tracks.length + " songs";
+            var cover = document.getElementById("playlist-cover");
+            cover.style.background = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
+            cover.innerHTML = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<i class="fa-solid fa-list"></i>';
+            var container = document.getElementById("playlist-tracks");
+            container.innerHTML = "";
+            tracks.forEach(function(pt, i) {
+                var row = document.createElement("div");
+                row.className = "playlist-track-row";
+                var removeHtml = pl.is_liked ? "" : '<button class="pt-remove" data-track="' + pt.track.id + '"><i class="fa-solid fa-xmark"></i></button>';
+                row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + (pt.track.artist && pt.track.artist.name ? pt.track.artist.name : "Unknown") + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>' + removeHtml;
+                row.querySelector(".pt-title").addEventListener("click", function() { currentQueue = tracks.map(function(t) { return t.track; }); currentIndex = i; playTrack(pt.track); });
+                row.querySelector(".pt-title").style.cursor = "pointer";
+                var removeBtn = row.querySelector(".pt-remove");
+                if (removeBtn) { removeBtn.addEventListener("click", async function(e) { e.stopPropagation(); await api("/playlists/" + playlistId + "/tracks/" + pt.track.id, { method: "DELETE" }); openPlaylist(playlistId); }); }
+                container.appendChild(row);
+            });
+            setActivePage("playlist");
+        } catch (err) { console.error(err); }
+    }
+
+    document.getElementById("new-playlist-btn").addEventListener("click", async function() {
+        var name = prompt("Playlist name:");
+        if (!name || !name.trim()) return;
+        try { await api("/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) }); loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
     });
 
-    searchInput.addEventListener("input", () => {
-        runSearch();
+    document.getElementById("logout-btn").addEventListener("click", function() {
+        localStorage.removeItem("openfy_auth");
+        authHash = "";
+        currentUser = null;
+        authOverlay.style.display = "flex";
+        appMain.style.display = "none";
     });
 
-    uploadSearchInput.addEventListener("input", () => {
-        loadUploadLibrary(uploadSearchInput.value.trim());
+    document.getElementById("signup-btn").addEventListener("click", async function() {
+        var name = document.getElementById("signup-name").value.trim();
+        if (!name) { document.getElementById("signup-status").textContent = "Enter a username."; return; }
+        try {
+            var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name }) });
+            document.getElementById("signup-status").textContent = "Your auth hash: " + user.auth_hash + ". Save it!";
+        } catch (err) { document.getElementById("signup-status").textContent = err.message; }
     });
 
-    btnPlay.addEventListener("click", (event) => {
-        event.preventDefault();
-        togglePlay();
+    document.getElementById("signin-btn").addEventListener("click", async function() {
+        var hash = document.getElementById("signin-hash").value.trim();
+        if (!hash) { document.getElementById("signin-status").textContent = "Enter your auth hash."; return; }
+        try {
+            var user = await api("/auth/signin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auth_hash: hash }) });
+            authHash = user.auth_hash;
+            currentUser = user;
+            localStorage.setItem("openfy_auth", authHash);
+            authOverlay.style.display = "none";
+            appMain.style.display = "flex";
+            userDisplay.textContent = user.name;
+            loadTracks(); loadMostPlayed(); loadPlaylists();
+        } catch (err) { document.getElementById("signin-status").textContent = err.message; }
     });
 
-    btnPrev.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (audioPlayer.currentTime > 3) {
-            audioPlayer.currentTime = 0;
-        } else {
-            playByIndex(currentIndex - 1);
-        }
-    });
-
-    btnNext.addEventListener("click", (event) => {
-        event.preventDefault();
-        playByIndex(currentIndex + 1);
-    });
-
-    const volumeSlider = document.getElementById("volume-slider");
-    const volumeIcon = document.getElementById("volume-icon");
-
-    audioPlayer.volume = 1;
-
-    volumeSlider.addEventListener("input", () => {
-        audioPlayer.volume = volumeSlider.value / 100;
-        if (audioPlayer.volume === 0) {
-            volumeIcon.className = "fa-solid fa-volume-xmark";
-        } else if (audioPlayer.volume < 0.5) {
-            volumeIcon.className = "fa-solid fa-volume-low";
-        } else {
-            volumeIcon.className = "fa-solid fa-volume-high";
-        }
-    });
-
-    volumeIcon.addEventListener("click", () => {
-        if (audioPlayer.volume > 0) {
-            audioPlayer.dataset.prevVolume = audioPlayer.volume;
-            audioPlayer.volume = 0;
-            volumeSlider.value = 0;
-            volumeIcon.className = "fa-solid fa-volume-xmark";
-        } else {
-            const prev = parseFloat(audioPlayer.dataset.prevVolume) || 1;
-            audioPlayer.volume = prev;
-            volumeSlider.value = Math.round(prev * 100);
-            volumeIcon.className = prev < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high";
-        }
-    });
+    async function tryAutoLogin() {
+        if (!authHash) return false;
+        try {
+            var user = await api("/auth/me");
+            if (user) { currentUser = user; authOverlay.style.display = "none"; appMain.style.display = "flex"; userDisplay.textContent = user.name; return true; }
+        } catch (err) { localStorage.removeItem("openfy_auth"); authHash = ""; }
+        return false;
+    }
 
     clearCanvas(nowCover);
-
-    setActivePage("home");
-    loadTracks();
-    loadMostPlayed();
-    loadUploadLibrary();
+    (async function() {
+        var ok = await tryAutoLogin();
+        if (!ok) { authOverlay.style.display = "flex"; appMain.style.display = "none"; }
+        else { loadTracks(); loadMostPlayed(); loadPlaylists(); }
+    })();
     setInterval(loadTracks, 5000);
     setInterval(loadMostPlayed, 8000);
 </script>
