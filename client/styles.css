@@ -2,11 +2,16 @@
     font-family: "Montserrat", sans-serif;
     margin: 0;
     color: white;
+}
+
+body {
+    background-color: black;
     overflow: hidden;
 }
 
 body {
     background-color: black;
+    overflow: hidden;
 }
 
 .top-bar {
@@ -21,7 +26,7 @@ body {
     justify-content: space-between;
     padding: 0 0.5rem;
     z-index: 100;
-    gap: 0.5rem;
+    gap: 0.25rem;
 }
 
 .top-bar-left {
@@ -36,15 +41,20 @@ body {
     max-width: 600px;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 1.5rem;
     justify-content: center;
 }
 
 .top-bar-right {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.5rem;
     flex-shrink: 0;
+    margin-right: 2rem;
+}
+
+#top-bar-home {
+    margin-right: 0.25rem;
 }
 
 .main {
@@ -358,7 +368,7 @@ a {
     background-color: #242424;
     border-radius: 999px;
     padding: 0 1rem;
-    width: 100%;
+    flex: 1;
     height: 48px;
     transition: background-color 0.15s ease;
 }
@@ -393,6 +403,7 @@ a {
     font-size: 1.25rem;
     cursor: pointer;
     transition: color 0.2s ease, transform 0.1s ease;
+    flex-shrink: 0;
 }
 
 .nav-icon-btn:hover {
@@ -447,7 +458,7 @@ a {
     background-color: #242424;
     border-radius: 999px;
     padding: 0 1rem;
-    width: 100%;
+    flex: 1;
     height: 48px;
     transition: background-color 0.15s ease;
 }
@@ -482,6 +493,7 @@ a {
     font-size: 1.25rem;
     cursor: pointer;
     transition: color 0.2s ease, transform 0.1s ease;
+    flex-shrink: 0;
 }
 
 .nav-icon-btn:hover {
@@ -1168,6 +1180,7 @@ a {
 
 .user-icon {
     font-size: 1.25rem;
+    line-height: 1;
     color: #b3b3b3;
     transition: color 0.2s ease;
 }
@@ -1176,40 +1189,19 @@ a {
     color: #fff;
 }
 
+
 .user-dropdown {
     display: none;
     position: absolute;
-    top: 48px;
+    top: 100%;
     right: 0;
+    margin-top: 8px;
     background: #282828;
     border-radius: 4px;
     padding: 0.5rem 0;
     min-width: 200px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-    z-index: 9999;
-}
-
-.user-icon {
-    font-size: 1.25rem;
-    color: #b3b3b3;
-    transition: color 0.2s ease;
-}
-
-.user-icon:hover {
-    color: #fff;
-}
-
-.user-dropdown {
-    display: none;
-    position: absolute;
-    top: 48px;
-    right: 0;
-    background: #282828;
-    border-radius: 4px;
-    padding: 0.5rem 0;
-    min-width: 200px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-    z-index: 9999;
+    z-index: 10000;
 }
 
 .user-dropdown.visible {

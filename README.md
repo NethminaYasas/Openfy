@@ -12,9 +12,8 @@ The server stores audio files, indexes metadata, and exposes a clean REST API fo
 - Docker-ready setup
 
 ## Project Structure
-- `client/` - Web UI (static)
+- `client/` - Web UI (static assets)
 - `server/` - FastAPI server
-- `server/static/` - Static UI served by the server
 - `API.md` - Server API reference
 
 ## Quick Start (Docker)
@@ -39,7 +38,7 @@ with a multipart `file` field.
 
 ## Notes
 - The current UI uses uploads only (downloads are optional/legacy).
-- Static UI files are served from `server/static/`.
+- Static UI files are served from `client/` directory.
 
 ## License
 See `LICENSE`.

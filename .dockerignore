@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.venv
+venv/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+server/static/
+.ruff_cache/
+.codex
+*.md
+!README.md
+!API.md
+AGENTS.md
+.kilo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
