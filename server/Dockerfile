@@ -2,16 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
+COPY server/requirements.txt /app/requirements.txt
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ffmpeg \
   && pip install --no-cache-dir -r requirements.txt \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY app /app/app
-COPY static /app/static
-COPY .env.example /app/.env
+COPY server/app /app/app
+COPY client /app/client
+COPY server/.env.example /app/.env
 
 ENV OPENFY_ENV=prod
 ENV OPENFY_DATA_DIR=/data

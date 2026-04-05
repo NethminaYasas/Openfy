@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     allowed_origins: str = "*"
 
+    admin_username: str = ""
+    admin_hash: str = ""
+
     spotiflac_cmd: str = "spotiflac"
     spotiflac_timeout_sec: int = 900
 

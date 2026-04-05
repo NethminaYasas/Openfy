@@ -1,4 +1,3 @@
-import hashlib
 import secrets
 from pathlib import Path
 import json
@@ -45,7 +44,11 @@ from .services.spotiflac import queue_download
 
 app = FastAPI(title=settings.app_name)
 
-static_dir = Path(__file__).resolve().parent.parent / "static"
+static_dir = Path("/app/client")
+if not static_dir.exists():
+    static_dir = Path(__file__).resolve().parent.parent / "client"
+if not static_dir.exists():
+    static_dir = Path(__file__).resolve().parent.parent.parent / "client"
 if static_dir.exists():
     app.mount(
         "/static", StaticFiles(directory=str(static_dir), html=True), name="static"
@@ -99,6 +102,16 @@ def _startup():
                 )
                 conn.commit()
 
+            ucols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            ]
+            if "is_admin" not in ucols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+                )
+                conn.commit()
+
     db = SessionLocal()
     try:
         users = db.execute(select(User)).scalars().all()
@@ -120,6 +133,29 @@ def _startup():
         db.commit()
     finally:
         db.close()
+
+    if settings.admin_username and settings.admin_hash:
+        db = SessionLocal()
+        try:
+            existing = db.execute(
+                select(User).where(User.name == settings.admin_username)
+            ).scalar_one_or_none()
+            if not existing:
+                admin = User(
+                    name=settings.admin_username,
+                    auth_hash=settings.admin_hash,
+                    is_admin=True,
+                )
+                db.add(admin)
+                db.commit()
+                print(f"Admin user '{settings.admin_username}' created.")
+            else:
+                existing.auth_hash = settings.admin_hash
+                existing.is_admin = True
+                db.commit()
+                print(f"Admin user '{settings.admin_username}' ensured.")
+        finally:
+            db.close()
 
 
 def _get_user(db: Session, auth_hash: str) -> "User | None":

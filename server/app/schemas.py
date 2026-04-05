@@ -85,6 +85,7 @@ class UserSignin(BaseModel):
 class UserOut(BaseModel):
     name: str
     auth_hash: str
+    is_admin: bool = False
     created_at: datetime
 
     class Config:

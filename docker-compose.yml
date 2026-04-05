@@ -1,13 +1,16 @@
 services:
   openfy-server:
     build:
-      context: ./server
+      context: .
+      dockerfile: server/Dockerfile
     ports:
       - "8000:8000"
     volumes:
       - openfy_data:/data
     environment:
       - OPENFY_ALLOWED_ORIGINS=*
+      - OPENFY_ADMIN_USERNAME=admin
+      - OPENFY_ADMIN_HASH=120f6e5b4ea32f65bda68452fcfaaef06b0136e1d0e4a6f60bc3771fa0936dd6
 
 volumes:
   openfy_data:

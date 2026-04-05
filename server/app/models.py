@@ -84,6 +84,8 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     auth_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     playlists = relationship(
