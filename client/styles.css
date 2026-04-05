@@ -606,18 +606,8 @@ a {
     margin-top: 0.5rem;
 }
 
-.footer {
-    height: 300px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.line {
-    width: 90%;
-    height: 50%;
-    border-top: 1px solid white;
-    opacity: 0.4;
+.footer, .line {
+    display: none;
 }
 
 .music-player {
