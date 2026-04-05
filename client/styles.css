@@ -621,24 +621,23 @@ a {
 }
 
 .music-player {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: 1fr auto;
     background-color: #000;
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
     height: 90px;
-    padding: 0 16px;
+    padding: 0 1rem;
     z-index: 100;
 }
 
 .player-top {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(180px, 30%) 1fr minmax(180px, 30%);
     align-items: center;
-    justify-content: space-between;
-    flex: 1;
-    min-height: 0;
+    width: 100%;
 }
 
 .player-bottom {
@@ -650,11 +649,9 @@ a {
 }
 
 .album {
-    width: 30%;
     display: flex;
     align-items: center;
     gap: 14px;
-    min-width: 180px;
 }
 
 .album .art-canvas {
@@ -700,9 +697,10 @@ a {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    flex: 1;
     max-width: 722px;
+    width: 100%;
     gap: 4px;
+    justify-self: center;
 }
 
 .player-controls {
@@ -890,12 +888,13 @@ a {
 }
 
 .controls {
-    width: 30%;
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
-    min-width: 180px;
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 40px;
 }
 
 .volume-bar {
