@@ -13,6 +13,7 @@ body {
     display: flex;
     height: 100vh;
     padding: 0.5rem;
+    gap: 0.5rem;
 }
 
 .sidebar {
@@ -25,9 +26,286 @@ body {
 .main-content {
     background-color: #121212;
     flex: 1;
+    min-width: 0;
     border-radius: 1rem;
     overflow: auto;
     padding: 0 1.5rem 0 1.5rem;
+}
+
+.now-playing-panel {
+    background-color: #121212;
+    width: 340px;
+    flex-shrink: 0;
+    border-radius: 1rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.np-header {
+    padding: 1.25rem 1.25rem 0.75rem;
+    border-bottom: 1px solid #282828;
+}
+
+.np-header h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #b3b3b3;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.np-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.np-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: #b3b3b3;
+    opacity: 0.5;
+    margin-top: 3rem;
+}
+
+.np-placeholder i {
+    font-size: 3rem;
+}
+
+.np-placeholder p {
+    font-size: 0.875rem;
+}
+
+.np-track {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    gap: 1.25rem;
+}
+
+.np-artwork-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.np-art-canvas {
+    width: 100%;
+    height: 100%;
+    display: none;
+}
+
+.np-art-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+}
+
+.np-details {
+    text-align: center;
+    width: 100%;
+}
+
+.np-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.np-artist {
+    font-size: 0.9rem;
+    color: #b3b3b3;
+    margin-bottom: 0.25rem;
+}
+
+.np-album {
+    font-size: 0.8rem;
+    color: #727272;
+}
+
+.np-stats {
+    display: flex;
+    gap: 2rem;
+    width: 100%;
+    justify-content: center;
+    padding-top: 0.5rem;
+    border-top: 1px solid #282828;
+}
+
+.np-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.np-stat i {
+    font-size: 1rem;
+    color: #1db954;
+}
+
+.np-stat span {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.np-stat small {
+    font-size: 0.7rem;
+    color: #727272;
+    text-transform: uppercase;
+}
+
+.now-playing-panel {
+    background-color: #121212;
+    width: 340px;
+    flex-shrink: 0;
+    border-radius: 1rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.np-header {
+    padding: 1.25rem 1.25rem 0.75rem;
+    border-bottom: 1px solid #282828;
+}
+
+.np-header h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #b3b3b3;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.np-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.np-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: #b3b3b3;
+    opacity: 0.5;
+    margin-top: 3rem;
+}
+
+.np-placeholder i {
+    font-size: 3rem;
+}
+
+.np-placeholder p {
+    font-size: 0.875rem;
+}
+
+.np-track {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    gap: 1.25rem;
+}
+
+.np-artwork-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.np-art-canvas {
+    width: 100%;
+    height: 100%;
+    display: none;
+}
+
+.np-art-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+}
+
+.np-details {
+    text-align: center;
+    width: 100%;
+}
+
+.np-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.np-artist {
+    font-size: 0.9rem;
+    color: #b3b3b3;
+    margin-bottom: 0.25rem;
+}
+
+.np-album {
+    font-size: 0.8rem;
+    color: #727272;
+}
+
+.np-stats {
+    display: flex;
+    gap: 2rem;
+    width: 100%;
+    justify-content: center;
+    padding-top: 0.5rem;
+    border-top: 1px solid #282828;
+}
+
+.np-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.np-stat i {
+    font-size: 1rem;
+    color: #1db954;
+}
+
+.np-stat span {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.np-stat small {
+    font-size: 0.7rem;
+    color: #727272;
+    text-transform: uppercase;
 }
 
 a {
@@ -643,10 +921,14 @@ a {
     .sidebar {
         width: 300px;
     }
+    .now-playing-panel {
+        width: 280px;
+    }
 }
 
 @media (max-width: 800px) {
     .sidebar { display: none; }
+    .now-playing-panel { display: none; }
     .main-content { border-radius: 0; }
     .music-player { height: 84px; }
     .album, .controls { display: none; }
