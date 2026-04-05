@@ -30,6 +30,18 @@
         </div>
     </div>
 
+    <div class="user-menu" id="user-menu">
+        <i class="fa-solid fa-user user-icon" id="user-icon"></i>
+        <div class="user-dropdown" id="user-dropdown">
+            <span class="dropdown-username" id="dropdown-username"></span>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-item" id="profile-btn"><i class="fa-solid fa-id-badge"></i> Profile</div>
+            <div class="dropdown-item" id="settings-btn"><i class="fa-solid fa-gear"></i> Settings</div>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-item" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
+        </div>
+    </div>
+
     <div class="main" id="app-main" style="display:none;">
         <div class="sidebar">
             <div class="nav">
@@ -57,17 +69,6 @@
         </div>
 
         <div class="main-content">
-            <div class="sticky-nav">
-                <div class="nav-icons">
-                    <img src="/static/images/backward_icon.png">
-                    <img src="/static/images/forward_icon.png" class="hide">
-                </div>
-                <div class="sticky-nav-options">
-                    <span class="user-display" id="user-display"></span>
-                    <i class="fa-solid fa-right-from-bracket nav-item" id="logout-btn" title="Logout"></i>
-                </div>
-            </div>
-
             <div class="page active" id="page-home">
                 <div class="section">
                     <div class="section-header">
@@ -99,10 +100,6 @@
                         <input id="download-url" type="text" placeholder="Paste Spotify/YouTube link" autocomplete="off" />
                         <button class="badge" id="download-button">Upload</button>
                     </div>
-                    <p class="status" id="download-status"></p>
-                </div>
-                <div class="footer"><div class="line"></div></div>
-            </div>
                     <p class="status" id="download-status"></p>
                 </div>
                 <div class="footer"><div class="line"></div></div>
@@ -178,7 +175,10 @@
         const currTime = document.getElementById("curr-time");
         const totTime = document.getElementById("tot-time");
         const libBox = document.getElementById("lib-box");
-        const userDisplay = document.getElementById("user-display");
+        const userIcon = document.getElementById("user-icon");
+        const userDropdown = document.getElementById("user-dropdown");
+        const dropdownUsername = document.getElementById("dropdown-username");
+        const userMenu = document.getElementById("user-menu");
         const authOverlay = document.getElementById("auth-overlay");
         const appMain = document.getElementById("app-main");
         const likeIcon = document.getElementById("like-icon");
@@ -443,8 +443,10 @@
         audioPlayer.volume = 1;
         volumeSlider.addEventListener("input", function() {
             audioPlayer.volume = volumeSlider.value / 100;
+            volumeSlider.style.setProperty("--volume", volumeSlider.value + "%");
             volumeIcon.className = audioPlayer.volume === 0 ? "fa-solid fa-volume-xmark" : audioPlayer.volume < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high";
         });
+        volumeSlider.style.setProperty("--volume", "100%");
         volumeIcon.addEventListener("click", function() {
             if (audioPlayer.volume > 0) { audioPlayer.dataset.prevVolume = audioPlayer.volume; audioPlayer.volume = 0; volumeSlider.value = 0; volumeIcon.className = "fa-solid fa-volume-xmark"; }
             else { var prev = parseFloat(audioPlayer.dataset.prevVolume) || 1; audioPlayer.volume = prev; volumeSlider.value = Math.round(prev * 100); volumeIcon.className = prev < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high"; }
@@ -501,11 +503,38 @@
             try { await api("/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) }); loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
         });
 
+        userIcon.addEventListener("click", function(event) {
+            event.stopPropagation();
+            userDropdown.classList.toggle("visible");
+        });
+
+        document.addEventListener("click", function(event) {
+            if (!userMenu.contains(event.target)) {
+                userDropdown.classList.remove("visible");
+            }
+        });
+
         document.getElementById("logout-btn").addEventListener("click", function() {
             localStorage.removeItem("openfy_auth");
             authHash = "";
             currentUser = null;
             authOverlay.style.display = "flex";
+            userDropdown.classList.remove("visible");
+            appMain.style.display = "none";
+        });
+
+        document.addEventListener("click", function(event) {
+            if (!userMenu.contains(event.target)) {
+                userDropdown.classList.remove("visible");
+            }
+        });
+
+        document.getElementById("logout-btn").addEventListener("click", function() {
+            localStorage.removeItem("openfy_auth");
+            authHash = "";
+            currentUser = null;
+            authOverlay.style.display = "flex";
+            userDropdown.classList.remove("visible");
             appMain.style.display = "none";
         });
 
@@ -528,7 +557,7 @@
                 localStorage.setItem("openfy_auth", authHash);
                 authOverlay.style.display = "none";
                 appMain.style.display = "flex";
-                userDisplay.textContent = user.name;
+                dropdownUsername.textContent = user.name;
                 loadTracks(); loadMostPlayed(); loadPlaylists();
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
         });
@@ -547,7 +576,7 @@
                         currentUser = user;
                         authOverlay.style.display = "none";
                         appMain.style.display = "flex";
-                        userDisplay.textContent = user.name;
+                        dropdownUsername.textContent = user.name;
                         return true;
                     }
                 } else {
