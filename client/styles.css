@@ -896,8 +896,6 @@ a {
     justify-content: flex-end;
     gap: 8px;
     min-width: 180px;
-    max-width: 400px;
-    margin-right: 40px;
 }
 
 .volume-bar {
