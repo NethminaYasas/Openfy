@@ -380,6 +380,7 @@ a {
     padding: 0 1rem;
     flex: 1;
     height: 48px;
+    margin-top: 6px;
     transition: background-color 0.15s ease;
 }
 
@@ -470,6 +471,7 @@ a {
     padding: 0 1rem;
     flex: 1;
     height: 48px;
+    margin-top: 6px;
     transition: background-color 0.15s ease;
 }
 
