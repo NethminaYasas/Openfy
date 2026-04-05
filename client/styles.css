@@ -9,12 +9,48 @@ body {
     background-color: black;
 }
 
+.top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background-color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.5rem;
+    z-index: 100;
+    gap: 0.5rem;
+}
+
+.top-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.top-bar-center {
+    flex: 1;
+    max-width: 600px;
+    display: flex;
+    align-items: center;
+}
+
+.top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-shrink: 0;
+}
+
 .main {
     display: flex;
-    height: calc(100vh - 150px);
+    height: calc(100vh - 60px - 90px - 0.5rem);
+    margin-top: 60px;
     padding: 0.5rem;
-    padding-top: 60px;
-    padding-bottom: 0;
+    padding-bottom: 0.5rem;
     background-color: #000;
     gap: 0.5rem;
 }
@@ -972,7 +1008,8 @@ a {
     .sidebar { display: none; }
     .now-playing-panel { display: none; }
     .main-content { border-radius: 0; }
-    .music-player { height: 84px; }
+    .music-player { height: 84px; left: 0; right: 0; bottom: 0; border-radius: 0; }
+    .top-bar { left: 0; right: 0; }
     .album, .controls { display: none; }
     .player { width: 100%; }
 }

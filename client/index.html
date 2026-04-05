@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="auth-overlay" id="auth-overlay">
+    <div class="auth-overlay" id="auth-overlay" style="display:flex;">
         <div class="auth-box">
             <div class="auth-logo"><img src="/static/images/logo.png" alt="Openfy"></div>
             <h2>Log in to Openfy</h2>
@@ -26,6 +26,31 @@
                 <input type="text" id="signup-name" placeholder="Username" autocomplete="off" />
                 <button class="auth-btn auth-btn-outline" id="signup-btn">Sign Up</button>
                 <p class="auth-status" id="signup-status"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="top-bar" id="top-bar" style="display:none;">
+        <div class="top-bar-left">
+            <i class="fa-solid fa-house nav-icon-btn" id="top-bar-home"></i>
+        </div>
+        <div class="top-bar-center">
+            <div class="search-bar">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input id="search-input" type="text" placeholder="What do you want to play?" autocomplete="off" />
+            </div>
+        </div>
+        <div class="top-bar-right">
+            <div class="user-menu" id="user-menu">
+                <i class="fa-solid fa-user user-icon" id="user-icon"></i>
+                <div class="user-dropdown" id="user-dropdown">
+                    <span class="dropdown-username" id="dropdown-username"></span>
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-item" id="profile-btn"><i class="fa-solid fa-id-badge"></i> Profile</div>
+                    <div class="dropdown-item" id="settings-btn"><i class="fa-solid fa-gear"></i> Settings</div>
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-item" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
+                </div>
             </div>
         </div>
     </div>
@@ -57,31 +82,6 @@
         </div>
 
         <div class="main-content">
-            <div class="sticky-nav">
-                <div class="sticky-nav-left">
-                    <i class="fa-solid fa-house nav-icon-btn"></i>
-                </div>
-                <div class="sticky-nav-center">
-                    <div class="search-bar">
-                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input id="search-input" type="text" placeholder="What do you want to play?" autocomplete="off" />
-                    </div>
-                </div>
-                <div class="sticky-nav-right">
-                    <div class="user-menu" id="user-menu">
-                        <i class="fa-solid fa-user user-icon" id="user-icon"></i>
-                        <div class="user-dropdown" id="user-dropdown">
-                            <span class="dropdown-username" id="dropdown-username"></span>
-                            <div class="dropdown-divider"></div>
-                            <div class="dropdown-item" id="profile-btn"><i class="fa-solid fa-id-badge"></i> Profile</div>
-                            <div class="dropdown-item" id="settings-btn"><i class="fa-solid fa-gear"></i> Settings</div>
-                            <div class="dropdown-divider"></div>
-                            <div class="dropdown-item" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <div class="page active" id="page-home">
                 <div class="section">
                     <div class="section-header">
@@ -227,7 +227,9 @@
         const userMenu = document.getElementById("user-menu");
         const authOverlay = document.getElementById("auth-overlay");
         const appMain = document.getElementById("app-main");
+        const topBar = document.getElementById("top-bar");
         const likeIcon = document.getElementById("like-icon");
+        const topBarHome = document.getElementById("top-bar-home");
 
         const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist") };
         const btnPlay = document.getElementById("btn-play");
@@ -503,6 +505,11 @@
             } catch (err) { console.error("Like error:", err); }
         });
 
+        topBarHome.addEventListener("click", function(event) {
+            event.preventDefault();
+            setActivePage("home");
+        });
+
         document.querySelectorAll(".nav-link").forEach(function(link) { link.addEventListener("click", function(event) { event.preventDefault(); setActivePage(link.dataset.page || "home"); }); });
         document.getElementById("download-button").addEventListener("click", function(event) { event.preventDefault(); downloadFromLink(); });
         searchInput.addEventListener("input", function() { runSearch(); });
@@ -593,21 +600,13 @@
             authOverlay.style.display = "flex";
             userDropdown.classList.remove("visible");
             appMain.style.display = "none";
+            topBar.style.display = "none";
         });
 
         document.addEventListener("click", function(event) {
             if (!userMenu.contains(event.target)) {
                 userDropdown.classList.remove("visible");
             }
-        });
-
-        document.getElementById("logout-btn").addEventListener("click", function() {
-            localStorage.removeItem("openfy_auth");
-            authHash = "";
-            currentUser = null;
-            authOverlay.style.display = "flex";
-            userDropdown.classList.remove("visible");
-            appMain.style.display = "none";
         });
 
         document.getElementById("signup-btn").addEventListener("click", async function() {
@@ -629,6 +628,7 @@
                 localStorage.setItem("openfy_auth", authHash);
                 authOverlay.style.display = "none";
                 appMain.style.display = "flex";
+                topBar.style.display = "flex";
                 dropdownUsername.textContent = user.name;
                 loadTracks(); loadMostPlayed(); loadPlaylists();
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
@@ -648,6 +648,7 @@
                         currentUser = user;
                         authOverlay.style.display = "none";
                         appMain.style.display = "flex";
+                        topBar.style.display = "flex";
                         dropdownUsername.textContent = user.name;
                         return true;
                     }
