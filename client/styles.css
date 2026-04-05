@@ -610,6 +610,30 @@ a {
     display: none;
 }
 
+.back-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    margin: 0;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s ease, color 0.2s ease;
+}
+
+.back-btn:hover {
+    transform: scale(1.1);
+    color: #b3b3b3;
+}
+
+.back-btn:active {
+    transform: scale(0.95);
+}
+
 .music-player {
     display: grid;
     grid-template-rows: 1fr auto;
