@@ -33,13 +33,13 @@
     <div class="main" id="app-main" style="display:none;">
         <div class="sidebar">
             <div class="nav">
-                <div class="nav-option nav-link active" data-page="home" style="opacity: 1;">
+                <div class="nav-option nav-link active" data-page="home">
                     <i class="fa-solid fa-house"></i>
                     <a href="#">Home</a>
                 </div>
-                <div class="nav-option nav-link" data-page="uploads">
+                <div class="nav-option nav-link" data-page="library">
                     <i class="fa-solid fa-upload"></i>
-                    <a href="#">Uploads</a>
+                    <a href="#">Upload</a>
                 </div>
             </div>
             <div class="library">
@@ -92,15 +92,7 @@
                 <div class="footer"><div class="line"></div></div>
             </div>
 
-            <div class="page" id="page-uploads">
-                <div class="section">
-                    <h2>Upload Audio</h2>
-                    <div class="add-form" id="upload-form">
-                        <input id="song-file" type="file" accept="audio/*" />
-                        <button class="badge" id="upload-button">Upload</button>
-                    </div>
-                    <p class="status" id="upload-status"></p>
-                </div>
+            <div class="page" id="page-library">
                 <div class="section">
                     <h2>Download from Link</h2>
                     <div class="add-form" id="download-form">
@@ -109,14 +101,9 @@
                     </div>
                     <p class="status" id="download-status"></p>
                 </div>
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Manage Library</h2>
-                    </div>
-                    <div class="add-form">
-                        <input id="upload-search-input" type="text" placeholder="Search and delete tracks" autocomplete="off" />
-                    </div>
-                    <div class="cards-container" id="upload-library-grid"></div>
+                <div class="footer"><div class="line"></div></div>
+            </div>
+                    <p class="status" id="download-status"></p>
                 </div>
                 <div class="footer"><div class="line"></div></div>
             </div>
@@ -182,12 +169,7 @@
 
         const tracksGrid = document.getElementById("tracks-grid");
         const mostPlayedGrid = document.getElementById("most-played-grid");
-        const uploadButton = document.getElementById("upload-button");
-        const uploadStatus = document.getElementById("upload-status");
-        const songFile = document.getElementById("song-file");
         const searchInput = document.getElementById("search-input");
-        const uploadSearchInput = document.getElementById("upload-search-input");
-        const uploadLibraryGrid = document.getElementById("upload-library-grid");
         const audioPlayer = document.getElementById("audio-player");
         const nowTitle = document.getElementById("now-title");
         const nowArtist = document.getElementById("now-artist");
@@ -201,7 +183,7 @@
         const appMain = document.getElementById("app-main");
         const likeIcon = document.getElementById("like-icon");
 
-        const pages = { home: document.getElementById("page-home"), uploads: document.getElementById("page-uploads"), playlist: document.getElementById("page-playlist") };
+        const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist") };
         const btnPlay = document.getElementById("btn-play");
         const btnPrev = document.getElementById("btn-prev");
         const btnNext = document.getElementById("btn-next");
@@ -303,7 +285,7 @@
 
         function renderTracks(tracks) {
             tracksGrid.innerHTML = "";
-            if (!tracks.length) { tracksGrid.innerHTML = '<div class="card"><p class="card-title">No tracks yet</p><p class="card-info">Upload a file to start</p></div>'; return; }
+            if (!tracks.length) { tracksGrid.innerHTML = '<div class="card"><p class="card-title">No tracks yet</p><p class="card-info">Download a track to start</p></div>'; return; }
             tracks.forEach(function(track, index) { tracksGrid.appendChild(buildTrackCard(track, tracks, index)); });
         }
 
@@ -313,62 +295,12 @@
             tracks.forEach(function(track, index) { mostPlayedGrid.appendChild(buildTrackCard(track, tracks, index)); });
         }
 
-        function renderUploadLibrary(tracks) {
-            uploadLibraryGrid.innerHTML = "";
-            if (!tracks.length) { uploadLibraryGrid.innerHTML = '<div class="card"><p class="card-title">No tracks found</p><p class="card-info">Upload or search again</p></div>'; return; }
-            tracks.forEach(function(track) { uploadLibraryGrid.appendChild(buildManageCard(track)); });
-        }
-
-        function buildManageCard(track) {
-            var card = document.createElement("div");
-            card.className = "card";
-            var art = createArtCanvas(track.title, track.artist && track.artist.name);
-            var title = document.createElement("p");
-            title.className = "card-title";
-            title.textContent = track.title;
-            var info = document.createElement("p");
-            info.className = "card-info";
-            info.textContent = track.artist && track.artist.name ? track.artist.name : "Unknown";
-            var del = document.createElement("button");
-            del.className = "delete-btn";
-            del.textContent = "Delete";
-            del.addEventListener("click", function(event) { event.stopPropagation(); deleteTrack(track.id); });
-            card.appendChild(art);
-            card.appendChild(title);
-            card.appendChild(info);
-            card.appendChild(del);
-            return card;
-        }
-
         async function loadTracks() {
             try { var data = await api("/tracks?limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
         }
 
         async function loadMostPlayed() {
             try { var data = await api("/tracks/most-played?limit=12"); renderMostPlayed(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
-        }
-
-        async function loadUploadLibrary(query) {
-            query = query || "";
-            try { var url = query ? "/search?q=" + encodeURIComponent(query) + "&limit=50" : "/tracks?limit=50"; var data = await api(url); renderUploadLibrary(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
-        }
-
-        async function uploadTrack() {
-            if (!songFile.files || songFile.files.length === 0) { uploadStatus.textContent = "Choose a file first."; return; }
-            uploadStatus.textContent = "Uploading\u2026";
-            var form = new FormData();
-            form.append("file", songFile.files[0]);
-            try {
-                var headers = {};
-                if (authHash) headers["x-auth-hash"] = authHash;
-                var res = await fetch(withBase("/tracks/upload"), { method: "POST", headers: headers, body: form });
-                if (!res.ok) throw new Error(await res.text());
-                await res.json();
-                uploadStatus.textContent = "Uploaded successfully.";
-                songFile.value = "";
-                loadTracks(); loadMostPlayed(); loadUploadLibrary(uploadSearchInput.value.trim());
-                setTimeout(function() { uploadStatus.textContent = ""; setActivePage("home"); }, 800);
-            } catch (err) { console.error(err); uploadStatus.textContent = "Upload failed. " + (err.message || ""); }
         }
 
         async function downloadFromLink() {
@@ -389,7 +321,7 @@
                     if (job.status === "completed") {
                         clearInterval(poll);
                         dlStatus.textContent = "Download completed.";
-                        loadTracks(); loadMostPlayed(); loadUploadLibrary(uploadSearchInput.value.trim());
+                        loadTracks(); loadMostPlayed();
                         document.getElementById("download-url").value = "";
                         setTimeout(function() { dlStatus.textContent = ""; }, 3000);
                     } else if (job.status === "failed") {
@@ -409,7 +341,7 @@
         }
 
         async function deleteTrack(trackId) {
-            try { await api("/tracks/" + trackId, { method: "DELETE" }); loadTracks(); loadMostPlayed(); loadUploadLibrary(uploadSearchInput.value.trim()); } catch (err) { console.error(err); }
+            try { await api("/tracks/" + trackId, { method: "DELETE" }); loadTracks(); loadMostPlayed(); } catch (err) { console.error(err); }
         }
 
         function playTrack(track) {
@@ -500,10 +432,8 @@
         });
 
         document.querySelectorAll(".nav-link").forEach(function(link) { link.addEventListener("click", function(event) { event.preventDefault(); setActivePage(link.dataset.page || "home"); }); });
-        uploadButton.addEventListener("click", function(event) { event.preventDefault(); uploadTrack(); });
         document.getElementById("download-button").addEventListener("click", function(event) { event.preventDefault(); downloadFromLink(); });
         searchInput.addEventListener("input", function() { runSearch(); });
-        uploadSearchInput.addEventListener("input", function() { loadUploadLibrary(uploadSearchInput.value.trim()); });
         btnPlay.addEventListener("click", function(event) { event.preventDefault(); togglePlay(); });
         btnPrev.addEventListener("click", function(event) { event.preventDefault(); if (audioPlayer.currentTime > 3) { audioPlayer.currentTime = 0; } else { playByIndex(currentIndex - 1); } });
         btnNext.addEventListener("click", function(event) { event.preventDefault(); playByIndex(currentIndex + 1); });

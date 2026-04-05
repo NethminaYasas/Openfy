@@ -7,12 +7,10 @@ from typing import List
 from fastapi import (
     FastAPI,
     Depends,
-    UploadFile,
-    File,
     HTTPException,
+    Header,
     Query,
     Request,
-    Header,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +35,7 @@ from .schemas import (
     UserOut,
 )
 from .settings import settings
-from .services.storage import ensure_dirs, store_upload
+from .services.storage import ensure_dirs
 from .services.library import scan_default_library, scan_paths
 from .services.spotiflac import queue_download
 
@@ -311,27 +309,6 @@ def stream_track(track_id: str, request: Request, db: Session = Depends(get_db))
         headers=headers,
         media_type=track.mime_type or "audio/mpeg",
     )
-
-
-@app.post("/tracks/upload", response_model=TrackOut)
-def upload_track(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    ensure_dirs()
-    temp_path = settings.downloads_dir / file.filename
-    with temp_path.open("wb") as buffer:
-        buffer.write(file.file.read())
-
-    final_path = store_upload(temp_path, settings.music_dir)
-    scan_paths(db, [final_path])
-
-    track = db.execute(
-        select(Track).where(Track.file_path == str(final_path))
-    ).scalar_one_or_none()
-    if not track:
-        raise HTTPException(status_code=500, detail="Track not indexed")
-    return track
 
 
 @app.get("/artists", response_model=List[ArtistOut])
