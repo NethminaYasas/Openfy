@@ -429,6 +429,25 @@ def delete_playlist(
     return {"status": "deleted"}
 
 
+@app.post("/downloads", response_model=DownloadJobOut)
+def create_download(
+    payload: DownloadRequest,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    from .services.onthespot import queue_download
+
+    return queue_download(db, payload.query, payload.source or "auto", x_auth_hash)
+
+
+@app.get("/downloads/{job_id}", response_model=DownloadJobOut)
+def get_download_status(job_id: str, db: Session = Depends(get_db)):
+    job = db.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Download job not found")
+    return job
+
+
 @app.post("/liked/{track_id}")
 def toggle_liked(
     track_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)

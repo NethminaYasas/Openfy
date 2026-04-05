@@ -450,7 +450,11 @@ a {
     transition: opacity 0.15s ease;
 }
 
-.progress-bar:hover::-webkit-slider-thumb {
+.progress-bar.active::-webkit-slider-thumb {
+    opacity: 0;
+}
+
+.progress-bar.active:hover::-webkit-slider-thumb {
     opacity: 1;
 }
 
@@ -477,7 +481,50 @@ a {
     transition: opacity 0.15s ease;
 }
 
-.progress-bar:hover::-moz-range-thumb {
+.progress-bar.active::-moz-range-thumb {
+    opacity: 0;
+}
+
+.progress-bar.active:hover::-moz-range-thumb {
+    opacity: 1;
+}
+
+.progress-bar.active::-webkit-slider-thumb {
+    opacity: 0;
+}
+
+.progress-bar.active:hover::-webkit-slider-thumb {
+    opacity: 1;
+}
+
+.progress-bar::-moz-range-track {
+    background: #4d4d4d;
+    border-radius: 2px;
+    height: 4px;
+    border: none;
+}
+
+.progress-bar::-moz-range-progress {
+    background: #1db954;
+    border-radius: 2px;
+    height: 4px;
+}
+
+.progress-bar::-moz-range-thumb {
+    height: 12px;
+    width: 12px;
+    background: #fff;
+    border-radius: 50%;
+    border: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.progress-bar.active::-moz-range-thumb {
+    opacity: 0;
+}
+
+.progress-bar.active:hover::-moz-range-thumb {
     opacity: 1;
 }
 
