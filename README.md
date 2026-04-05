@@ -1,5 +1,3 @@
-<div align="center">
-
 ![Openfy Banner](./client/images/banner.png)
 
 # Openfy
