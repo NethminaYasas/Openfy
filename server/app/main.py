@@ -330,6 +330,55 @@ def search(
     return db.execute(stmt.limit(limit)).scalars().all()
 
 
+@app.get("/playlists", response_model=List[PlaylistOut])
+def list_playlists(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Playlist).order_by(Playlist.created_at.desc())
+    if x_auth_hash:
+        stmt = stmt.where(Playlist.user_hash == x_auth_hash)
+    return db.execute(stmt).scalars().all()
+
+
+@app.post("/playlists", response_model=PlaylistOut)
+def create_playlist(
+    payload: PlaylistCreate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    playlist = Playlist(
+        name=payload.name,
+        description=payload.description,
+        user_hash=x_auth_hash or "",
+    )
+    db.add(playlist)
+    db.commit()
+    db.refresh(playlist)
+    return playlist
+
+
+@app.get("/playlists/{playlist_id}", response_model=PlaylistOut)
+def get_playlist(playlist_id: str, db: Session = Depends(get_db)):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    return playlist
+
+
+@app.get("/playlists/{playlist_id}/tracks", response_model=List[PlaylistTrackOut])
+def list_playlist_tracks(playlist_id: str, db: Session = Depends(get_db)):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    stmt = (
+        select(PlaylistTrack)
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position.asc())
+    )
+    return db.execute(stmt).scalars().all()
+
+
 @app.post("/playlists/{playlist_id}/tracks", response_model=PlaylistTrackOut)
 def add_track_to_playlist(
     playlist_id: str,
