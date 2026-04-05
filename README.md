@@ -1,3 +1,7 @@
+<div align="center">
+
+![Openfy Banner](./client/images/banner.png)
+
 # Openfy
 
 Your music. Your rules. No subscriptions. No surveillance.
