@@ -171,12 +171,9 @@ def scan_library(path: str | None = None, db: Session = Depends(get_db)):
 def list_tracks(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
-    if x_auth_hash:
-        stmt = stmt.where(Track.user_hash == x_auth_hash)
     tracks = db.execute(stmt).scalars().all()
     return tracks
 
@@ -283,7 +280,6 @@ def stream_track(track_id: str, request: Request, db: Session = Depends(get_db))
 @app.post("/tracks/upload", response_model=TrackOut)
 def upload_track(
     file: UploadFile = File(...),
-    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     ensure_dirs()
@@ -299,9 +295,6 @@ def upload_track(
     ).scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=500, detail="Track not indexed")
-    if x_auth_hash:
-        track.user_hash = x_auth_hash
-        db.commit()
     return track
 
 
@@ -321,7 +314,6 @@ def list_albums(db: Session = Depends(get_db)):
 def search(
     q: str,
     limit: int = Query(50, ge=1, le=200),
-    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     pattern = f"%{q}%"
@@ -335,8 +327,6 @@ def search(
             | (Album.title.ilike(pattern))
         )
     )
-    if x_auth_hash:
-        stmt = stmt.where(Track.user_hash == x_auth_hash)
     return db.execute(stmt.limit(limit)).scalars().all()
 
 

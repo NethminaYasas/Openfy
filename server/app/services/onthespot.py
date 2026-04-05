@@ -62,18 +62,6 @@ def _run_download(
             if moved_files:
                 scan_paths(db, moved_files)
                 _append_log(job, "Scan complete")
-                if user_hash:
-                    from ..models import Track
-                    from sqlalchemy import select as sa_select
-
-                    for mf in moved_files:
-                        t = db.execute(
-                            sa_select(Track).where(Track.file_path == str(mf))
-                        ).scalar_one_or_none()
-                        if t and not t.user_hash:
-                            t.user_hash = user_hash
-                    db.commit()
-                    _append_log(job, f"Set user_hash on {len(moved_files)} tracks")
             else:
                 _append_log(
                     job,
@@ -119,7 +107,24 @@ def queue_download(
 
     thread = threading.Thread(
         target=_run_download,
-        args=(job.id, query, str(db.bind.url), user_hash),
+        args=(job.id, query, str(db.bind.url)),
+        daemon=True,
+    )
+    thread.start()
+
+    return job
+
+    try:
+        from SpotiFLAC import SpotiFLAC
+    except ImportError:
+        job.status = "failed"
+        job.log = "SpotiFLAC not installed. Run: pip install SpotiFLAC"
+        db.commit()
+        return job
+
+    thread = threading.Thread(
+        target=_run_download,
+        args=(job.id, query, str(db.bind.url)),
         daemon=True,
     )
     thread.start()
