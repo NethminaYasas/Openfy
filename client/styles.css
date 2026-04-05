@@ -36,6 +36,13 @@ body {
     flex-shrink: 0;
 }
 
+.top-bar-logo {
+    height: 36px;
+    width: auto;
+    object-fit: contain;
+    margin-left: 8px;
+}
+
 .top-bar-center {
     flex: 1;
     max-width: 600px;
