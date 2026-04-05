@@ -1,12 +1,6 @@
-<div align="center">
-
-![Openfy Logo](./client/images/logo_white.png)
-
 # Openfy
 
 Your music. Your rules. No subscriptions. No surveillance.
-
----
 
 ## Why Openfy?
 
@@ -21,8 +15,6 @@ Openfy changes that:
 
 This is music as it should be.
 
----
-
 ## Features
 
 - Clean, Spotify-like web interface
@@ -33,8 +25,6 @@ This is music as it should be.
 - User playlists and liked songs
 - Multi-user support
 - Docker-ready deployment
-
----
 
 ## Getting Started
 
@@ -54,8 +44,6 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
----
-
 ## Quick API Reference
 
 | Endpoint | Method | Description |
@@ -70,8 +58,6 @@ uvicorn app.main:app --reload
 
 Full API docs: [API.md](./API.md)
 
----
-
 ## Using Openfy
 
 1. Sign up and save your auth hash
@@ -80,8 +66,6 @@ Full API docs: [API.md](./API.md)
 4. Create playlists and like tracks to organize
 
 Your uploads appear in the Uploads tab; everything else lives in the main library.
-
----
 
 ## Philosophy
 
@@ -93,8 +77,6 @@ We believe music belongs to listeners and creators, not corporations. Openfy exi
 - Build community-run alternatives
 
 No algorithms pushing what to listen to next. No surveillance. No lock-in.
-
----
 
 ## License
 
