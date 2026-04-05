@@ -47,6 +47,7 @@ class TrackOut(TrackBase):
     track_no: int | None = None
     disc_no: int | None = None
     play_count: int = 0
+    user_hash: str | None = None
     created_at: datetime
     updated_at: datetime
 

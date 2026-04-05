@@ -92,6 +92,7 @@
             </div>
 
             <div class="page" id="page-library">
+                <button class="back-btn" id="back-to-home"><i class="fa-solid fa-arrow-left"></i></button>
                 <div class="section">
                     <h2>Upload from Link</h2>
                     <div class="add-form" id="download-form">
@@ -100,7 +101,12 @@
                     </div>
                     <p class="status" id="download-status"></p>
                 </div>
-                <div class="footer"><div class="line"></div></div>
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Your Uploads</h2>
+                    </div>
+                    <div class="cards-container" id="uploads-grid"></div>
+                </div>
             </div>
 
             <div class="page" id="page-playlist">
@@ -195,6 +201,7 @@
 
         const tracksGrid = document.getElementById("tracks-grid");
         const mostPlayedGrid = document.getElementById("most-played-grid");
+        const uploadsGrid = document.getElementById("uploads-grid");
         const searchInput = document.getElementById("search-input");
         const audioPlayer = document.getElementById("audio-player");
         const nowTitle = document.getElementById("now-title");
@@ -250,6 +257,9 @@
             var target = pages[pageId] || pages.home;
             target.classList.add("active");
             document.querySelectorAll(".nav-link").forEach(function(link) { link.classList.toggle("active", link.dataset.page === pageId); });
+            if (pageId === "library" && authHash) {
+                loadUserUploads();
+            }
         }
 
         function formatDuration(seconds) {
@@ -342,6 +352,20 @@
             try { var data = await api("/tracks/most-played?limit=12"); renderMostPlayed(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
         }
 
+        function renderUploads(tracks) {
+            uploadsGrid.innerHTML = "";
+            if (!tracks.length) { uploadsGrid.innerHTML = '<div class="card"><p class="card-title">No uploads yet</p><p class="card-info">Upload a track to see it here</p></div>'; return; }
+            tracks.forEach(function(track, index) { uploadsGrid.appendChild(buildTrackCard(track, tracks, index)); });
+        }
+
+        async function loadUserUploads() {
+            if (!authHash) {
+                uploadsGrid.innerHTML = '<div class="card"><p class="card-title">Not logged in</p><p class="card-info">Log in to view your uploads</p></div>';
+                return;
+            }
+            try { var data = await api("/tracks?limit=24&user_hash=" + encodeURIComponent(authHash)); renderUploads(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
+        }
+
         async function downloadFromLink() {
             var url = document.getElementById("download-url").value.trim();
             var dlStatus = document.getElementById("download-status");
@@ -360,7 +384,7 @@
                     if (job.status === "completed") {
                         clearInterval(poll);
                         dlStatus.textContent = "Download completed.";
-                        loadTracks(); loadMostPlayed();
+                        loadTracks(); loadMostPlayed(); loadUserUploads();
                         document.getElementById("download-url").value = "";
                         setTimeout(function() { dlStatus.textContent = ""; }, 3000);
                     } else if (job.status === "failed") {
@@ -608,7 +632,7 @@
                 appMain.style.display = "flex";
                 topBar.style.display = "flex";
                 dropdownUsername.textContent = user.name;
-                loadTracks(); loadMostPlayed(); loadPlaylists();
+                loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads();
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
         });
 
@@ -644,7 +668,7 @@
         (async function() {
             var ok = await tryAutoLogin();
             if (!ok) { authOverlay.style.display = "flex"; appMain.style.display = "none"; }
-            else { loadTracks(); loadMostPlayed(); loadPlaylists(); }
+            else { loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads(); }
         })();
     </script>
 </body>

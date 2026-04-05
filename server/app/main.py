@@ -205,9 +205,12 @@ def scan_library(path: str | None = None, db: Session = Depends(get_db)):
 def list_tracks(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    user_hash: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
+    if user_hash:
+        stmt = stmt.where(Track.user_hash == user_hash)
     tracks = db.execute(stmt).scalars().all()
     return tracks
 
