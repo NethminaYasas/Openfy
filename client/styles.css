@@ -71,6 +71,9 @@ body {
     background-color: #000;
     width: 340px;
     border-radius: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .main-content {
@@ -233,7 +236,7 @@ a {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    height: 100px;
+    height: 60px;
     padding: 0.5rem 0.75rem;
 }
 
@@ -891,15 +894,17 @@ a {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: 8px;
     min-width: 180px;
+    max-width: 400px;
+    margin-right: 40px;
 }
 
 .volume-bar {
     display: flex;
     align-items: center;
     gap: 6px;
-    width: 130px;
+    width: 110px;
 }
 
 .volume-bar i {
