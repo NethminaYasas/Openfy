@@ -58,25 +58,22 @@
 
         <div class="main-content">
             <div class="sticky-nav">
-                <div class="nav-icons">
-                    <img src="/static/images/backward_icon.png">
-                    <img src="/static/images/forward_icon.png" class="hide">
+                <div class="sticky-nav-left">
+                    <i class="fa-solid fa-house nav-icon-btn"></i>
                 </div>
-                <div class="sticky-nav-options">
+                <div class="sticky-nav-center">
+                    <div class="search-bar">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input id="search-input" type="text" placeholder="What do you want to play?" autocomplete="off" />
+                    </div>
+                </div>
+                <div class="sticky-nav-right">
                     <span class="user-display" id="user-display"></span>
-                    <i class="fa-solid fa-right-from-bracket nav-item" id="logout-btn" title="Logout"></i>
+                    <i class="fa-solid fa-right-from-bracket nav-icon-btn" id="logout-btn" title="Logout"></i>
                 </div>
             </div>
 
             <div class="page active" id="page-home">
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Search</h2>
-                    </div>
-                    <div class="add-form">
-                        <input id="search-input" type="text" placeholder="Search your library" autocomplete="off" />
-                    </div>
-                </div>
                 <div class="section">
                     <div class="section-header">
                         <h2>Most Played</h2>

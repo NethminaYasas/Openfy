@@ -95,4 +95,22 @@ def queue_download(
         job.status = "failed"
         job.log = "Downloader only accepts full URLs. Paste a complete https:// link."
         db.commit()
+        return job
+
+    thread = threading.Thread(
+        target=_run_download,
+        args=(job.id, query, settings.database_url, user_hash),
+        daemon=True,
+    )
+    thread.start()
+
+    return job
+
+    thread = threading.Thread(
+        target=_run_download,
+        args=(job.id, query, settings.database_url, user_hash),
+        daemon=True,
+    )
+    thread.start()
+
     return job

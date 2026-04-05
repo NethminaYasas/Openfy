@@ -30,18 +30,6 @@
         </div>
     </div>
 
-    <div class="user-menu" id="user-menu">
-        <i class="fa-solid fa-user user-icon" id="user-icon"></i>
-        <div class="user-dropdown" id="user-dropdown">
-            <span class="dropdown-username" id="dropdown-username"></span>
-            <div class="dropdown-divider"></div>
-            <div class="dropdown-item" id="profile-btn"><i class="fa-solid fa-id-badge"></i> Profile</div>
-            <div class="dropdown-item" id="settings-btn"><i class="fa-solid fa-gear"></i> Settings</div>
-            <div class="dropdown-divider"></div>
-            <div class="dropdown-item" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
-        </div>
-    </div>
-
     <div class="main" id="app-main" style="display:none;">
         <div class="sidebar">
             <div class="nav">
@@ -69,15 +57,32 @@
         </div>
 
         <div class="main-content">
-            <div class="page active" id="page-home">
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Search</h2>
-                    </div>
-                    <div class="add-form">
-                        <input id="search-input" type="text" placeholder="Search your library" autocomplete="off" />
+            <div class="sticky-nav">
+                <div class="sticky-nav-left">
+                    <i class="fa-solid fa-house nav-icon-btn"></i>
+                </div>
+                <div class="sticky-nav-center">
+                    <div class="search-bar">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input id="search-input" type="text" placeholder="What do you want to play?" autocomplete="off" />
                     </div>
                 </div>
+                <div class="sticky-nav-right">
+                    <div class="user-menu" id="user-menu">
+                        <i class="fa-solid fa-user user-icon" id="user-icon"></i>
+                        <div class="user-dropdown" id="user-dropdown">
+                            <span class="dropdown-username" id="dropdown-username"></span>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" id="profile-btn"><i class="fa-solid fa-id-badge"></i> Profile</div>
+                            <div class="dropdown-item" id="settings-btn"><i class="fa-solid fa-gear"></i> Settings</div>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-item" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page active" id="page-home">
                 <div class="section">
                     <div class="section-header">
                         <h2>Most Played</h2>
