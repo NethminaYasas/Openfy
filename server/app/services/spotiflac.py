@@ -95,38 +95,4 @@ def queue_download(
         job.status = "failed"
         job.log = "Downloader only accepts full URLs. Paste a complete https:// link."
         db.commit()
-        return job
-
-    try:
-        from SpotiFLAC import SpotiFLAC
-    except ImportError:
-        job.status = "failed"
-        job.log = "SpotiFLAC not installed. Run: pip install SpotiFLAC"
-        db.commit()
-        return job
-
-    thread = threading.Thread(
-        target=_run_download,
-        args=(job.id, query, str(db.bind.url)),
-        daemon=True,
-    )
-    thread.start()
-
-    return job
-
-    try:
-        from SpotiFLAC import SpotiFLAC
-    except ImportError:
-        job.status = "failed"
-        job.log = "SpotiFLAC not installed. Run: pip install SpotiFLAC"
-        db.commit()
-        return job
-
-    thread = threading.Thread(
-        target=_run_download,
-        args=(job.id, query, str(db.bind.url)),
-        daemon=True,
-    )
-    thread.start()
-
     return job

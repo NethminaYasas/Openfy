@@ -6,8 +6,6 @@ COPY requirements.txt /app/requirements.txt
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ffmpeg \
   && pip install --no-cache-dir -r requirements.txt \
-  && pip install --no-cache-dir git+https://github.com/justin025/onthespot.git \
-  && pip install --no-cache-dir git+https://github.com/GladistonXD/votify-fix.git \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 

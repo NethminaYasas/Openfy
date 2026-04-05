@@ -40,7 +40,7 @@ from .schemas import (
 from .settings import settings
 from .services.storage import ensure_dirs, store_upload
 from .services.library import scan_default_library, scan_paths
-from .services.onthespot import queue_download
+from .services.spotiflac import queue_download
 
 
 app = FastAPI(title=settings.app_name)
@@ -474,7 +474,7 @@ def create_download(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    from .services.onthespot import queue_download
+    from .services.spotiflac import queue_download
 
     return queue_download(db, payload.query, payload.source or "auto", x_auth_hash)
 
