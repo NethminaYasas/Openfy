@@ -929,7 +929,18 @@
             if (!currentUser) return;
             profileUsername.textContent = currentUser.name || "N/A";
             profileAuthHash.textContent = currentUser.auth_hash || "N/A";
-            profileMemberSince.textContent = currentUser.created_at || "N/A";
+            // Format date to show only YYYY-MM-DD
+            const createdAt = currentUser.created_at || "N/A";
+            if (createdAt !== "N/A") {
+                try {
+                    const date = new Date(createdAt);
+                    profileMemberSince.textContent = date.toISOString().split('T')[0];
+                } catch (e) {
+                    profileMemberSince.textContent = createdAt;
+                }
+            } else {
+                profileMemberSince.textContent = "N/A";
+            }
             profileModalOverlay.style.display = "flex";
         }
 
