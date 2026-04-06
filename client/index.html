@@ -855,9 +855,17 @@
                 tracks.forEach(function(pt, i) {
                     var row = document.createElement("div");
                     row.className = "playlist-track-row";
+                    var artSpan = document.createElement("span");
+                    artSpan.className = "pt-art";
+                    var artImg = document.createElement("img");
+                    artImg.src = withBase("/tracks/" + pt.track.id + "/artwork?v=" + encodeURIComponent(pt.track.updated_at || ""));
+                    artImg.alt = pt.track.title;
+                    artImg.onerror = function() { artImg.style.display = "none"; artSpan.style.background = "#282828"; };
+                    artSpan.appendChild(artImg);
                     row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + (pt.track.artist && pt.track.artist.name ? pt.track.artist.name : "Unknown") + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
                     row.querySelector(".pt-title").addEventListener("click", function() { currentQueue = tracks.map(function(t) { return t.track; }); currentIndex = i; playTrack(pt.track); });
                     row.querySelector(".pt-title").style.cursor = "pointer";
+                    row.insertBefore(artSpan, row.children[1]); // Insert after pt-num
                     container.appendChild(row);
                 });
                 setActivePage("playlist");
