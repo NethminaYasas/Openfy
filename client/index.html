@@ -156,6 +156,12 @@
                     <button class="back-btn" id="admin-users-back"><i class="fa-solid fa-chevron-left"></i></button>
                     <div class="section">
                         <h2>All Users</h2>
+                        <div class="admin-users-search">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                                <input type="text" id="users-search-input" placeholder="Search users..." autocomplete="off" />
+                            </div>
+                        </div>
                         <div class="users-table-container" id="users-table-container">
                             <table class="users-table">
                                 <thead>
@@ -894,37 +900,40 @@
             }
         }
 
-        // Load users list
-        async function loadUsersList() {
+        // Load users list with optional search query
+        async function loadUsersList(searchQuery = "") {
             const container = document.getElementById("users-table-container");
             const tableBody = document.getElementById("users-table-body");
             if (!container || !tableBody) return;
 
             try {
-                const users = await api("/admin/users");
+                const url = searchQuery.trim() 
+                    ? `/admin/users?q=${encodeURIComponent(searchQuery.trim())}`
+                    : "/admin/users";
+                const users = await api(url);
                 container.style.display = "block";
                 tableBody.innerHTML = "";
                 
                 if (!users || users.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No users found</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No users found</td></tr>';
                     return;
                 }
 
-                 users.forEach(user => {
-                     const row = document.createElement("tr");
-                     row.innerHTML = `
-                         <td>${user.name}${user.auth_hash === currentUser?.auth_hash ? ' (You)' : ''}</td>
-                         <td><code class="user-hash" title="${user.auth_hash}">${user.auth_hash}</code></td>
-                         <td><span class="user-role ${user.is_admin ? 'admin' : 'user'}">${user.is_admin ? 'Admin' : 'User'}</span></td>
-                         <td>${user.uploaded_tracks_count || 0}</td>
-                         <td>
-                             <button class="btn-delete" data-user-hash="${user.auth_hash}" ${user.auth_hash === currentUser?.auth_hash ? 'disabled' : ''}>
-                                 Delete
-                             </button>
-                         </td>
-                     `;
-                     tableBody.appendChild(row);
-                 });
+                users.forEach(user => {
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                        <td>${user.name}${user.auth_hash === currentUser?.auth_hash ? ' (You)' : ''}</td>
+                        <td><code class="user-hash" title="${user.auth_hash}">${user.auth_hash}</code></td>
+                        <td><span class="user-role ${user.is_admin ? 'admin' : 'user'}">${user.is_admin ? 'Admin' : 'User'}</span></td>
+                        <td>${user.uploaded_tracks_count || 0}</td>
+                        <td>
+                            <button class="btn-delete" data-user-hash="${user.auth_hash}" ${user.auth_hash === currentUser?.auth_hash ? 'disabled' : ''}>
+                                Delete
+                            </button>
+                        </td>
+                    `;
+                    tableBody.appendChild(row);
+                });
 
                 // Add delete event listeners
                 tableBody.querySelectorAll(".btn-delete").forEach(btn => {
@@ -939,7 +948,7 @@
                         try {
                             await api(`/admin/users/${userHash}`, { method: "DELETE" });
                             alert("User deleted successfully");
-                            loadUsersList(); // Refresh list
+                            loadUsersList(searchQuery); // Refresh with current search
                         } catch (err) {
                             alert("Failed to delete user: " + err.message);
                             this.disabled = false;
@@ -950,7 +959,7 @@
 
             } catch (err) {
                 console.error("Failed to load users:", err);
-                tableBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#e74c3c;">Error loading users. Admin access required.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e74c3c;">Error loading users. Admin access required.</td></tr>';
             }
         }
 
@@ -962,6 +971,8 @@
         const adminUsersView = document.getElementById("admin-users-view");
         const adminUsersBack = document.getElementById("admin-users-back");
         const adminBackHome = document.getElementById("admin-back-home");
+        const usersSearchInput = document.getElementById("users-search-input");
+        let searchTimeout = null;
         
         viewUsersBtn?.addEventListener("click", function() {
             adminDashboard.style.display = "none";
@@ -977,6 +988,14 @@
         adminBackHome?.addEventListener("click", function(event) {
             event.preventDefault();
             setActivePage("home");
+        });
+        
+        usersSearchInput?.addEventListener("input", function() {
+            clearTimeout(searchTimeout);
+            const query = this.value.trim();
+            searchTimeout = setTimeout(() => {
+                loadUsersList(query);
+            }, 300);
         });
 
         clearCanvas(nowCover);

@@ -566,7 +566,9 @@ def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db
 # Admin endpoints
 @app.get("/admin/users")
 def list_all_users(
-    x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
+    q: str | None = Query(None),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
 ):
     """List all users (admin only)"""
     if not x_auth_hash:
@@ -575,7 +577,11 @@ def list_all_users(
     if not admin_user or not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    users = db.execute(select(User).order_by(User.created_at.desc())).scalars().all()
+    stmt = select(User).order_by(User.created_at.desc())
+    if q:
+        stmt = stmt.where(User.name.ilike(f"%{q}%"))
+
+    users = db.execute(stmt).scalars().all()
     result = []
     for user in users:
         track_count = (

@@ -1451,6 +1451,15 @@ a {
     height: 100%;
 }
 
+.admin-users-view > .back-btn {
+    align-self: flex-start;
+    width: auto;
+}
+
+.admin-users-search {
+    margin: 1rem 0;
+}
+
 .admin-users-view > .back-btn,
 #page-library > .back-btn {
     align-self: flex-start;
