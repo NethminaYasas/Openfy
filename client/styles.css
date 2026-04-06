@@ -754,7 +754,7 @@ a {
     transition: color 0.2s ease;
 }
 
-.player-btn:hover i {
+.player-btn:hover:not(.play-btn) i {
     color: #fff;
 }
 
@@ -816,7 +816,7 @@ a {
 }
 
 .progress-bar::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #1db954 0%, #1db954 var(--progress, 0%), #4d4d4d var(--progress, 0%), #4d4d4d 100%);
+    background: linear-gradient(to right, #fff 0%, #fff var(--progress, 0%), #4d4d4d var(--progress, 0%), #4d4d4d 100%);
     border-radius: 2px;
     height: 4px;
 }
@@ -848,7 +848,7 @@ a {
 }
 
 .progress-bar::-moz-range-progress {
-    background: #1db954;
+    background: #fff;
     border-radius: 2px;
     height: 4px;
 }
@@ -887,7 +887,7 @@ a {
 }
 
 .progress-bar::-moz-range-progress {
-    background: #1db954;
+    background: #fff;
     border-radius: 2px;
     height: 4px;
 }
