@@ -97,9 +97,6 @@ List tracks in a playlist.
 ### `POST /playlists/{playlist_id}/tracks?track_id=...`
 Add a track to a playlist.
 
-### `DELETE /playlists/{playlist_id}/tracks/{track_id}`
-Remove a track from a playlist.
-
 ## Downloads (Legacy)
 
 The download endpoints exist but the current UI uses **uploads** only. If you enable downloaders,

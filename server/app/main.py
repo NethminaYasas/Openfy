@@ -238,40 +238,6 @@ def get_track(track_id: str, db: Session = Depends(get_db)):
     return track
 
 
-@app.delete("/tracks/{track_id}")
-def delete_track(
-    track_id: str,
-    x_auth_hash: str | None = Header(None),
-    db: Session = Depends(get_db),
-):
-    track = db.get(Track, track_id)
-    if not track:
-        raise HTTPException(status_code=404, detail="Track not found")
-
-    # Check authorization: admin can delete any track, users can delete only their own
-    if x_auth_hash:
-        user = _get_user(db, x_auth_hash)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid auth hash")
-        if not user.is_admin and track.user_hash != user.auth_hash:
-            raise HTTPException(
-                status_code=403, detail="Not authorized to delete this track"
-            )
-    else:
-        # Require authentication for deletion
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    path = Path(track.file_path)
-    if path.exists():
-        path.unlink(missing_ok=True)
-
-    db.execute(delete(PlaylistTrack).where(PlaylistTrack.track_id == track_id))
-    db.delete(track)
-    db.commit()
-
-    return {"status": "deleted"}
-
-
 @app.get("/tracks/{track_id}/artwork")
 def track_artwork(track_id: str, db: Session = Depends(get_db)):
     track = db.get(Track, track_id)
@@ -468,35 +434,6 @@ def add_track_to_playlist(
     db.commit()
     db.refresh(link)
     return link
-
-
-@app.delete("/playlists/{playlist_id}/tracks/{track_id}")
-def remove_track_from_playlist(
-    playlist_id: str,
-    track_id: str,
-    x_auth_hash: str | None = None,
-    db: Session = Depends(get_db),
-):
-    playlist = db.get(Playlist, playlist_id)
-    if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found")
-    if playlist.is_liked:
-        raise HTTPException(status_code=403, detail="Cannot remove from Liked Songs")
-    if x_auth_hash and playlist.user_hash != x_auth_hash:
-        raise HTTPException(status_code=403, detail="Not your playlist")
-
-    link = db.execute(
-        select(PlaylistTrack).where(
-            PlaylistTrack.playlist_id == playlist_id,
-            PlaylistTrack.track_id == track_id,
-        )
-    ).scalar_one_or_none()
-    if not link:
-        raise HTTPException(status_code=404, detail="Track not in playlist")
-
-    db.delete(link)
-    db.commit()
-    return {"status": "removed"}
 
 
 @app.delete("/playlists/{playlist_id}")

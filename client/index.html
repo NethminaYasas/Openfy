@@ -315,7 +315,7 @@
             return canvas;
         }
 
-        function buildTrackCard(track, list, index, showDelete = false) {
+        function buildTrackCard(track, list, index) {
             var card = document.createElement("div");
             card.className = "card";
             var art = createArtCanvas(track.title, track.artist && track.artist.name);
@@ -336,27 +336,6 @@
             info.textContent = (track.artist && track.artist.name ? track.artist.name : "Unknown") + " \u2022 " + formatDuration(track.duration);
             card.appendChild(title);
             card.appendChild(info);
-            
-            if (showDelete) {
-                var deleteBtn = document.createElement("button");
-                deleteBtn.className = "card-delete-btn";
-                deleteBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                deleteBtn.title = "Delete track";
-                deleteBtn.addEventListener("click", async function(e) {
-                    e.stopPropagation();
-                    if (confirm("Delete \"" + track.title + "\"?")) {
-                        try {
-                            await api("/tracks/" + track.id, { method: "DELETE" });
-                            loadUserUploads();
-                            loadTracks();
-                            loadMostPlayed();
-                        } catch (err) {
-                            alert("Failed to delete: " + err.message);
-                        }
-                    }
-                });
-                card.appendChild(deleteBtn);
-            }
             
             card.addEventListener("click", function() { currentQueue = list; currentIndex = index; playTrack(track); });
             return card;
@@ -385,7 +364,7 @@
         function renderUploads(tracks) {
             uploadsGrid.innerHTML = "";
             if (!tracks.length) { uploadsGrid.innerHTML = '<div class="card"><p class="card-title">No uploads yet</p><p class="card-info">Upload a track to see it here</p></div>'; return; }
-            tracks.forEach(function(track, index) { uploadsGrid.appendChild(buildTrackCard(track, tracks, index, true)); });
+            tracks.forEach(function(track, index) { uploadsGrid.appendChild(buildTrackCard(track, tracks, index)); });
         }
 
         async function loadUserUploads() {
@@ -437,9 +416,6 @@
             try { var data = await api("/search?q=" + encodeURIComponent(query) + "&limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
         }
 
-        async function deleteTrack(trackId) {
-            try { await api("/tracks/" + trackId, { method: "DELETE" }); loadTracks(); loadMostPlayed(); } catch (err) { console.error(err); }
-        }
 
         function playTrack(track) {
             currentTrackId = track.id;
@@ -646,12 +622,9 @@
                 tracks.forEach(function(pt, i) {
                     var row = document.createElement("div");
                     row.className = "playlist-track-row";
-                    var removeHtml = pl.is_liked ? "" : '<button class="pt-remove" data-track="' + pt.track.id + '"><i class="fa-solid fa-xmark"></i></button>';
-                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + (pt.track.artist && pt.track.artist.name ? pt.track.artist.name : "Unknown") + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>' + removeHtml;
+                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + (pt.track.artist && pt.track.artist.name ? pt.track.artist.name : "Unknown") + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
                     row.querySelector(".pt-title").addEventListener("click", function() { currentQueue = tracks.map(function(t) { return t.track; }); currentIndex = i; playTrack(pt.track); });
                     row.querySelector(".pt-title").style.cursor = "pointer";
-                    var removeBtn = row.querySelector(".pt-remove");
-                    if (removeBtn) { removeBtn.addEventListener("click", async function(e) { e.stopPropagation(); await api("/playlists/" + playlistId + "/tracks/" + pt.track.id, { method: "DELETE" }); openPlaylist(playlistId); }); }
                     container.appendChild(row);
                 });
                 setActivePage("playlist");
