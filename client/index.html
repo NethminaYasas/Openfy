@@ -295,6 +295,39 @@
         </div>
     </div>
 
+    <!-- User Profile Modal -->
+    <div class="profile-modal-overlay" id="profile-modal-overlay" style="display:none;">
+        <div class="profile-modal">
+            <div class="profile-modal-header">
+                <h2><i class="fa-solid fa-user"></i> User Profile</h2>
+            </div>
+            <div class="profile-modal-content">
+                <div class="profile-info">
+                    <div class="info-row">
+                        <span class="info-label">Username:</span>
+                        <span class="info-value" id="profile-username"></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Auth Hash:</span>
+                        <div class="hash-display">
+                            <code id="profile-auth-hash"></code>
+                            <button class="copy-btn" id="profile-copy-hash-btn" title="Copy to clipboard">
+                                <i class="fa-regular fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Member since:</span>
+                        <span class="info-value" id="profile-member-since"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="profile-modal-footer">
+                <button class="badge" id="profile-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const apiBase = localStorage.getItem("openfy_api") || "";
         let authHash = localStorage.getItem("openfy_auth") || "";
@@ -757,8 +790,7 @@
         document.getElementById("profile-btn").addEventListener("click", function() {
             if (!currentUser) return;
             userDropdown.classList.remove("visible");
-            var info = "Username: " + currentUser.name + "\nAuth Hash: " + currentUser.auth_hash + "\nMember since: " + (currentUser.created_at || "N/A");
-            alert(info);
+            showProfileModal();
         });
 
         document.getElementById("logout-btn").addEventListener("click", function() {
@@ -882,6 +914,51 @@
         hashModalOverlay.addEventListener("click", function(event) {
             if (event.target === hashModalOverlay) {
                 hideHashModal();
+            }
+        });
+
+        // Profile Modal functionality
+        const profileModalOverlay = document.getElementById("profile-modal-overlay");
+        const profileUsername = document.getElementById("profile-username");
+        const profileAuthHash = document.getElementById("profile-auth-hash");
+        const profileMemberSince = document.getElementById("profile-member-since");
+        const profileCopyHashBtn = document.getElementById("profile-copy-hash-btn");
+        const profileCloseBtn = document.getElementById("profile-close-btn");
+
+        function showProfileModal() {
+            if (!currentUser) return;
+            profileUsername.textContent = currentUser.name || "N/A";
+            profileAuthHash.textContent = currentUser.auth_hash || "N/A";
+            profileMemberSince.textContent = currentUser.created_at || "N/A";
+            profileModalOverlay.style.display = "flex";
+        }
+
+        function hideProfileModal() {
+            profileModalOverlay.style.display = "none";
+        }
+
+        function copyProfileHashToClipboard() {
+            const hash = profileAuthHash.textContent;
+            navigator.clipboard.writeText(hash).then(function() {
+                const originalHTML = profileCopyHashBtn.innerHTML;
+                profileCopyHashBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                profileCopyHashBtn.classList.add("copied");
+                setTimeout(function() {
+                    profileCopyHashBtn.innerHTML = originalHTML;
+                    profileCopyHashBtn.classList.remove("copied");
+                }, 2000);
+            }).catch(function(err) {
+                alert("Failed to copy: " + err.message);
+            });
+        }
+
+        profileCopyHashBtn.addEventListener("click", copyProfileHashToClipboard);
+        profileCloseBtn.addEventListener("click", hideProfileModal);
+
+        // Close modal on overlay click
+        profileModalOverlay.addEventListener("click", function(event) {
+            if (event.target === profileModalOverlay) {
+                hideProfileModal();
             }
         });
 

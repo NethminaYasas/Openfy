@@ -1798,4 +1798,106 @@ a {
     margin: 0;
 }
 
+/* User Profile Modal */
+.profile-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    backdrop-filter: blur(4px);
+}
+
+.profile-modal {
+    background: #121212;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 450px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    border: 1px solid #282828;
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+.profile-modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #282828;
+    text-align: center;
+}
+
+.profile-modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.profile-modal-header h2 i {
+    color: #1db954;
+}
+
+.profile-modal-content {
+    padding: 1.5rem;
+}
+
+.profile-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.info-label {
+    font-size: 0.875rem;
+    color: #b3b3b3;
+    font-weight: 500;
+}
+
+.info-value {
+    font-size: 1rem;
+    color: #fff;
+    word-break: break-all;
+}
+
+.profile-modal .hash-display {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #000;
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid #333;
+}
+
+.profile-modal .hash-display code {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #1db954;
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.profile-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #282828;
+    display: flex;
+    justify-content: center;
+}
+
+.profile-modal-footer .badge {
+    min-width: 180px;
+    margin: 0;
+}
+
 
