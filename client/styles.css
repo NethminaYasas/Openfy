@@ -178,6 +178,86 @@ body {
 .np-details {
     text-align: center;
     width: 100%;
+    position: relative;
+}
+
+.player-like-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: transparent;
+    border: 2px solid #727272;
+    color: #b3b3b3;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    margin-left: 0.75rem;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.player-like-btn:hover {
+    border-color: #fff;
+    color: #fff;
+}
+
+.player-like-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    transform: none;
+}
+
+.player-like-btn.liked {
+    border-color: #1db954;
+}
+
+.player-like-btn::before,
+.player-like-btn::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background-color: currentColor;
+    transition: background-color 0.2s ease;
+}
+
+.player-like-btn::before {
+    width: 2px;
+    height: 10px;
+}
+
+.player-like-btn::after {
+    width: 10px;
+    height: 2px;
+}
+
+.player-like-btn:hover::before,
+.player-like-btn:hover::after {
+    background-color: #fff;
+}
+
+.player-like-btn.liked::before,
+.player-like-btn.liked::after {
+    background-color: #1db954;
+}
+
+.player-like-btn.adding::before,
+.player-like-btn.adding::after {
+    animation: pulse 0.4s ease;
+}
+
+/* Hidden by default, shown when track is playing */
+.player-like-btn.hidden {
+    display: none;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
 }
 
 .np-title {

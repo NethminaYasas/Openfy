@@ -480,7 +480,7 @@ def get_download_status(job_id: str, db: Session = Depends(get_db)):
 
 @app.post("/liked/{track_id}")
 def toggle_liked(
-    track_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)
+    track_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
 ):
     if not x_auth_hash:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -518,7 +518,7 @@ def toggle_liked(
 
 @app.get("/liked/{track_id}")
 def is_track_liked(
-    track_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)
+    track_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
 ):
     if not x_auth_hash:
         return {"liked": False}

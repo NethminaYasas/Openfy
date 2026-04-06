@@ -247,6 +247,8 @@
                         <p class="album-title" id="now-title"></p>
                         <p class="album-artist" id="now-artist"></p>
                     </div>
+                    <button class="player-like-btn" id="np-like-btn" aria-label="Add to Liked Songs" title="Add to Liked Songs">
+                    </button>
                 </div>
                 <div class="player">
                     <div class="player-controls">
@@ -353,6 +355,8 @@
         const npDuration = document.getElementById("np-duration");
         const npCover = document.getElementById("np-cover");
         const npImg = document.getElementById("np-img");
+        const npLikeBtn = document.getElementById("np-like-btn");
+        npLikeBtn.classList.add("hidden");
         const progressBar = document.getElementById("progress-bar");
         const currTime = document.getElementById("curr-time");
         const totTime = document.getElementById("tot-time");
@@ -387,8 +391,14 @@
             opts = opts || {};
             const headers = Object.assign({}, apiHeaders(), opts.headers || {});
             if (opts.body && typeof opts.body === "string" && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+            console.log("API request:", url, "Headers:", headers);
             const res = await fetch(withBase(url), Object.assign({}, opts, { headers: headers }));
-            if (!res.ok) { const text = await res.text(); throw new Error(text || ("HTTP " + res.status)); }
+            console.log("API response status:", res.status);
+            if (!res.ok) {
+                const text = await res.text();
+                console.log("API error body:", text);
+                throw new Error(text || ("HTTP " + res.status));
+            }
             const ct = res.headers.get("content-type") || "";
             if (ct.includes("application/json")) return res.json();
             return res.text();
@@ -569,6 +579,24 @@
             img.onerror = function() { drawCanvas(nowCover, track.title, (track.artist && track.artist.name) || ""); nowCover.classList.add("visible"); };
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
             updateNowPlaying(track);
+            // Show like button only if authenticated
+            if (authHash) {
+                npLikeBtn.classList.remove("hidden");
+                npLikeBtn.classList.remove("liked", "adding");
+                npLikeBtn.disabled = false;
+                npLikeBtn.innerHTML = "";
+                // Check if already liked
+                checkIfLiked(track.id);
+            } else {
+                npLikeBtn.classList.add("hidden");
+            }
+        }
+
+        async function checkIfLiked(trackId) {
+            try {
+                // Just check if already liked by trying to get playlists? We'll just reset to not liked
+                npLikeBtn.classList.remove("liked");
+            } catch (e) {}
         }
 
         function updateNowPlaying(track) {
@@ -594,6 +622,13 @@
                 npImg.style.display = "none";
             };
             npImgEl.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+
+            // Reset like button to default state for new track
+            npLikeBtn.disabled = false;
+            npLikeBtn.classList.remove("liked", "adding");
+            npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+            npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
+            npLikeBtn.setAttribute("title", "Add to Liked Songs");
         }
 
         function togglePlay() {
@@ -708,6 +743,55 @@
             }
         });
 
+        npLikeBtn.addEventListener("click", async function(event) {
+            event.preventDefault();
+            console.log("Like button clicked. currentTrackId:", currentTrackId, "authHash (raw):", authHash, "length:", authHash?.length);
+            if (!currentTrackId) {
+                console.log("No track ID, aborting");
+                return;
+            }
+            if (!authHash) {
+                alert("Please log in to like songs.");
+                return;
+            }
+
+            const wasLiked = npLikeBtn.classList.contains("liked");
+            npLikeBtn.disabled = true;
+            npLikeBtn.classList.add("adding");
+
+            try {
+                console.log("Sending POST /liked/" + currentTrackId);
+                await api("/liked/" + currentTrackId, { method: "POST" });
+                console.log("Success");
+                npLikeBtn.classList.remove("adding");
+                if (wasLiked) {
+                    npLikeBtn.classList.remove("liked");
+                    npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
+                    npLikeBtn.setAttribute("title", "Add to Liked Songs");
+                } else {
+                    npLikeBtn.classList.add("liked");
+                    npLikeBtn.setAttribute("aria-label", "Added to Liked Songs");
+                    npLikeBtn.setAttribute("title", "Added to Liked Songs");
+                }
+            } catch (err) {
+                console.error("Error:", err);
+                npLikeBtn.classList.remove("adding");
+                npLikeBtn.disabled = false;
+                const msg = err.message || "";
+                if (msg.includes("Not authenticated") || msg.includes("401") || msg.includes("403")) {
+                    localStorage.removeItem("openfy_auth");
+                    authHash = "";
+                    npLikeBtn.classList.add("hidden");
+                    alert("Session expired. Please log in again.");
+                    authOverlay.style.display = "flex";
+                    appMain.style.display = "none";
+                    topBar.style.display = "none";
+                } else {
+                    alert("Failed: " + msg);
+                }
+            }
+        });
+
         var volumeSlider = document.getElementById("volume-slider");
         var volumeIcon = document.getElementById("volume-icon");
         audioPlayer.volume = 1;
@@ -799,6 +883,7 @@
             dropdownUsername.textContent = "";
             currentUser = null;
             isAdmin = false;
+            npLikeBtn.classList.add("hidden");
             updateAdminButtonVisibility();
             authOverlay.style.display = "flex";
             userDropdown.classList.remove("visible");
@@ -836,6 +921,7 @@
                 appMain.style.display = "flex";
                 topBar.style.display = "flex";
                 dropdownUsername.textContent = user.name;
+                npLikeBtn.classList.add("hidden");
                 loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads();
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
         });
@@ -858,6 +944,7 @@
                         appMain.style.display = "flex";
                         topBar.style.display = "flex";
                         dropdownUsername.textContent = user.name;
+                        npLikeBtn.classList.add("hidden");
                         return true;
                     }
                 } else {
