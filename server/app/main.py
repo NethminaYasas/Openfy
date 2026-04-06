@@ -110,6 +110,20 @@ def _startup():
                 )
                 conn.commit()
 
+            # Clean up orphaned playlist_tracks that reference missing tracks or playlists
+            with engine.connect() as conn2:
+                conn2.execute(
+                    text(
+                        "DELETE FROM playlist_tracks WHERE track_id NOT IN (SELECT id FROM tracks)"
+                    )
+                )
+                conn2.execute(
+                    text(
+                        "DELETE FROM playlist_tracks WHERE playlist_id NOT IN (SELECT id FROM playlists)"
+                    )
+                )
+                conn2.commit()
+
     db = SessionLocal()
     try:
         users = db.execute(select(User)).scalars().all()
@@ -706,9 +720,18 @@ def delete_track(
 
     # Store track info before deletion
     track_title = track.title
+    file_path = track.file_path
 
-    # Delete from database
+    # Delete from database (cascades to playlist_tracks)
     db.delete(track)
     db.commit()
+
+    # Delete file from disk
+    try:
+        p = Path(file_path)
+        if p.exists():
+            p.unlink()
+    except Exception as e:
+        pass  # File deletion failure shouldn't break the response
 
     return {"status": "deleted", "track": track_title}

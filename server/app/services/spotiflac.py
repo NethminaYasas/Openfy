@@ -49,7 +49,7 @@ def _run_download(
             SpotiFLAC(
                 url=query,
                 output_dir=str(settings.downloads_dir),
-                services=["tidal", "qobuz", "amazon", "spoti", "youtube"],
+                services=["tidal", "qobuz", "amazon", "spoti", "apple"],
                 use_artist_subfolders=True,
             )
             ensure_dirs()

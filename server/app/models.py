@@ -76,6 +76,7 @@ class Track(Base):
 
     artist = relationship("Artist", back_populates="tracks")
     album = relationship("Album", back_populates="tracks")
+    playlist_tracks = relationship("PlaylistTrack", back_populates="track", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -115,15 +116,15 @@ class PlaylistTrack(Base):
     __tablename__ = "playlist_tracks"
 
     playlist_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("playlists.id"), primary_key=True
+        String(36), ForeignKey("playlists.id", ondelete="CASCADE"), primary_key=True
     )
     track_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("tracks.id"), primary_key=True
+        String(36), ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True
     )
     position: Mapped[int] = mapped_column(Integer, default=0)
 
     playlist = relationship("Playlist", back_populates="tracks")
-    track = relationship("Track")
+    track = relationship("Track", back_populates="playlist_tracks")
 
 
 class DownloadJob(Base):
