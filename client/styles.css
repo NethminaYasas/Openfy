@@ -1437,6 +1437,10 @@ a {
     padding: 1rem 1.5rem;
 }
 
+#page-library {
+    padding: 1rem 1.5rem;
+}
+
 .admin-dashboard {
     display: block;
 }
@@ -1445,6 +1449,12 @@ a {
     display: none;
     flex-direction: column;
     height: 100%;
+}
+
+.admin-users-view > .back-btn,
+#page-library > .back-btn {
+    align-self: flex-start;
+    width: auto;
 }
 
 .admin-users-view .section {
