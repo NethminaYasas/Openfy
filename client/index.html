@@ -175,7 +175,7 @@
                         <button class="player-btn" id="btn-prev" aria-label="Previous"><i class="fa-solid fa-backward-step"></i></button>
                         <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause"><i class="fa-solid fa-play play-icon"></i><i class="fa-solid fa-pause pause-icon"></i></button>
                         <button class="player-btn" id="btn-next" aria-label="Next"><i class="fa-solid fa-forward-step"></i></button>
-                        <button class="player-btn" id="btn-repeat" aria-label="Repeat"><i class="fa-solid fa-repeat"></i></button>
+                        <button class="player-btn repeat-btn" id="btn-repeat" aria-label="Repeat"><i class="fa-solid fa-repeat"></i><span class="repeat-dot"></span></button>
                     </div>
                     <div class="playback-bar">
                         <span class="curr-time" id="curr-time">00:00</span>
@@ -235,6 +235,10 @@
         const btnPlay = document.getElementById("btn-play");
         const btnPrev = document.getElementById("btn-prev");
         const btnNext = document.getElementById("btn-next");
+        const btnRepeat = document.getElementById("btn-repeat");
+
+        let repeatState = "off";
+        let repeatCount = 0;
 
         let currentQueue = [];
         let currentIndex = -1;
@@ -460,10 +464,15 @@
             if (audioPlayer.paused) { audioPlayer.play().catch(function(err) { console.error(err); }); } else { audioPlayer.pause(); }
         }
 
-        function playByIndex(index) {
+        function playByIndex(index, fromRepeat) {
             if (!currentQueue.length) return;
             var safeIndex = (index + currentQueue.length) % currentQueue.length;
             currentIndex = safeIndex;
+            if (!fromRepeat) {
+                repeatState = "off";
+                repeatCount = 0;
+                btnRepeat.classList.remove("active", "loop-twice");
+            }
             playTrack(currentQueue[safeIndex]);
         }
 
@@ -495,7 +504,27 @@
             updateProgressFill();
         });
 
-        audioPlayer.addEventListener("ended", function() { playByIndex(currentIndex + 1); });
+        audioPlayer.addEventListener("ended", function() {
+            if (repeatState === "loop-once") {
+                repeatState = "off";
+                btnRepeat.classList.remove("active", "loop-twice");
+                playTrack(currentQueue[currentIndex]);
+            } else if (repeatState === "loop-twice") {
+                if (repeatCount < 2) {
+                    repeatCount++;
+                    if (repeatCount >= 2) {
+                        btnRepeat.classList.add("loop-twice");
+                    }
+                    playTrack(currentQueue[currentIndex]);
+                } else {
+                    repeatCount = 0;
+                    btnRepeat.classList.remove("active", "loop-twice");
+                    playByIndex(currentIndex + 1, false);
+                }
+            } else {
+                playByIndex(currentIndex + 1, false);
+            }
+        });
 
         progressBar.addEventListener("input", function() {
             if (audioPlayer.duration) { audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration; updateProgressFill(); }
@@ -513,6 +542,23 @@
         btnPlay.addEventListener("click", function(event) { event.preventDefault(); togglePlay(); });
         btnPrev.addEventListener("click", function(event) { event.preventDefault(); if (audioPlayer.currentTime > 3) { audioPlayer.currentTime = 0; } else { playByIndex(currentIndex - 1); } });
         btnNext.addEventListener("click", function(event) { event.preventDefault(); playByIndex(currentIndex + 1); });
+
+        btnRepeat.addEventListener("click", function(event) {
+            event.preventDefault();
+            if (repeatState === "off") {
+                repeatState = "loop-once";
+                repeatCount = 0;
+                btnRepeat.classList.add("active");
+                btnRepeat.classList.remove("loop-twice");
+            } else if (repeatState === "loop-once") {
+                repeatState = "loop-twice";
+                repeatCount = 0;
+            } else {
+                repeatState = "off";
+                repeatCount = 0;
+                btnRepeat.classList.remove("active", "loop-twice");
+            }
+        });
 
         var volumeSlider = document.getElementById("volume-slider");
         var volumeIcon = document.getElementById("volume-icon");

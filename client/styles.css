@@ -790,6 +790,29 @@ a {
     opacity: 1;
 }
 
+.repeat-btn {
+    position: relative;
+}
+
+.repeat-btn.active i {
+    color: #1db954;
+}
+
+.repeat-btn .repeat-dot {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 6px;
+    height: 6px;
+    background: #1db954;
+    border-radius: 50%;
+    display: none;
+}
+
+.repeat-btn.loop-twice .repeat-dot {
+    display: block;
+}
+
 .playback-bar {
     display: flex;
     align-items: center;
