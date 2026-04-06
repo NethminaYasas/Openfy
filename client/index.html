@@ -198,6 +198,7 @@
         const apiBase = localStorage.getItem("openfy_api") || "";
         let authHash = localStorage.getItem("openfy_auth") || "";
         let currentUser = null;
+        let isAdmin = false;
         let currentPlaylistId = null;
         let userPlaylists = [];
 
@@ -314,7 +315,7 @@
             return canvas;
         }
 
-        function buildTrackCard(track, list, index) {
+        function buildTrackCard(track, list, index, showDelete = false) {
             var card = document.createElement("div");
             card.className = "card";
             var art = createArtCanvas(track.title, track.artist && track.artist.name);
@@ -335,6 +336,28 @@
             info.textContent = (track.artist && track.artist.name ? track.artist.name : "Unknown") + " \u2022 " + formatDuration(track.duration);
             card.appendChild(title);
             card.appendChild(info);
+            
+            if (showDelete) {
+                var deleteBtn = document.createElement("button");
+                deleteBtn.className = "card-delete-btn";
+                deleteBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                deleteBtn.title = "Delete track";
+                deleteBtn.addEventListener("click", async function(e) {
+                    e.stopPropagation();
+                    if (confirm("Delete \"" + track.title + "\"?")) {
+                        try {
+                            await api("/tracks/" + track.id, { method: "DELETE" });
+                            loadUserUploads();
+                            loadTracks();
+                            loadMostPlayed();
+                        } catch (err) {
+                            alert("Failed to delete: " + err.message);
+                        }
+                    }
+                });
+                card.appendChild(deleteBtn);
+            }
+            
             card.addEventListener("click", function() { currentQueue = list; currentIndex = index; playTrack(track); });
             return card;
         }
@@ -362,7 +385,7 @@
         function renderUploads(tracks) {
             uploadsGrid.innerHTML = "";
             if (!tracks.length) { uploadsGrid.innerHTML = '<div class="card"><p class="card-title">No uploads yet</p><p class="card-info">Upload a track to see it here</p></div>'; return; }
-            tracks.forEach(function(track, index) { uploadsGrid.appendChild(buildTrackCard(track, tracks, index)); });
+            tracks.forEach(function(track, index) { uploadsGrid.appendChild(buildTrackCard(track, tracks, index, true)); });
         }
 
         async function loadUserUploads() {
@@ -370,7 +393,11 @@
                 uploadsGrid.innerHTML = '<div class="card"><p class="card-title">Not logged in</p><p class="card-info">Log in to view your uploads</p></div>';
                 return;
             }
-            try { var data = await api("/tracks?limit=24&user_hash=" + encodeURIComponent(authHash)); renderUploads(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
+            try {
+                var url = isAdmin ? "/tracks?limit=24" : "/tracks?limit=24&user_hash=" + encodeURIComponent(authHash);
+                var data = await api(url);
+                renderUploads(Array.isArray(data) ? data : []);
+            } catch (err) { console.error(err); }
         }
 
         async function downloadFromLink() {
@@ -666,6 +693,7 @@
             authHash = "";
             dropdownUsername.textContent = "";
             currentUser = null;
+            isAdmin = false;
             authOverlay.style.display = "flex";
             userDropdown.classList.remove("visible");
             appMain.style.display = "none";
@@ -674,11 +702,19 @@
 
         document.getElementById("signup-btn").addEventListener("click", async function() {
             var name = document.getElementById("signup-name").value.trim();
-            if (!name) { document.getElementById("signup-status").textContent = "Enter a username."; return; }
+            if (!name || !name.trim()) return;
             try {
-                var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name }) });
-                document.getElementById("signup-status").textContent = "Your auth hash: " + user.auth_hash + ". Save it!";
-            } catch (err) { document.getElementById("signup-status").textContent = err.message; }
+                var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
+                authHash = user.auth_hash;
+                currentUser = user;
+                isAdmin = user.is_admin || false;
+                localStorage.setItem("openfy_auth", authHash);
+                authOverlay.style.display = "none";
+                appMain.style.display = "flex";
+                topBar.style.display = "flex";
+                dropdownUsername.textContent = user.name;
+                loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads();
+            } catch (err) { alert("Failed: " + err.message); }
         });
 
         document.getElementById("signin-btn").addEventListener("click", async function() {
@@ -688,6 +724,7 @@
                 var user = await api("/auth/signin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auth_hash: hash }) });
                 authHash = user.auth_hash;
                 currentUser = user;
+                isAdmin = user.is_admin || false;
                 localStorage.setItem("openfy_auth", authHash);
                 authOverlay.style.display = "none";
                 appMain.style.display = "flex";
@@ -709,6 +746,7 @@
                     console.log("Auto-login user:", user);
                     if (user && user.name) {
                         currentUser = user;
+                        isAdmin = user.is_admin || false;
                         authOverlay.style.display = "none";
                         appMain.style.display = "flex";
                         topBar.style.display = "flex";

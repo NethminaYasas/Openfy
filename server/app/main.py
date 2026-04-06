@@ -206,11 +206,26 @@ def list_tracks(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user_hash: str | None = Query(None),
+    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
+
+    # If user_hash is provided, check authorization and filter
     if user_hash:
+        if x_auth_hash:
+            user = _get_user(db, x_auth_hash)
+            if not user:
+                raise HTTPException(status_code=401, detail="Invalid auth hash")
+            # Admin can query any user's tracks; regular users can only query their own
+            if not user.is_admin and user.auth_hash != user_hash:
+                raise HTTPException(
+                    status_code=403, detail="Not authorized to view these tracks"
+                )
+        # If no x_auth_hash (anonymous), allow filter by any user_hash (public)
         stmt = stmt.where(Track.user_hash == user_hash)
+    # If no user_hash, return all tracks (main library) - no filter applied
+
     tracks = db.execute(stmt).scalars().all()
     return tracks
 
@@ -224,10 +239,27 @@ def get_track(track_id: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/tracks/{track_id}")
-def delete_track(track_id: str, db: Session = Depends(get_db)):
+def delete_track(
+    track_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
     track = db.get(Track, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
+
+    # Check authorization: admin can delete any track, users can delete only their own
+    if x_auth_hash:
+        user = _get_user(db, x_auth_hash)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid auth hash")
+        if not user.is_admin and track.user_hash != user.auth_hash:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to delete this track"
+            )
+    else:
+        # Require authentication for deletion
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     path = Path(track.file_path)
     if path.exists():
