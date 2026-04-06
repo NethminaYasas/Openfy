@@ -129,42 +129,51 @@
             </div>
 
             <div class="page" id="page-admin">
-                <button class="back-btn" id="back-to-home"><i class="fa-solid fa-chevron-left"></i></button>
-                <div class="section">
-                    <h2>Admin Panel</h2>
-                    <div class="admin-controls">
-                        <div class="admin-card">
-                            <h3><i class="fa-solid fa-folder-open"></i> Library Management</h3>
-                            <p>Scan your music library to discover new files and update metadata.</p>
-                            <div class="admin-actions">
-                                <button class="badge" id="scan-library-btn">Scan Library</button>
-                                <span class="status" id="scan-status"></span>
+                <div class="admin-dashboard" id="admin-dashboard">
+                    <button class="back-btn" id="back-to-home"><i class="fa-solid fa-chevron-left"></i></button>
+                    <div class="section">
+                        <h2>Admin Panel</h2>
+                        <div class="admin-controls" id="admin-controls">
+                            <div class="admin-card">
+                                <h3><i class="fa-solid fa-folder-open"></i> Library Management</h3>
+                                <p>Scan your music library to discover new files and update metadata.</p>
+                                <div class="admin-actions">
+                                    <button class="badge" id="scan-library-btn">Scan Library</button>
+                                    <span class="status" id="scan-status"></span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="admin-card">
-                            <h3><i class="fa-solid fa-users"></i> User Management</h3>
-                            <p>View and manage system users.</p>
-                            <div class="admin-actions">
-                                <button class="badge" id="view-users-btn">View Users</button>
-                            </div>
-                            <div class="users-table-container" id="users-table-container" style="display:none;">
-                                <table class="users-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Username</th>
-                                            <th>Auth Hash</th>
-                                            <th>Role</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="users-table-body"></tbody>
-                                </table>
+                            <div class="admin-card">
+                                <h3><i class="fa-solid fa-users"></i> User Management</h3>
+                                <p>View and manage system users.</p>
+                                <div class="admin-actions">
+                                    <button class="badge" id="view-users-btn">View Users</button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+                <div class="admin-users-view" id="admin-users-view" style="display:none;">
+                    <button class="back-btn" id="admin-users-back"><i class="fa-solid fa-chevron-left"></i> Back to Dashboard</button>
+                    <div class="section">
+                        <h2>All Users</h2>
+                        <div class="users-table-container" id="users-table-container">
+                            <table class="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>Username</th>
+                                        <th>Auth Hash</th>
+                                        <th>Role</th>
+                                        <th>Songs</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+             </div>
+         </div>
 
         <div class="now-playing-panel">
             <div class="np-content" id="np-content">
@@ -860,6 +869,11 @@
         // Admin button click handler
         adminBtn.addEventListener("click", function() {
             userDropdown.classList.remove("visible");
+            // Reset admin views
+            if (adminDashboard && adminUsersView) {
+                adminDashboard.style.display = "block";
+                adminUsersView.style.display = "none";
+            }
             setActivePage("admin");
         });
 
@@ -896,20 +910,21 @@
                     return;
                 }
 
-                users.forEach(user => {
-                    const row = document.createElement("tr");
-                    row.innerHTML = `
-                        <td>${user.name}${user.auth_hash === currentUser?.auth_hash ? ' (You)' : ''}</td>
-                        <td><code class="user-hash" title="${user.auth_hash}">${user.auth_hash}</code></td>
-                        <td><span class="user-role ${user.is_admin ? 'admin' : 'user'}">${user.is_admin ? 'Admin' : 'User'}</span></td>
-                        <td>
-                            <button class="btn-delete" data-user-hash="${user.auth_hash}" ${user.auth_hash === currentUser?.auth_hash ? 'disabled' : ''}>
-                                Delete
-                            </button>
-                        </td>
-                    `;
-                    tableBody.appendChild(row);
-                });
+                 users.forEach(user => {
+                     const row = document.createElement("tr");
+                     row.innerHTML = `
+                         <td>${user.name}${user.auth_hash === currentUser?.auth_hash ? ' (You)' : ''}</td>
+                         <td><code class="user-hash" title="${user.auth_hash}">${user.auth_hash}</code></td>
+                         <td><span class="user-role ${user.is_admin ? 'admin' : 'user'}">${user.is_admin ? 'Admin' : 'User'}</span></td>
+                         <td>${user.uploaded_tracks_count || 0}</td>
+                         <td>
+                             <button class="btn-delete" data-user-hash="${user.auth_hash}" ${user.auth_hash === currentUser?.auth_hash ? 'disabled' : ''}>
+                                 Delete
+                             </button>
+                         </td>
+                     `;
+                     tableBody.appendChild(row);
+                 });
 
                 // Add delete event listeners
                 tableBody.querySelectorAll(".btn-delete").forEach(btn => {
@@ -941,7 +956,22 @@
 
         // Add event listeners for admin actions after DOM is fully loaded
         document.getElementById("scan-library-btn")?.addEventListener("click", scanLibrary);
-        document.getElementById("view-users-btn")?.addEventListener("click", loadUsersList);
+        
+        const viewUsersBtn = document.getElementById("view-users-btn");
+        const adminDashboard = document.getElementById("admin-dashboard");
+        const adminUsersView = document.getElementById("admin-users-view");
+        const adminUsersBack = document.getElementById("admin-users-back");
+        
+        viewUsersBtn?.addEventListener("click", function() {
+            adminDashboard.style.display = "none";
+            adminUsersView.style.display = "flex";
+            loadUsersList();
+        });
+        
+        adminUsersBack?.addEventListener("click", function() {
+            adminUsersView.style.display = "none";
+            adminDashboard.style.display = "block";
+        });
 
         clearCanvas(nowCover);
         (async function() {

@@ -576,7 +576,23 @@ def list_all_users(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     users = db.execute(select(User).order_by(User.created_at.desc())).scalars().all()
-    return users
+    result = []
+    for user in users:
+        track_count = (
+            db.execute(select(Track).where(Track.user_hash == user.auth_hash))
+            .scalars()
+            .all()
+        )
+        user_data = {
+            "id": user.id,
+            "name": user.name,
+            "auth_hash": user.auth_hash,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at,
+            "uploaded_tracks_count": len(track_count),
+        }
+        result.append(user_data)
+    return result
 
 
 @app.delete("/admin/users/{user_hash}")
