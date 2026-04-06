@@ -813,6 +813,10 @@ a {
     display: block;
 }
 
+#btn-shuffle.active i {
+    color: #1db954;
+}
+
 .playback-bar {
     display: flex;
     align-items: center;

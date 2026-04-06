@@ -239,6 +239,7 @@
 
         let repeatState = "off";
         let repeatCount = 0;
+        let shuffle = false;
 
         let currentQueue = [];
         let currentIndex = -1;
@@ -473,7 +474,11 @@
                 repeatCount = 0;
                 btnRepeat.classList.remove("active", "loop-twice");
             }
-            playTrack(currentQueue[safeIndex]);
+            if (shuffle && !fromRepeat) {
+                var randIndex = Math.floor(Math.random() * currentQueue.length);
+                currentIndex = randIndex;
+            }
+            playTrack(currentQueue[currentIndex]);
         }
 
         audioPlayer.addEventListener("loadedmetadata", function() { totTime.textContent = formatDuration(audioPlayer.duration); });
@@ -542,6 +547,13 @@
         btnPlay.addEventListener("click", function(event) { event.preventDefault(); togglePlay(); });
         btnPrev.addEventListener("click", function(event) { event.preventDefault(); if (audioPlayer.currentTime > 3) { audioPlayer.currentTime = 0; } else { playByIndex(currentIndex - 1); } });
         btnNext.addEventListener("click", function(event) { event.preventDefault(); playByIndex(currentIndex + 1); });
+
+        var btnShuffle = document.getElementById("btn-shuffle");
+        btnShuffle.addEventListener("click", function(event) {
+            event.preventDefault();
+            shuffle = !shuffle;
+            btnShuffle.classList.toggle("active", shuffle);
+        });
 
         btnRepeat.addEventListener("click", function(event) {
             event.preventDefault();
