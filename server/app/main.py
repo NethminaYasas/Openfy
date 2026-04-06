@@ -438,14 +438,20 @@ def add_track_to_playlist(
 
 @app.delete("/playlists/{playlist_id}")
 def delete_playlist(
-    playlist_id: str, x_auth_hash: str | None = None, db: Session = Depends(get_db)
+    playlist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
 ):
+    """Delete a playlist (owner only, admins cannot delete others' playlists)"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
     if playlist.is_liked:
         raise HTTPException(status_code=403, detail="Cannot delete Liked Songs")
-    if x_auth_hash and playlist.user_hash != x_auth_hash:
+    if playlist.user_hash != x_auth_hash:
         raise HTTPException(status_code=403, detail="Not your playlist")
 
     db.delete(playlist)
@@ -636,3 +642,73 @@ def delete_user(
     db.delete(user)
     db.commit()
     return {"status": "deleted", "user": user.name}
+
+
+@app.get("/admin/tracks")
+def list_all_tracks(
+    q: str | None = Query(None),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """List all tracks with user info (admin only)"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    admin_user = _get_user(db, x_auth_hash)
+    if not admin_user or not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    stmt = select(Track).order_by(Track.created_at.desc())
+    if q:
+        stmt = (
+            stmt.where(
+                (Track.title.ilike(f"%{q}%"))
+                | (Artist.name.ilike(f"%{q}%"))
+                | (Album.title.ilike(f"%{q}%"))
+            )
+            .join(Artist, isouter=True)
+            .join(Album, isouter=True)
+        )
+
+    tracks = db.execute(stmt).scalars().all()
+    result = []
+    for track in tracks:
+        user = db.execute(
+            select(User).where(User.auth_hash == track.user_hash)
+        ).scalar_one_or_none()
+        result.append(
+            {
+                "id": track.id,
+                "title": track.title,
+                "artist_name": track.artist.name if track.artist else "Unknown",
+                "user_name": user.name if user else "Unclaimed",
+                "user_hash": track.user_hash,
+                "duration": track.duration,
+                "play_count": track.play_count,
+            }
+        )
+    return result
+
+
+@app.delete("/admin/tracks/{track_id}")
+def delete_track(
+    track_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
+):
+    """Delete a track (admin only)"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    admin_user = _get_user(db, x_auth_hash)
+    if not admin_user or not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    # Store track info before deletion
+    track_title = track.title
+
+    # Delete from database
+    db.delete(track)
+    db.commit()
+
+    return {"status": "deleted", "track": track_title}

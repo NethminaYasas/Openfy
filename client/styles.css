@@ -1451,12 +1451,33 @@ a {
     height: 100%;
 }
 
-.admin-users-view > .back-btn {
+.admin-library-view {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+}
+
+.admin-users-view > .back-btn,
+.admin-library-view > .back-btn,
+#page-library > .back-btn {
     align-self: flex-start;
     width: auto;
 }
 
-.admin-users-search {
+.admin-users-search,
+.admin-library-search {
+    margin: 1rem 0;
+}
+
+.admin-users-view > .back-btn,
+.admin-library-view > .back-btn,
+#page-library > .back-btn {
+    align-self: flex-start;
+    width: auto;
+}
+
+.admin-users-search,
+.admin-library-search {
     margin: 1rem 0;
 }
 
