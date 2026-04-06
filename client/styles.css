@@ -198,7 +198,7 @@ body {
     position: relative;
 }
 
-.player-like-btn:hover {
+.player-like-btn:hover:not(.liked) {
     border-color: #fff;
     color: #fff;
 }
@@ -210,7 +210,22 @@ body {
 }
 
 .player-like-btn.liked {
-    border-color: #1db954;
+    border: none;
+    color: #1db954;
+}
+
+.player-like-btn.liked::before,
+.player-like-btn.liked::after {
+    display: none;
+}
+
+.player-like-btn i {
+    font-size: 14px;
+    z-index: 1;
+}
+
+.player-like-btn.liked i {
+    color: #1db954;
 }
 
 .player-like-btn::before,

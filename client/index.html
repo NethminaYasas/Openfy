@@ -593,10 +593,28 @@
         }
 
         async function checkIfLiked(trackId) {
+            if (!authHash) {
+                npLikeBtn.classList.add("hidden");
+                return;
+            }
             try {
-                // Just check if already liked by trying to get playlists? We'll just reset to not liked
+                const res = await api("/liked/" + trackId);
+                if (res.liked) {
+                    npLikeBtn.classList.add("liked");
+                    npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                    npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
+                    npLikeBtn.setAttribute("title", "Remove from Liked Songs");
+                } else {
+                    npLikeBtn.classList.remove("liked");
+                    npLikeBtn.innerHTML = "";
+                    npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
+                    npLikeBtn.setAttribute("title", "Add to Liked Songs");
+                }
+            } catch (e) {
+                console.error("checkIfLiked error:", e);
                 npLikeBtn.classList.remove("liked");
-            } catch (e) {}
+                npLikeBtn.innerHTML = "";
+            }
         }
 
         function updateNowPlaying(track) {
@@ -745,11 +763,7 @@
 
         npLikeBtn.addEventListener("click", async function(event) {
             event.preventDefault();
-            console.log("Like button clicked. currentTrackId:", currentTrackId, "authHash (raw):", authHash, "length:", authHash?.length);
-            if (!currentTrackId) {
-                console.log("No track ID, aborting");
-                return;
-            }
+            if (!currentTrackId) return;
             if (!authHash) {
                 alert("Please log in to like songs.");
                 return;
@@ -760,21 +774,23 @@
             npLikeBtn.classList.add("adding");
 
             try {
-                console.log("Sending POST /liked/" + currentTrackId);
                 await api("/liked/" + currentTrackId, { method: "POST" });
-                console.log("Success");
                 npLikeBtn.classList.remove("adding");
                 if (wasLiked) {
+                    // Unliked: now show plus
                     npLikeBtn.classList.remove("liked");
+                    npLikeBtn.innerHTML = "";
                     npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
                     npLikeBtn.setAttribute("title", "Add to Liked Songs");
                 } else {
+                    // Liked: show heart
                     npLikeBtn.classList.add("liked");
-                    npLikeBtn.setAttribute("aria-label", "Added to Liked Songs");
-                    npLikeBtn.setAttribute("title", "Added to Liked Songs");
+                    npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                    npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
+                    npLikeBtn.setAttribute("title", "Remove from Liked Songs");
                 }
+                npLikeBtn.disabled = false;
             } catch (err) {
-                console.error("Error:", err);
                 npLikeBtn.classList.remove("adding");
                 npLikeBtn.disabled = false;
                 const msg = err.message || "";

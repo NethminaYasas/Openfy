@@ -176,16 +176,29 @@ For buttons that trigger async actions (like, follow, add), use a three‑state 
     position: absolute;
     background-color: currentColor;
     transition: background-color 0.2s ease;
+.player-like-btn.liked {
+    border-color: #1db954; color: #1db954;
 }
-.player-like-btn::before { width: 2px; height: 10px; } /* vertical */
-.player-like-btn::after  { width: 10px; height: 2px; } /* horizontal */
 .player-like-btn.liked::before,
 .player-like-btn.liked::after {
-    background-color: #1db954;
+    display: none; /* hide plus lines when showing heart */
+}
+.player-like-btn i {
+    font-size: 14px; z-index: 1;
+}
+.player-like-btn.liked i {
+    color: #1db954; /* ensure heart is green */
 }
 .player-like-btn.adding::before,
 .player-like-btn.adding::after {
     animation: pulse 0.4s ease;
+}
+
+/* Centering for CSS icons */
+.player-like-btn::before,
+.player-like-btn::after {
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
 }
 @keyframes pulse {
     0% { transform: scale(1); }
@@ -201,14 +214,51 @@ For buttons that trigger async actions (like, follow, add), use a three‑state 
 </button>
 ```
 
-**JavaScript handler:**
+**JavaScript: Check liked status on play**
 ```javascript
-const btn = document.getElementById("np-like-btn");
-btn.addEventListener("click", async function(event) {
-    event.preventDefault();
-    if (!currentTrackId || !authHash) return;
+// In playTrack() after setting currentTrackId and showing button:
+if (authHash) {
+    npLikeBtn.classList.remove("hidden", "liked", "adding");
+    npLikeBtn.disabled = false;
+    npLikeBtn.innerHTML = "";
+    await checkIfLiked(currentTrackId);
+} else {
+    npLikeBtn.classList.add("hidden");
+}
 
-    const wasLiked = btn.classList.contains("liked");
+async function checkIfLiked(trackId) {
+    if (!authHash) return;
+    try {
+        const res = await api("/liked/" + trackId); // GET
+        if (res.liked) {
+            npLikeBtn.classList.add("liked");
+            npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+            npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
+            npLikeBtn.setAttribute("title", "Remove from Liked Songs");
+        } else {
+            npLikeBtn.classList.remove("liked");
+            npLikeBtn.innerHTML = "";
+            npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
+            npLikeBtn.setAttribute("title", "Add to Liked Songs");
+        }
+    } catch (e) {
+        npLikeBtn.classList.remove("liked");
+        npLikeBtn.innerHTML = "";
+    }
+}
+```
+
+**Click handler: toggle**
+```javascript
+npLikeBtn.addEventListener("click", async function(event) {
+    event.preventDefault();
+    if (!currentTrackId) return;
+    if (!authHash) {
+        alert("Please log in to like songs.");
+        return;
+    }
+
+    const wasLiked = npLikeBtn.classList.contains("liked");
     btn.disabled = true;
     btn.classList.add("adding");
 
@@ -217,31 +267,36 @@ btn.addEventListener("click", async function(event) {
         btn.classList.remove("adding");
         if (wasLiked) {
             btn.classList.remove("liked");
+            btn.innerHTML = "";
             btn.setAttribute("aria-label", "Add to Liked Songs");
             btn.setAttribute("title", "Add to Liked Songs");
         } else {
             btn.classList.add("liked");
-            btn.setAttribute("aria-label", "Added to Liked Songs");
-            btn.setAttribute("title", "Added to Liked Songs");
+            btn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+            btn.setAttribute("aria-label", "Remove from Liked Songs");
+            btn.setAttribute("title", "Remove from Liked Songs");
         }
     } catch (err) {
         btn.classList.remove("adding");
         btn.disabled = false;
-        alert("Failed: " + err.message);
+        const msg = err.message || "";
+        if (msg.includes("Not authenticated") || msg.includes("401") || msg.includes("403")) {
+            // Force logout on 401
+            localStorage.removeItem("openfy_auth");
+            authHash = "";
+            npLikeBtn.classList.add("hidden");
+            alert("Session expired. Please log in again.");
+            authOverlay.style.display = "flex";
+            appMain.style.display = "none";
+            topBar.style.display = "none";
+        } else {
+            alert("Failed: " + msg);
+        }
     }
 });
 ```
 
-**Show/hide per player state:**
-```javascript
-// Init: hide
-npLikeBtn.classList.add("hidden");
-
-// In playTrack(): show and reset
-npLikeBtn.classList.remove("hidden", "liked", "adding");
-npLikeBtn.disabled = false;
-npLikeBtn.innerHTML = "";
-```
+**Note:** Backend `x-auth-hash` header must be declared with `Header(None)` in FastAPI for `/liked/{track_id}` endpoints (both POST and GET). Without it, the header is ignored and auth fails.
 
 ### CSS-Drawn Icons
 
