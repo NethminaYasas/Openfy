@@ -561,3 +561,56 @@ def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
     return user
+
+
+# Admin endpoints
+@app.get("/admin/users")
+def list_all_users(
+    x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
+):
+    """List all users (admin only)"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    admin_user = _get_user(db, x_auth_hash)
+    if not admin_user or not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    users = db.execute(select(User).order_by(User.created_at.desc())).scalars().all()
+    return users
+
+
+@app.delete("/admin/users/{user_hash}")
+def delete_user(
+    user_hash: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Delete a user and their data (admin only, cannot delete self)"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    admin_user = _get_user(db, x_auth_hash)
+    if not admin_user or not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Prevent self-deletion
+    if user_hash == admin_user.auth_hash:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    user = db.execute(
+        select(User).where(User.auth_hash == user_hash)
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Delete user's playlists first (cascade may not work for all DBs)
+    db.execute(delete(Playlist).where(Playlist.user_hash == user_hash))
+    # Delete user's tracks from database (files remain)
+    # Note: We don't delete actual files to prevent accidental data loss
+    db.execute(
+        text("UPDATE tracks SET user_hash = NULL WHERE user_hash = :hash"),
+        {"hash": user_hash},
+    )
+
+    db.delete(user)
+    db.commit()
+    return {"status": "deleted", "user": user.name}

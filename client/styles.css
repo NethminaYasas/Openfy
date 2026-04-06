@@ -1432,4 +1432,308 @@ a {
     text-align: right;
 }
 
+/* Admin page styles */
+.page#page-admin {
+    padding: 1rem 1.5rem;
+}
+
+.admin-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.admin-card {
+    background-color: #232323;
+    border-radius: 8px;
+    padding: 1.5rem;
+    border-left: 4px solid #1db954;
+}
+
+.admin-card h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.admin-card h3 i {
+    color: #1db954;
+    font-size: 1.5rem;
+}
+
+.admin-card p {
+    color: #b3b3b3;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.admin-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.admin-actions .badge {
+    margin-top: 0;
+}
+
+.admin-actions .status {
+    margin-top: 0;
+    font-size: 0.85rem;
+    color: #b3b3b3;
+}
+
+.users-table-container {
+    margin-top: 1rem;
+    background: #282828;
+    border-radius: 6px;
+    overflow: hidden;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.users-table thead {
+    background: #333;
+    position: sticky;
+    top: 0;
+}
+
+.users-table th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #fff;
+    border-bottom: 1px solid #404040;
+}
+
+.users-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #404040;
+    color: #b3b3b3;
+}
+
+.users-table tbody tr:hover {
+    background: #333;
+}
+
+.users-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.user-hash {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: #727272;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-role {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.user-role.admin {
+    background: #f39c12;
+    color: #000;
+}
+
+.user-role.user {
+    background: #1db954;
+    color: #000;
+}
+
+.btn-delete {
+    background: #e74c3c;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.btn-delete:hover {
+    background: #c0392b;
+}
+
+.btn-delete:disabled {
+    background: #666;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Admin dropdown item styling */
+#admin-btn {
+    color: #ffd700 !important;
+}
+
+#admin-btn i {
+    color: #ffd700 !important;
+}
+
+#admin-btn:hover {
+    background: rgba(255, 215, 0, 0.1);
+}
+
+/* User Hash Modal */
+.hash-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    backdrop-filter: blur(4px);
+}
+
+.hash-modal {
+    background: #121212;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    border: 1px solid #282828;
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.hash-modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #282828;
+    text-align: center;
+}
+
+.hash-modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.hash-modal-header h2 i {
+    color: #1db954;
+}
+
+.hash-modal-subtitle {
+    font-size: 0.875rem;
+    color: #b3b3b3;
+}
+
+.hash-modal-content {
+    padding: 1.5rem;
+}
+
+.hash-display {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #000;
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid #333;
+    margin-bottom: 1rem;
+}
+
+.hash-display code {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #1db954;
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.copy-btn {
+    background: #1db954;
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    transition: background 0.15s ease, transform 0.1s ease;
+    flex-shrink: 0;
+}
+
+.copy-btn:hover {
+    background: #1ed760;
+    transform: scale(1.02);
+}
+
+.copy-btn:active {
+    transform: scale(0.98);
+}
+
+.copy-btn.copied {
+    background: #27ae60;
+    color: #fff;
+}
+
+.hash-warning {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #f39c12;
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: rgba(243, 156, 18, 0.1);
+    border-radius: 6px;
+    border-left: 3px solid #f39c12;
+}
+
+.hash-warning i {
+    font-size: 1rem;
+}
+
+.hash-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #282828;
+    display: flex;
+    justify-content: center;
+}
+
+.hash-modal-footer .badge {
+    min-width: 180px;
+    margin: 0;
+}
+
 
