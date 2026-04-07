@@ -105,12 +105,3 @@ def queue_download(
     thread.start()
 
     return job
-
-    thread = threading.Thread(
-        target=_run_download,
-        args=(job.id, query, settings.database_url, user_hash),
-        daemon=True,
-    )
-    thread.start()
-
-    return job

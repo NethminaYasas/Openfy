@@ -34,6 +34,7 @@ from .schemas import (
     UserSignup,
     UserSignin,
     UserOut,
+    UserOutPublic,
 )
 from .settings import settings
 from .services.storage import ensure_dirs
@@ -103,6 +104,16 @@ def _startup():
             if "pinned" not in pcols:
                 conn.execute(
                     text("ALTER TABLE playlists ADD COLUMN pinned INTEGER DEFAULT 0")
+                )
+                conn.commit()
+
+            djcols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(download_jobs)")).fetchall()
+            ]
+            if "user_hash" not in djcols:
+                conn.execute(
+                    text("ALTER TABLE download_jobs ADD COLUMN user_hash VARCHAR(64)")
                 )
                 conn.commit()
 
@@ -212,9 +223,20 @@ def serve_index():
 
 
 @app.post("/library/scan")
-def scan_library(path: str | None = None, db: Session = Depends(get_db)):
+def scan_library(
+    path: str | None = None,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user or not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     if path:
-        target = Path(path)
+        target = Path(path).resolve()
+        if not str(target).startswith(str(settings.music_dir)):
+            raise HTTPException(status_code=403, detail="Path outside music directory")
         if not target.exists():
             raise HTTPException(status_code=404, detail="Path not found")
         return scan_paths(db, [target])
@@ -231,18 +253,18 @@ def list_tracks(
 ):
     stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
 
-    # If user_hash is provided, check authorization and filter
+    # If user_hash is provided, require auth and check authorization
     if user_hash:
-        if x_auth_hash:
-            user = _get_user(db, x_auth_hash)
-            if not user:
-                raise HTTPException(status_code=401, detail="Invalid auth hash")
-            # Admin can query any user's tracks; regular users can only query their own
-            if not user.is_admin and user.auth_hash != user_hash:
-                raise HTTPException(
-                    status_code=403, detail="Not authorized to view these tracks"
-                )
-        # If no x_auth_hash (anonymous), allow filter by any user_hash (public)
+        if not x_auth_hash:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        user = _get_user(db, x_auth_hash)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid auth hash")
+        # Admin can query any user's tracks; regular users can only query their own
+        if not user.is_admin and user.auth_hash != user_hash:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to view these tracks"
+            )
         stmt = stmt.where(Track.user_hash == user_hash)
     # If no user_hash, return all tracks (main library) - no filter applied
 
@@ -265,9 +287,11 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Artwork not found")
     if not track.album.artwork_path:
         raise HTTPException(status_code=404, detail="Artwork not found")
-    path = Path(track.album.artwork_path)
+    path = Path(track.album.artwork_path).resolve()
     if not path.exists():
         raise HTTPException(status_code=404, detail="Artwork not found")
+    if not str(path).startswith(str(settings.artwork_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
     return FileResponse(path)
 
 
@@ -385,10 +409,15 @@ def create_playlist(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     playlist = Playlist(
         name=payload.name,
         description=payload.description,
-        user_hash=x_auth_hash or "",
+        user_hash=user.auth_hash,
     )
     db.add(playlist)
     db.commit()
@@ -397,7 +426,16 @@ def create_playlist(
 
 
 @app.get("/playlists/{playlist_id}", response_model=PlaylistOut)
-def get_playlist(playlist_id: str, db: Session = Depends(get_db)):
+def get_playlist(
+    playlist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
@@ -433,7 +471,16 @@ def update_playlist(
 
 
 @app.get("/playlists/{playlist_id}/tracks", response_model=List[PlaylistTrackOut])
-def list_playlist_tracks(playlist_id: str, db: Session = Depends(get_db)):
+def list_playlist_tracks(
+    playlist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
@@ -449,14 +496,19 @@ def list_playlist_tracks(playlist_id: str, db: Session = Depends(get_db)):
 def add_track_to_playlist(
     playlist_id: str,
     track_id: str,
-    x_auth_hash: str | None = None,
+    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     playlist = db.get(Playlist, playlist_id)
     track = db.get(Track, track_id)
     if not playlist or not track:
         raise HTTPException(status_code=404, detail="Playlist or track not found")
-    if x_auth_hash and playlist.user_hash != x_auth_hash:
+    if playlist.user_hash != x_auth_hash and not user.is_admin:
         raise HTTPException(status_code=403, detail="Not your playlist")
     if playlist.is_liked:
         raise HTTPException(
@@ -517,16 +569,32 @@ def create_download(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     from .services.spotiflac import queue_download
 
-    return queue_download(db, payload.query, payload.source or "auto", x_auth_hash)
+    return queue_download(db, payload.query, payload.source or "auto", user.auth_hash)
 
 
 @app.get("/downloads/{job_id}", response_model=DownloadJobOut)
-def get_download_status(job_id: str, db: Session = Depends(get_db)):
+def get_download_status(
+    job_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     job = db.get(DownloadJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Download job not found")
+    if job.user_hash != x_auth_hash and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Not your download job")
     return job
 
 
@@ -573,10 +641,10 @@ def is_track_liked(
     track_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
 ):
     if not x_auth_hash:
-        return {"liked": False}
+        raise HTTPException(status_code=401, detail="Not authenticated")
     user = _get_user(db, x_auth_hash)
     if not user:
-        return {"liked": False}
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
     liked = _ensure_liked_songs(db, user.auth_hash)
     existing = db.execute(
         select(PlaylistTrack).where(
@@ -611,7 +679,7 @@ def signin(payload: UserSignin, db: Session = Depends(get_db)):
     return user
 
 
-@app.get("/auth/me")
+@app.get("/auth/me", response_model=UserOut)
 def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     if not x_auth_hash:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -650,7 +718,6 @@ def list_all_users(
         user_data = {
             "id": user.id,
             "name": user.name,
-            "auth_hash": user.auth_hash,
             "is_admin": user.is_admin,
             "created_at": user.created_at,
             "uploaded_tracks_count": len(track_count),

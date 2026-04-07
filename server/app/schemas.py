@@ -37,7 +37,6 @@ class TrackBase(BaseModel):
 
 class TrackOut(TrackBase):
     id: str
-    file_path: str
     file_size: int | None = None
     duration: float | None = None
     mime_type: str | None = None
@@ -47,7 +46,6 @@ class TrackOut(TrackBase):
     track_no: int | None = None
     disc_no: int | None = None
     play_count: int = 0
-    user_hash: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -56,6 +54,11 @@ class TrackOut(TrackBase):
 
     class Config:
         from_attributes = True
+
+
+class TrackOutAdmin(TrackOut):
+    """Track schema with file_path — ONLY for admin responses"""
+    file_path: str
 
 
 class PlaylistCreate(BaseModel):
@@ -72,7 +75,6 @@ class PlaylistOut(BaseModel):
     id: str
     name: str
     description: str | None = None
-    user_hash: str | None = None
     is_liked: bool = False
     pinned: bool = False
     created_at: datetime
@@ -90,8 +92,19 @@ class UserSignin(BaseModel):
 
 
 class UserOut(BaseModel):
+    """User schema with auth_hash — ONLY for signup/signin responses"""
     name: str
     auth_hash: str
+    is_admin: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserOutPublic(BaseModel):
+    """User schema without auth_hash — for /auth/me and all other user responses"""
+    name: str
     is_admin: bool = False
     created_at: datetime
 
