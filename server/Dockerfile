@@ -13,6 +13,9 @@ COPY server/app /app/app
 COPY client /app/client
 COPY server/.env.example /app/.env
 
+# Copy Apple Music downloader into the installed SpotiFLAC package
+COPY server/SpotiFLAC /usr/local/lib/python3.11/site-packages/SpotiFLAC
+
 ENV OPENFY_ENV=prod
 ENV OPENFY_DATA_DIR=/data
 ENV OPENFY_MUSIC_DIR=/data/music
