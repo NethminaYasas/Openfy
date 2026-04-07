@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import logging
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -9,6 +10,8 @@ from ..models import DownloadJob
 from ..settings import settings
 from .storage import ensure_dirs, is_audio_file, store_upload
 from .library import scan_paths
+
+logger = logging.getLogger(__name__)
 
 
 def _append_log(job: DownloadJob, text: str) -> None:
@@ -46,36 +49,87 @@ def _run_download(
         try:
             from SpotiFLAC import SpotiFLAC
 
+            ensure_dirs()
+
+            logger.info(
+                "SpotiFLAC downloading %s to %s", query, settings.downloads_dir
+            )
+            _append_log(job, f"Starting download to {settings.downloads_dir}")
+
+            files_before = set(
+                p for p in settings.downloads_dir.rglob("*") if p.is_file()
+            )
+
+            # Try tidal first (lossless), fall back to youtube (universal coverage)
             SpotiFLAC(
                 url=query,
                 output_dir=str(settings.downloads_dir),
-                services=["tidal", "qobuz", "amazon", "spoti", "apple"],
-                use_artist_subfolders=True,
+                services=["tidal", "youtube"],
+                use_artist_subfolders=False,
+                filename_format="{title} - {artist}",
             )
-            ensure_dirs()
-            moved_files = []
-            for file in settings.downloads_dir.rglob("*"):
-                if file.is_file() and is_audio_file(file):
-                    _append_log(job, f"Found: {file.name}")
-                    moved_files.append(store_upload(file, settings.music_dir))
+
+            _append_log(job, "Download process finished, scanning for audio files")
+
+            # Retry scan a few times for slow downloads
+            import time
+            for attempt in range(6):
+                time.sleep(5)
+                moved_files = []
+                for file in settings.downloads_dir.rglob("*"):
+                    if file.is_file() and is_audio_file(file):
+                        _append_log(job, f"Found audio: {file.name}")
+                        moved_files.append(store_upload(file, settings.music_dir))
+
+                if moved_files:
+                    break
+
+                files_after = set(
+                    p for p in settings.downloads_dir.rglob("*") if p.is_file()
+                )
+                new_files = files_after - files_before
+                if not new_files and attempt < 5:
+                    _append_log(job, f"Waiting for download to complete... (attempt {attempt + 1})")
+                    continue
+                elif new_files and attempt < 5:
+                    _append_log(job, f"Waiting for download to complete... found temp files (attempt {attempt + 1})")
+                    continue
+
             _append_log(job, f"Moved {len(moved_files)} files to library")
-            if moved_files:
-                scan_paths(db, moved_files, user_hash=user_hash)
-                _append_log(job, "Scan complete")
-            else:
+
+            if not moved_files:
+                files_after = set(
+                    p for p in settings.downloads_dir.rglob("*") if p.is_file()
+                )
+                new_files = files_after - files_before
+                if new_files:
+                    _append_log(
+                        job,
+                        f"Non-audio files created: {', '.join(f.name for f in new_files)}",
+                    )
                 _append_log(
                     job,
-                    "No audio files found in downloads dir, scanning music dir directly",
+                    "No audio files downloaded - check the URL.",
                 )
-                scan_paths(db, [settings.music_dir], user_hash=user_hash)
+                job.status = "failed"
+                job.log = (
+                    job.log or ""
+                ) + "\nNo audio files found."
+                db.commit()
+                return
+
+            scan_paths(db, moved_files, user_hash=user_hash)
+            _append_log(job, "Scan complete - track(s) added to library")
             job.status = "completed"
-            job.output_path = str(settings.downloads_dir)
+            job.output_path = str(settings.music_dir)
             job.source = "spotiflac"
+
         except ImportError:
             _append_log(job, "SpotiFLAC not installed. Run: pip install SpotiFLAC")
             job.status = "failed"
         except Exception as e:
-            _append_log(job, str(e))
+            logger.exception("Download failed for job %s", job_id)
+            _append_log(job, f"Error: {e}")
             job.status = "failed"
 
         db.commit()
