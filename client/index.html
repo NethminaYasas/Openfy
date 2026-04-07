@@ -102,7 +102,12 @@
                         <input id="download-url" type="text" placeholder="Paste Apple Music/Spotify link" autocomplete="off" />
                         <button class="badge" id="download-button">Upload</button>
                     </div>
-                    <p class="status" id="download-status"></p>
+                    <div class="download-progress" id="download-progress" style="display:none;">
+                        <p class="download-status-text" id="download-status-text"></p>
+                        <div class="download-progress-bar-container">
+                            <div class="download-progress-bar" id="download-progress-bar"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="section">
                     <div class="section-header">
@@ -572,35 +577,120 @@
             } catch (err) { console.error(err); }
         }
 
+        var activeDownloadPolls = [];
+
         async function downloadFromLink() {
             var url = document.getElementById("download-url").value.trim();
-            var dlStatus = document.getElementById("download-status");
-            if (!url) { dlStatus.textContent = "Paste a link first."; return; }
-            if (!url.startsWith("http")) { dlStatus.textContent = "Paste a valid https:// link."; return; }
-            dlStatus.textContent = "Queuing download\u2026";
+            var progressDiv = document.getElementById("download-progress");
+            var statusText = document.getElementById("download-status-text");
+            var progressBar = document.getElementById("download-progress-bar");
+            if (!url) { statusText.textContent = "Paste a link first."; progressDiv.style.display = "block"; return; }
+            if (!url.startsWith("http")) { statusText.textContent = "Paste a valid https:// link."; progressDiv.style.display = "block"; return; }
+            
+            progressDiv.style.display = "block";
+            statusText.textContent = "Queuing download\u2026";
+            progressBar.style.width = "0%";
+            
             try {
                 var jobData = await api("/downloads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: url, source: "spotiflac" }) });
-                pollJobStatus(jobData.id, dlStatus);
-            } catch (err) { console.error(err); dlStatus.textContent = "Download failed. " + (err.message || ""); }
+                pollJobStatus(jobData.id);
+            } catch (err) { console.error(err); statusText.textContent = "Download failed. " + (err.message || ""); progressBar.style.width = "100%"; progressBar.classList.add("progress-error"); }
         }
 
-        function pollJobStatus(jobId, dlStatus) {
+        function pollJobStatus(jobId) {
+            var progressDiv = document.getElementById("download-progress");
+            var statusText = document.getElementById("download-status-text");
+            var progressBar = document.getElementById("download-progress-bar");
+            progressDiv.style.display = "block";
+            
+            // Clear any existing polls to prevent overlaps
+            activeDownloadPolls.forEach(function(p) { clearInterval(p); });
+            activeDownloadPolls = [];
+
             var poll = setInterval(function() {
                 api("/downloads/" + jobId).then(function(job) {
                     if (job.status === "completed") {
                         clearInterval(poll);
-                        dlStatus.textContent = "Download completed.";
+                        activeDownloadPolls = [];
+                        statusText.textContent = "Download completed.";
+                        progressBar.classList.remove("progress-indeterminate", "progress-error");
+                        progressBar.style.width = "100%";
+                        progressBar.classList.add("progress-complete");
                         loadTracks(); loadMostPlayed(); loadUserUploads();
                         document.getElementById("download-url").value = "";
-                        setTimeout(function() { dlStatus.textContent = ""; }, 3000);
+                        setTimeout(function() { 
+                            progressDiv.style.display = "none"; 
+                            progressBar.classList.remove("progress-complete");
+                            progressBar.style.width = "0%";
+                        }, 3000);
                     } else if (job.status === "failed") {
                         clearInterval(poll);
-                        dlStatus.textContent = "Download failed. " + (job.log || "Unknown error.");
+                        activeDownloadPolls = [];
+                        statusText.textContent = "Download failed.";
+                        progressBar.classList.remove("progress-indeterminate");
+                        progressBar.style.width = "100%";
+                        progressBar.classList.add("progress-error");
+                        setTimeout(function() { progressBar.classList.remove("progress-error"); }, 500);
+                        var errorDetail = document.getElementById("download-error-detail");
+                        if (!errorDetail) {
+                            var detailP = document.createElement("p");
+                            detailP.id = "download-error-detail";
+                            detailP.style.cssText = "color: #b3b3b3; font-size: 0.75rem; margin-top: 0.5rem; white-space: pre-wrap; max-height: 100px; overflow-y: auto;";
+                            progressDiv.appendChild(detailP);
+                            errorDetail = detailP;
+                        }
+                        errorDetail.style.display = "block";
+                        errorDetail.textContent = job.log || "Unknown error.";
                     } else {
-                        dlStatus.textContent = "Downloading\u2026 " + (job.status || "");
+                        var log = job.log || "";
+                        var lines = log.split("\n").filter(function(l) { return l.trim(); });
+                        var trackName = "";
+                        var progressPercent = 0;
+                        
+                        for (var i = lines.length - 1; i >= 0; i--) {
+                            var line = lines[i];
+                            if (line.includes("Found:")) {
+                                trackName = line.split("Found:")[1].trim();
+                            }
+                            if (line.includes("Downloaded:")) {
+                                var mb = line.split("Downloaded:")[1].split(" MB |")[0];
+                                progressPercent = Math.min(85, (parseFloat(mb) / 8) * 100);
+                            } else if (line.includes("Metadata embedded")) {
+                                progressPercent = Math.max(progressPercent, 92);
+                            } else if (line.includes("Download complete:")) {
+                                progressPercent = Math.max(progressPercent, 95);
+                            } else if (line.includes("Scan complete")) {
+                                progressPercent = Math.max(progressPercent, 98);
+                            } else if (line.includes("Starting")) {
+                                progressPercent = Math.max(progressPercent, 5);
+                            }
+                        }
+                        
+                        if (trackName) {
+                            statusText.textContent = "Downloading: " + trackName;
+                        } else {
+                            var lastLine = lines[lines.length - 1] || (job.status + "...");
+                            if (lastLine.length > 60) lastLine = lastLine.substring(0, 60) + "...";
+                            statusText.textContent = lastLine;
+                        }
+                        
+                        if (progressPercent > 0) {
+                            progressBar.classList.remove("progress-indeterminate");
+                            progressBar.style.width = progressPercent + "%";
+                        } else {
+                            progressBar.classList.add("progress-indeterminate");
+                        }
                     }
-                }).catch(function(err) { clearInterval(poll); dlStatus.textContent = "Poll error: " + err.message; });
-            }, 3000);
+                }).catch(function(err) { 
+                    clearInterval(poll);
+                    activeDownloadPolls = [];
+                    statusText.textContent = "Poll error: " + err.message; 
+                    progressBar.classList.remove("progress-indeterminate");
+                    progressBar.classList.add("progress-error");
+                });
+            }, 2000);
+            
+            activeDownloadPolls.push(poll);
         }
 
         async function runSearch() {
