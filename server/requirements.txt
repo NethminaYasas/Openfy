@@ -8,3 +8,7 @@ mutagen==1.47.0
 git+https://github.com/ShuShuzinhuu/SpotiFLAC-Module-Version.git
 
 requests
+
+# YouTube Music API for audio-only downloads
+ytmusicapi
+beautifulsoup4

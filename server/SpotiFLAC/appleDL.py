@@ -1,9 +1,9 @@
 """
 Apple Music downloader module for SpotiFLAC.
-Uses the free iTunes lookup API to get track metadata, then downloads from YouTube.
+Uses the free iTunes lookup API to get track metadata, then downloads from YouTube Music.
+Uses ytmusicapi for proper YouTube Music search (official audio tracks only, no music videos).
 No Spotify API credentials required.
 """
-import base64
 import json
 import os
 import re
@@ -12,8 +12,6 @@ from typing import Callable
 from urllib.parse import quote
 
 from mutagen.id3 import ID3, ID3NoHeaderError, TIT2, TPE1, TALB, TPE2, TDRC, TRCK, TPOS, APIC, WXXX, COMM
-from mutagen.mp3 import MP3
-from mutagen.mp4 import MP4, MP4Cover
 
 
 def sanitize_filename(value: str) -> str:
@@ -28,7 +26,102 @@ def safe_int(value) -> int:
 
 
 class AppleMusicDownloader:
-    """Downloads tracks from Apple Music using iTunes API metadata and YouTube audio."""
+    """
+    Downloads tracks using YouTube Music's API (official audio tracks only).
+    Supports both Apple Music and Spotify URLs.
+    """
+    
+    def _extract_spotify_metadata(self, spotify_url: str) -> dict | None:
+        """Extract track metadata from a Spotify URL using Spotify's oEmbed API (no auth needed)."""
+        try:
+            import urllib.parse
+            url = f"https://open.spotify.com/oembed?format=json&url={urllib.parse.quote(spotify_url)}"
+            resp = self.session.get(url, timeout=10)
+            data = resp.json()
+            
+            title = data.get("title", "Unknown").strip()
+            cover_url = data.get("thumbnail_url", "")
+            
+            # Title from oEmbed is typically just the song name
+            # We need artist info too - try parsing "Artist - Song" format
+            artist = ""
+            album = ""
+            
+            # Also get description for additional info
+            # Try fetching the embed page for more metadata
+            parsed = urllib.parse.urlparse(spotify_url)
+            path_parts = [p for p in parsed.path.split("/") if p]
+            if len(path_parts) >= 2 and path_parts[0] == "track":
+                track_id = path_parts[1]
+                embed_url = f"https://open.spotify.com/embed/track/{track_id}"
+                try:
+                    embed_resp = self.session.get(embed_url, timeout=10, allow_redirects=True)
+                    # Look for metadata in the embed HTML
+                    import re
+                    
+                    # Try to find artist and album from the page
+                    artist_match = re.search(r'"name":"([^"]+)"', embed_resp.text)
+                    if artist_match:
+                        # The first "name" could be artist - try to find more context
+                        name_matches = re.findall(r'"name":"([^"]+)"', embed_resp.text)
+                        if len(name_matches) >= 2:
+                            # Usually: artist_name, track_name, album_name
+                            artist = name_matches[0]
+                            if len(name_matches) > 2:
+                                album = name_matches[2]
+                except Exception:
+                    pass
+            
+            # If we still don't have artist, try Songlink to get full metadata
+            if not artist:
+                try:
+                    songlink_url = f"https://api.song.link/v1-alpha.1/links?url={urllib.parse.quote(spotify_url)}&userCountry=US"
+                    songlink_resp = self.session.get(songlink_url, timeout=10)
+                    songlink_data = songlink_resp.json()
+                    entities = songlink_data.get("entitiesByUniqueId", {})
+                    for uid, entity in entities.items():
+                        if entity.get("apiProvider") == "spotify":
+                            artists = entity.get("artistsByRole", {})
+                            if artists:
+                                for role, artists_list in artists.items():
+                                    if artists_list:
+                                        artist = ", ".join([a.get("name", "") for a in artists_list if a.get("name")])
+                                        break
+                            if not album:
+                                album_links = entity.get("album", {})
+                                if album_links:
+                                    album = album_links.get("name", "")
+                            break
+                except Exception:
+                    pass
+            
+            return {
+                "name": title,
+                "artist": artist or "Unknown Artist",
+                "album": album,
+                "album_artist": artist,
+                "track_number": 1,
+                "total_tracks": 1,
+                "disc_number": 1,
+                "release_date": "",
+                "duration_ms": 0,
+                "cover_url": cover_url,
+                "genre": "",
+                "explicit": False,
+            }
+        except Exception as e:
+            print(f"[!] Spotify metadata extraction error: {e}")
+        
+        return None
+    
+    @staticmethod
+    def parse_url_type(url: str) -> str:
+        """Determine if URL is from Apple Music or Spotify."""
+        if "music.apple.com" in url:
+            return "apple"
+        elif "open.spotify.com" in url or "play.spotify.com" in url:
+            return "spotify"
+        return "unknown"
 
     def __init__(self, timeout: float = 120.0):
         self.session = requests.Session()
@@ -130,20 +223,63 @@ class AppleMusicDownloader:
         return None
 
     def _get_youtube_url(self, track_name: str, artist_name: str) -> str:
-        """Find YouTube Music URL for a track."""
-        # Try Songlink first
+        """Find YouTube Music URL for a track using ytmusicapi.
+        Searches YouTube Music for official audio tracks only (no music videos).
+        """
         try:
-            search_query = quote(f"{track_name} {artist_name}")
-            search_url = f"https://www.youtube.com/results?search_query={search_query}"
-            resp = self.session.get(search_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=15)
+            from ytmusicapi import YTMusic
+            yt = YTMusic()
+            
+            # Search YouTube Music for songs only
+            results = yt.search(f"{track_name} {artist_name}", filter="songs", limit=5)
+            
+            if not results:
+                # Try with less specific search
+                results = yt.search(f"{track_name} {artist_name}", limit=5)
+            
+            # Pick the best match by checking artist name
+            for result in results:
+                result_artists = ", ".join(
+                    a.get("name", "") for a in result.get("artists", [])
+                )
+                # Check if artist name matches
+                if artist_name.lower().split()[0] in result_artists.lower():
+                    video_id = result.get("videoId")
+                    duration = result.get("duration", "")
+                    print(f"✓ Found on YouTube Music: {result.get('title')} - {result_artists} ({duration})")
+                    if video_id:
+                        return f"https://music.youtube.com/watch?v={video_id}"
+            
+            # If no good artist match, use the first result
+            if results:
+                video_id = results[0].get("videoId")
+                print(f"✓ Found on YouTube Music: {results[0].get('title')} ({results[0].get('duration', '')})")
+                if video_id:
+                    return f"https://music.youtube.com/watch?v={video_id}"
+        except ImportError:
+            print("[!] ytmusicapi not available, falling back to search")
+        except Exception as e:
+            print(f"[!] YouTube Music search error: {e}")
+        
+        # Fallback: Regular search
+        return self._search_youtube_fallback(track_name, artist_name)
 
+    def _search_youtube_fallback(self, track_name: str, artist_name: str) -> str:
+        """Fallback YouTube search if ytmusicapi fails."""
+        try:
+            search_query = quote(f"{track_name} {artist_name} audio")
+            search_url = f"https://music.youtube.com/search?q={search_query}"
+            resp = self.session.get(search_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+            }, timeout=15)
+            
             match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
             if match:
                 video_id = match.group(1)
-                print(f"✓ Found via YouTube search: {video_id}")
+                print(f"✓ Found via YouTube Music search: {video_id}")
                 return f"https://music.youtube.com/watch?v={video_id}"
         except Exception as e:
-            print(f"[!] YouTube search error: {e}")
+            print(f"[!] YouTube fallback error: {e}")
 
         raise Exception(f"Could not find YouTube URL for: {track_name} - {artist_name}")
 
@@ -265,6 +401,20 @@ class AppleMusicDownloader:
         )
 
         return expected_path
+
+    def download_from_spotify(self, spotify_url: str, output_dir: str, **kwargs) -> str:
+        """Download a track from Spotify URL.
+        Uses Spotify's oEmbed API (no auth) to get metadata, then downloads from YouTube Music.
+        """
+        os.makedirs(output_dir, exist_ok=True)
+
+        track_info = self._extract_spotify_metadata(spotify_url)
+        if not track_info or track_info.get("name") in ("Track", "Unknown"):
+            raise Exception(f"Could not extract metadata from Spotify URL: {spotify_url}")
+
+        print(f"✓ Found: {track_info['name']} - {track_info['artist']}")
+
+        return self.download_by_info(track_info, output_dir)
 
     def download_by_info(self, track_info: dict, output_dir: str, **kwargs) -> str:
         """Download using pre-extracted track info (for use by other services)."""

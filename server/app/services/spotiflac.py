@@ -37,10 +37,10 @@ def _append_log(job: DownloadJob, text: str) -> None:
     job.log = f"{job.log}\n{text}" if job.log else text
 
 
-def _download_apple_music(
+def _download_with_yt_music(
     job_id: str, query: str, db_url: str, user_hash: str | None = None
 ) -> None:
-    """Download from Apple Music URL using iTunes API + YouTube audio (no Spotify needed)."""
+    """Download from Apple Music or Spotify URL using ytmusicapi (official audio tracks)."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -66,19 +66,25 @@ def _download_apple_music(
             from SpotiFLAC.appleDL import AppleMusicDownloader
 
             ensure_dirs()
-            _append_log(job, f"Starting Apple Music download to {settings.downloads_dir}")
+            is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
+            _append_log(job, f"Starting download to {settings.downloads_dir}")
 
             downloader = AppleMusicDownloader()
 
-            files_before = set(
-                p for p in settings.downloads_dir.rglob("*") if p.is_file()
-            )
-
-            # Download the track
-            downloaded_file = downloader.download_by_apple_music_url(
-                apple_music_url=query,
-                output_dir=str(settings.downloads_dir),
-            )
+            # Auto-detect URL type and download
+            url_type = downloader.parse_url_type(query)
+            if url_type == "spotify":
+                _append_log(job, f"Spotify track detected, getting metadata")
+                downloaded_file = downloader.download_from_spotify(
+                    spotify_url=query,
+                    output_dir=str(settings.downloads_dir),
+                )
+            else:
+                _append_log(job, f"Apple Music track detected, getting metadata")
+                downloaded_file = downloader.download_by_apple_music_url(
+                    apple_music_url=query,
+                    output_dir=str(settings.downloads_dir),
+                )
 
             _append_log(job, f"Download complete: {Path(downloaded_file).name}")
 
@@ -90,7 +96,7 @@ def _download_apple_music(
                     _append_log(job, "Scan complete - track added to library")
                     job.status = "completed"
                     job.output_path = str(settings.music_dir)
-                    job.source = "apple_music"
+                    job.source = "youtube_music"
                 else:
                     job.status = "failed"
                     _append_log(job, "Failed to move file to library")
@@ -99,10 +105,10 @@ def _download_apple_music(
                 _append_log(job, "Downloaded file is not a recognized audio file")
 
         except ImportError:
-            _append_log(job, f"Apple Music downloader not found at {SPOTIFLAC_SRC}")
+            _append_log(job, f"Downloader not found at {SPOTIFLAC_SRC}")
             job.status = "failed"
         except Exception as e:
-            logger.exception("Apple Music download failed for job %s", job_id)
+            logger.exception("Download failed for job %s", job_id)
             _append_log(job, f"Error: {e}")
             job.status = "failed"
 
@@ -236,13 +242,14 @@ def queue_download(
         db.commit()
         return job
 
-    # Route Apple Music URLs to the dedicated Apple Music downloader
-    if "music.apple.com" in query:
-        job.source = "apple_music"
+    # Route Apple Music and Spotify URLs to the ytmusicapi-based downloader
+    is_apple = "music.apple.com" in query
+    is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
+    if is_apple or is_spotify:
+        job.source = "spotify" if is_spotify else "apple_music"
         db.commit()
         thread = threading.Thread(
-            target=_download_apple_music,
-            args=(job.id, query, settings.database_url, user_hash),
+            target=lambda: _download_with_yt_music(job.id, query, settings.database_url, user_hash),
             daemon=True,
         )
         thread.start()
