@@ -83,10 +83,12 @@ class AppleMusicDownloader:
                         if entity.get("apiProvider") == "spotify":
                             artists = entity.get("artistsByRole", {})
                             if artists:
+                                all_artist_names = []
                                 for role, artists_list in artists.items():
                                     if artists_list:
-                                        artist = ", ".join([a.get("name", "") for a in artists_list if a.get("name")])
-                                        break
+                                        all_artist_names.extend([a.get("name", "") for a in artists_list if a.get("name")])
+                                artist = ", ".join(all_artist_names) if all_artist_names else ""
+                                artist = re.sub(r'\s+', ' ', artist).strip(", ")
                             if not album:
                                 album_links = entity.get("album", {})
                                 if album_links:
@@ -231,11 +233,11 @@ class AppleMusicDownloader:
             yt = YTMusic()
             
             # Search YouTube Music for songs only
-            results = yt.search(f"{track_name} {artist_name}", filter="songs", limit=5)
+            results = yt.search(f"ytmsearch10:{track_name} {artist_name}", filter="songs", limit=10)
             
             if not results:
                 # Try with less specific search
-                results = yt.search(f"{track_name} {artist_name}", limit=5)
+                results = yt.search(f"ytmsearch10:{track_name} {artist_name}", limit=10)
             
             # Pick the best match by checking artist name
             for result in results:
@@ -265,23 +267,141 @@ class AppleMusicDownloader:
         return self._search_youtube_fallback(track_name, artist_name)
 
     def _search_youtube_fallback(self, track_name: str, artist_name: str) -> str:
-        """Fallback YouTube search if ytmusicapi fails."""
+        """Fallback YouTube search if ytmusicapi fails. Uses yt-dlp to get results with proper scoring."""
+        try:
+            import yt_dlp
+        except ImportError:
+            yt_dlp = None
+
+        if yt_dlp:
+            try:
+                # Search with yt-dlp using ytmsearch10: prefix
+                ydl_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': True,
+                    'default_search': f'ytmsearch10:{track_name} {artist_name}',
+                    'max_downloads': 10,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    result = ydl.extract_info(f'ytsearch:{track_name} {artist_name}', download=False)
+                    if 'entries' in result and result['entries']:
+                        candidates = []
+                        for entry in result['entries'][:10]:
+                            if entry:
+                                result_title = entry.get('title', '')
+                                result_artist = ', '.join([a.get('name', '') for a in entry.get('artists', []) if a.get('name')])
+                                video_id = entry.get('id')
+                                if video_id:
+                                    score = self._score_candidate(result_title, result_artist, track_name, artist_name)
+                                    candidates.append({
+                                        'title': result_title,
+                                        'artists': result_artist,
+                                        'video_id': video_id,
+                                        'score': score
+                                    })
+                                    print(f"  Candidate: {result_title} - {result_artist} (score: {score})")
+
+                        if candidates:
+                            # Sort by score descending
+                            candidates.sort(key=lambda x: x['score'], reverse=True)
+                            best = candidates[0]
+                            print(f"✓ Selected: {best['title']} - {best['artists']} (score: {best['score']})")
+                            if best['score'] < 10:
+                                print(f"⚠ Low confidence match, possible wrong song")
+                            return f"https://music.youtube.com/watch?v={best['video_id']}"
+            except Exception as e:
+                print(f"[!] yt-dlp fallback error: {e}")
+
+        # If yt-dlp fails or not available, fallback to basic HTML scrape (legacy)
+        print("[!] yt-dlp not available or failed, using legacy HTML scrape fallback")
         try:
             search_query = quote(f"{track_name} {artist_name} audio")
             search_url = f"https://music.youtube.com/search?q={search_query}"
             resp = self.session.get(search_url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
             }, timeout=15)
-            
+
+            # Try to find videoId and parse some context
+            import json
+            # Find initial data in HTML
+            match = re.search(r'ytInitialData\s*=\s*({.*?});', resp.text, re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group(1))
+                    # Navigate to video results - this is complex and may change
+                    contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
+                    videos = []
+                    for section in contents:
+                        video_items = section.get('itemSectionRenderer', {}).get('contents', [])
+                        for item in video_items:
+                            video = item.get('videoRenderer', {})
+                            if video:
+                                vid = video.get('videoId', '')
+                                title = video.get('title', {}).get('runs', [{}])[0].get('text', '')
+                                # Get artist(s)
+                                artists = []
+                                for run in video.get('longBylineText', {}).get('runs', []):
+                                    artists.append(run.get('text', ''))
+                                artist_text = ', '.join(artists)
+                                if vid:
+                                    videos.append({'videoId': vid, 'title': title, 'artists': artist_text})
+                    
+                    if videos:
+                        # Score candidates
+                        candidates = []
+                        for v in videos:
+                            score = self._score_candidate(v['title'], v['artists'], track_name, artist_name)
+                            candidates.append({
+                                'title': v['title'],
+                                'artists': v['artists'],
+                                'video_id': v['videoId'],
+                                'score': score
+                            })
+                            print(f"  HTML Candidate: {v['title']} - {v['artists']} (score: {score})")
+                        
+                        candidates.sort(key=lambda x: x['score'], reverse=True)
+                        best = candidates[0]
+                        print(f"✓ Selected: {best['title']} - {best['artists']} (score: {best['score']})")
+                        if best['score'] < 10:
+                            print(f"⚠ Low confidence match, possible wrong song")
+                        return f"https://music.youtube.com/watch?v={best['video_id']}"
+                except Exception as json_err:
+                    print(f"[!] JSON parse error: {json_err}")
+                    pass
+
+            # If JSON parsing fails, fallback to simple first-match
             match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
             if match:
                 video_id = match.group(1)
-                print(f"✓ Found via YouTube Music search: {video_id}")
+                print(f"✓ Found via YouTube Music search (legacy): {video_id}")
                 return f"https://music.youtube.com/watch?v={video_id}"
         except Exception as e:
-            print(f"[!] YouTube fallback error: {e}")
+            print(f"[!] HTML fallback error: {e}")
 
         raise Exception(f"Could not find YouTube URL for: {track_name} - {artist_name}")
+
+    def _score_candidate(self, result_title: str, result_artists: str, track_name: str, artist_name: str) -> int:
+        """Score a candidate video based on title and artist matching."""
+        score = 0
+        title_lower = result_title.lower()
+        artist_lower = result_artists.lower()
+        track_lower = track_name.lower()
+        artist_target_lower = artist_name.lower()
+
+        # Exact matches (case insensitive)
+        if track_lower in title_lower or title_lower in track_lower:
+            score += 10
+        if artist_target_lower in artist_lower or artist_lower in artist_target_lower:
+            score += 10
+
+        # Word overlap
+        track_words = set(re.findall(r'\b\w+\b', track_lower))
+        title_words = set(re.findall(r'\b\w+\b', title_lower))
+        common_words = track_words & title_words
+        score += len(common_words)
+
+        return score
 
     def _request_spotube_dl(self, video_id: str) -> str | None:
         """Get download URL from SpotubeDL."""
