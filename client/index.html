@@ -551,7 +551,7 @@
         }
 
         async function loadMostPlayed() {
-            try { var data = await api("/tracks/most-played?limit=12"); renderMostPlayed(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
+            try { var data = await api("/tracks/most-played?limit=10"); renderMostPlayed(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
         }
 
         function renderUploads(tracks) {
@@ -566,7 +566,7 @@
                 return;
             }
             try {
-                var url = isAdmin ? "/tracks?limit=24" : "/tracks?limit=24&user_hash=" + encodeURIComponent(authHash);
+                var url = isAdmin ? "/tracks?limit=24" : "/tracks?limit=24&user_hash=" + encodeURIComponent(authHash) + "&random=1";
                 var data = await api(url);
                 renderUploads(Array.isArray(data) ? data : []);
             } catch (err) { console.error(err); }

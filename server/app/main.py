@@ -2,6 +2,7 @@ import secrets
 from pathlib import Path
 import json
 import time
+from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import (
@@ -16,11 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy import delete
 
 from .db import Base, engine, get_db, SessionLocal
-from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob, User
+from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob, User, TrackPlay
 from .schemas import (
     TrackOut,
     ArtistOut,
@@ -116,6 +117,15 @@ def _startup():
                     text("ALTER TABLE download_jobs ADD COLUMN user_hash VARCHAR(64)")
                 )
                 conn.commit()
+
+            # Create track_plays table if not exists
+            try:
+                conn.execute(text("CREATE TABLE IF NOT EXISTS track_plays (id VARCHAR(36) PRIMARY KEY, track_id VARCHAR(36), played_at DATETIME, user_hash VARCHAR(64), FOREIGN KEY(track_id) REFERENCES tracks(id))"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_track_plays_played_at ON track_plays(played_at)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_track_plays_track_id ON track_plays(track_id)"))
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
             ucols = [
                 row[1]
@@ -248,10 +258,14 @@ def list_tracks(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user_hash: str | None = Query(None),
+    random: int = Query(0, ge=0, le=1),
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
+    if random:
+        stmt = select(Track).offset(offset).limit(limit).order_by(func.random())
+    else:
+        stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
 
     # If user_hash is provided, require auth and check authorization
     if user_hash:
@@ -296,21 +310,30 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/tracks/most-played", response_model=List[TrackOut])
-def most_played(limit: int = Query(12, ge=1, le=100), db: Session = Depends(get_db)):
+def most_played(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+    one_day_ago = datetime.utcnow() - timedelta(days=1)
     stmt = (
-        select(Track)
-        .order_by(Track.play_count.desc(), Track.created_at.desc())
+        select(Track, func.count(TrackPlay.id).label("play_ct"))
+        .outerjoin(TrackPlay, Track.id == TrackPlay.track_id)
+        .where(TrackPlay.played_at >= one_day_ago)
+        .group_by(Track.id)
+        .order_by(func.count(TrackPlay.id).desc())
         .limit(limit)
     )
-    return db.execute(stmt).scalars().all()
+    results = db.execute(stmt).all()
+    return [row[0] for row in results]
 
 
 @app.get("/tracks/{track_id}/stream")
-def stream_track(track_id: str, request: Request, db: Session = Depends(get_db)):
+def stream_track(track_id: str, request: Request, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     track = db.get(Track, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     track.play_count = (track.play_count or 0) + 1
+    db.commit()
+
+    play = TrackPlay(track_id=track_id, user_hash=x_auth_hash)
+    db.add(play)
     db.commit()
 
     path = Path(track.file_path)

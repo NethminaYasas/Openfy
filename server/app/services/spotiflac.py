@@ -60,14 +60,14 @@ def _run_download(
                     moved_files.append(store_upload(file, settings.music_dir))
             _append_log(job, f"Moved {len(moved_files)} files to library")
             if moved_files:
-                scan_paths(db, moved_files)
+                scan_paths(db, moved_files, user_hash=user_hash)
                 _append_log(job, "Scan complete")
             else:
                 _append_log(
                     job,
                     "No audio files found in downloads dir, scanning music dir directly",
                 )
-                scan_paths(db, [settings.music_dir])
+                scan_paths(db, [settings.music_dir], user_hash=user_hash)
             job.status = "completed"
             job.output_path = str(settings.downloads_dir)
             job.source = "spotiflac"
@@ -86,7 +86,7 @@ def _run_download(
 def queue_download(
     db: Session, query: str, source: str = "auto", user_hash: str | None = None
 ) -> DownloadJob:
-    job = DownloadJob(source="spotiflac", query=query, status="queued")
+    job = DownloadJob(source="spotiflac", query=query, status="queued", user_hash=user_hash)
     db.add(job)
     db.commit()
     db.refresh(job)

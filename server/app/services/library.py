@@ -105,7 +105,7 @@ def _store_artwork(album: Album, file_path: Path) -> None:
     album.artwork_path = str(target)
 
 
-def _upsert_track(db: Session, file_path: Path, metadata: dict) -> Track:
+def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None) -> Track:
     existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
 
     artist_name = _normalize(metadata.get("artist"))
@@ -131,6 +131,8 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict) -> Track:
         existing.disc_no = metadata.get("disc_no")
         existing.file_size = metadata.get("file_size")
         existing.mime_type = metadata.get("mime_type")
+        if user_hash and not existing.user_hash:
+            existing.user_hash = user_hash
         return existing
 
     track = Track(
@@ -146,6 +148,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict) -> Track:
         disc_no=metadata.get("disc_no"),
         artist_id=artist.id if artist else None,
         album_id=album.id if album else None,
+        user_hash=user_hash,
     )
     db.add(track)
     return track
@@ -188,7 +191,7 @@ def _read_metadata(path: Path) -> dict:
     return info
 
 
-def scan_paths(db: Session, paths: Iterable[Path]) -> dict:
+def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None) -> dict:
     scanned = 0
     created = 0
     for path in paths:
@@ -197,13 +200,13 @@ def scan_paths(db: Session, paths: Iterable[Path]) -> dict:
                 if is_audio_file(file):
                     scanned += 1
                     before = db.query(Track).filter_by(file_path=str(file)).first()
-                    _upsert_track(db, file, _read_metadata(file))
+                    _upsert_track(db, file, _read_metadata(file), user_hash=user_hash)
                     if before is None:
                         created += 1
         elif path.is_file() and is_audio_file(path):
             scanned += 1
             before = db.query(Track).filter_by(file_path=str(path)).first()
-            _upsert_track(db, path, _read_metadata(path))
+            _upsert_track(db, path, _read_metadata(path), user_hash=user_hash)
             if before is None:
                 created += 1
 

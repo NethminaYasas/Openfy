@@ -76,6 +76,7 @@ class Track(Base):
 
     artist = relationship("Artist", back_populates="tracks")
     album = relationship("Album", back_populates="tracks")
+    plays = relationship("TrackPlay", back_populates="track", cascade="all, delete-orphan")
     playlist_tracks = relationship("PlaylistTrack", back_populates="track", cascade="all, delete-orphan")
 
 
@@ -126,6 +127,17 @@ class PlaylistTrack(Base):
 
     playlist = relationship("Playlist", back_populates="tracks")
     track = relationship("Track", back_populates="playlist_tracks")
+
+
+class TrackPlay(Base):
+    __tablename__ = "track_plays"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    track_id: Mapped[str] = mapped_column(String(36), ForeignKey("tracks.id", ondelete="CASCADE"), index=True)
+    played_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    user_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    track = relationship("Track", back_populates="plays")
 
 
 class DownloadJob(Base):
