@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="icon" href="/static/images/logo.png">
     <title>Openfy - Web Player</title>
-    <link rel="stylesheet" href="/static/styles.css?v=2">
+    <link rel="stylesheet" href="/static/styles.css?v=3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
@@ -330,6 +330,53 @@
         </div>
     </div>
 
+    <!-- Playlist Context Menu -->
+    <div class="context-menu-overlay" id="context-menu-overlay" style="display:none;">
+        <div class="context-menu" id="context-menu">
+            <div class="context-menu-item" id="ctx-pin">
+                <i class="fa-solid fa-thumbtack"></i> <span>Pin</span>
+            </div>
+            <div class="context-menu-item" id="ctx-rename">
+                <i class="fa-solid fa-pen"></i> <span>Rename</span>
+            </div>
+            <div class="context-menu-item" id="ctx-remove">
+                <i class="fa-solid fa-trash"></i> <span>Remove</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename Playlist Modal -->
+    <div class="rename-modal-overlay" id="rename-modal-overlay" style="display:none;">
+        <div class="rename-modal">
+            <div class="rename-modal-header">
+                <h2><i class="fa-solid fa-pen"></i> Rename Playlist</h2>
+            </div>
+            <div class="rename-modal-content">
+                <input type="text" id="rename-input" placeholder="Playlist name" autocomplete="off" />
+            </div>
+            <div class="rename-modal-footer">
+                <button class="badge" id="rename-cancel-btn">Cancel</button>
+                <button class="badge" id="rename-confirm-btn">Rename</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Delete Modal -->
+    <div class="confirm-modal-overlay" id="confirm-modal-overlay" style="display:none;">
+        <div class="confirm-modal">
+            <div class="confirm-modal-header">
+                <h2><i class="fa-solid fa-triangle-exclamation"></i> Delete Playlist?</h2>
+            </div>
+            <div class="confirm-modal-content">
+                <p id="confirm-message">Delete this playlist?</p>
+            </div>
+            <div class="confirm-modal-footer">
+                <button class="badge" id="confirm-cancel-btn">Cancel</button>
+                <button class="badge delete" id="confirm-delete-btn">Delete</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const apiBase = localStorage.getItem("openfy_api") || "";
         let authHash = localStorage.getItem("openfy_auth") || "";
@@ -383,6 +430,8 @@
         let currentQueue = [];
         let currentIndex = -1;
         let currentTrackId = null;
+        let currentContextPlaylist = null; // { id, name, is_liked, pinned }
+        let pendingActionPlaylistId = null; // stored ID for rename/delete modals
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -823,18 +872,41 @@
         });
 
         async function loadPlaylists() {
-            try { userPlaylists = await api("/playlists"); renderLibrary(); } catch (err) { console.error(err); }
+            try { 
+                // Cache bust: add timestamp
+                var url = "/playlists";
+                if (apiBase) url = apiBase + url;
+                url += (url.includes('?') ? '&' : '?') + '_=' + Date.now();
+                userPlaylists = await api(url); 
+                renderLibrary(); 
+            } catch (err) { 
+                console.error(err); 
+            }
         }
 
         function renderLibrary() {
             libBox.innerHTML = "";
+            // Ensure ordering: Liked Songs first, then pinned, then by date (newest first)
+            userPlaylists.sort(function(a, b) {
+                if (a.is_liked && !b.is_liked) return -1;
+                if (!a.is_liked && b.is_liked) return 1;
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            });
             userPlaylists.forEach(function(pl) {
                 var item = document.createElement("div");
                 item.className = "lib-item";
                 var bg = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
                 var icon = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<i class="fa-solid fa-list"></i>';
-                item.innerHTML = '<div class="lib-item-cover" style="background:' + bg + '">' + icon + '</div><div class="lib-item-info"><p class="lib-item-name">' + pl.name + '</p><p class="lib-item-type">Playlist</p></div>';
+                var pinIcon = pl.pinned ? '<i class="fa-solid fa-thumbtack library-pin-icon"></i>' : '';
+                item.innerHTML = '<div class="lib-item-cover" style="background:' + bg + '">' + icon + '</div><div class="lib-item-info"><p class="lib-item-name">' + pinIcon + ' ' + pl.name + '</p><p class="lib-item-type">Playlist</p></div>';
                 item.addEventListener("click", function() { openPlaylist(pl.id); });
+                // Right-click context menu
+                item.addEventListener("contextmenu", function(e) {
+                    e.preventDefault();
+                    showContextMenu(e, pl);
+                });
                 libBox.appendChild(item);
             });
         }
@@ -1081,6 +1153,166 @@
         profileModalOverlay.addEventListener("click", function(event) {
             if (event.target === profileModalOverlay) {
                 hideProfileModal();
+            }
+        });
+
+        // Playlist context menu and modals
+        const contextMenuOverlay = document.getElementById("context-menu-overlay");
+        const contextMenu = document.getElementById("context-menu");
+        const ctxPin = document.getElementById("ctx-pin");
+        const ctxRename = document.getElementById("ctx-rename");
+        const ctxRemove = document.getElementById("ctx-remove");
+
+        const renameModalOverlay = document.getElementById("rename-modal-overlay");
+        const renameInput = document.getElementById("rename-input");
+        const renameCancelBtn = document.getElementById("rename-cancel-btn");
+        const renameConfirmBtn = document.getElementById("rename-confirm-btn");
+
+        const confirmModalOverlay = document.getElementById("confirm-modal-overlay");
+        const confirmMessage = document.getElementById("confirm-message");
+        const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
+        const confirmDeleteBtn = document.getElementById("confirm-delete-btn");
+
+        function showContextMenu(e, playlist) {
+            currentContextPlaylist = playlist;
+            // Position menu near mouse
+            const menuWidth = 180;
+            const menuHeight = 110; // approx
+            let x = e.clientX;
+            let y = e.clientY;
+            // Adjust if near edges
+            if (x + menuWidth > window.innerWidth) x -= menuWidth;
+            if (y + menuHeight > window.innerHeight) y -= menuHeight;
+            contextMenu.style.left = x + "px";
+            contextMenu.style.top = y + "px";
+
+            // Update Pin menu item text and state
+            const pinSpan = ctxPin.querySelector("span");
+            pinSpan.textContent = playlist.pinned ? "Unpin" : "Pin";
+            // Pin icon rotation or fill? We'll just toggle text.
+
+            // Disable only Rename and Remove for Liked Songs; Pin remains enabled
+            if (playlist.is_liked) {
+                ctxRename.classList.add("disabled");
+                ctxRemove.classList.add("disabled");
+                // Ensure Pin is enabled (remove disabled if present)
+                ctxPin.classList.remove("disabled");
+            } else {
+                ctxRename.classList.remove("disabled");
+                ctxRemove.classList.remove("disabled");
+                ctxPin.classList.remove("disabled");
+            }
+
+            contextMenuOverlay.style.display = "block";
+        }
+
+        function hideContextMenu() {
+            contextMenuOverlay.style.display = "none";
+            currentContextPlaylist = null;
+        }
+
+        // Context menu item clicks
+        ctxPin.addEventListener("click", async function() {
+            if (!currentContextPlaylist || currentContextPlaylist.is_liked) return;
+            var targetId = currentContextPlaylist.id;
+            var isPinned = currentContextPlaylist.pinned;
+            hideContextMenu();
+            try {
+                await api("/playlists/" + targetId, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pinned: !isPinned })
+                });
+                loadPlaylists();
+            } catch (err) {
+                alert("Failed to update pin: " + err.message);
+            }
+        });
+
+        ctxRename.addEventListener("click", function() {
+            if (!currentContextPlaylist || currentContextPlaylist.is_liked) return;
+            pendingActionPlaylistId = currentContextPlaylist.id;
+            var targetName = currentContextPlaylist.name;
+            hideContextMenu();
+            renameInput.value = targetName;
+            renameModalOverlay.style.display = "flex";
+            setTimeout(function() { renameInput.focus(); }, 100);
+        });
+
+        ctxRemove.addEventListener("click", function() {
+            if (!currentContextPlaylist || currentContextPlaylist.is_liked) return;
+            pendingActionPlaylistId = currentContextPlaylist.id;
+            var targetName = currentContextPlaylist.name;
+            hideContextMenu();
+            confirmMessage.textContent = 'Delete playlist "' + targetName + '"?';
+            confirmModalOverlay.style.display = "flex";
+        });
+
+        // Close context menu on overlay click
+        contextMenuOverlay.addEventListener("click", function(e) {
+            if (e.target === contextMenuOverlay) {
+                hideContextMenu();
+            }
+        });
+
+        // Rename modal handlers
+        function hideRenameModal() {
+            renameModalOverlay.style.display = "none";
+        }
+
+        renameCancelBtn.addEventListener("click", hideRenameModal);
+        renameConfirmBtn.addEventListener("click", async function() {
+            const newName = renameInput.value.trim();
+            if (!newName || !pendingActionPlaylistId) {
+                if (!newName) alert("Name cannot be empty.");
+                return;
+            }
+            try {
+                await api("/playlists/" + pendingActionPlaylistId, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: newName })
+                });
+                hideRenameModal();
+                loadPlaylists();
+            } catch (err) {
+                alert("Failed to rename: " + err.message);
+            } finally {
+                pendingActionPlaylistId = null;
+            }
+        });
+
+        // Confirm modal handlers
+        function hideConfirmModal() {
+            confirmModalOverlay.style.display = "none";
+        }
+
+        confirmCancelBtn.addEventListener("click", hideConfirmModal);
+        confirmDeleteBtn.addEventListener("click", async function() {
+            if (!pendingActionPlaylistId) return;
+            try {
+                await api("/playlists/" + pendingActionPlaylistId, { method: "DELETE" });
+                hideConfirmModal();
+                loadPlaylists();
+            } catch (err) {
+                alert("Failed to delete: " + err.message);
+            } finally {
+                pendingActionPlaylistId = null;
+            }
+        });
+
+        // Close modals on overlay click and Escape key
+        renameModalOverlay.addEventListener("click", function(e) {
+            if (e.target === renameModalOverlay) hideRenameModal();
+        });
+        confirmModalOverlay.addEventListener("click", function(e) {
+            if (e.target === confirmModalOverlay) hideConfirmModal();
+        });
+        document.addEventListener("keydown", function(e) {
+            if (e.key === "Escape") {
+                hideContextMenu();
+                hideRenameModal();
+                hideConfirmModal();
             }
         });
 

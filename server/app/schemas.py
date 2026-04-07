@@ -63,12 +63,18 @@ class PlaylistCreate(BaseModel):
     description: str | None = None
 
 
+class PlaylistUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    pinned: bool | None = None
+
+
 class PlaylistOut(BaseModel):
     id: str
     name: str
     description: str | None = None
     user_hash: str | None = None
     is_liked: bool = False
+    pinned: bool = False
     created_at: datetime
 
     class Config:

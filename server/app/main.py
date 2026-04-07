@@ -26,6 +26,7 @@ from .schemas import (
     ArtistOut,
     AlbumOut,
     PlaylistCreate,
+    PlaylistUpdate,
     PlaylistOut,
     PlaylistTrackOut,
     DownloadRequest,
@@ -97,6 +98,11 @@ def _startup():
             if "is_liked" not in pcols:
                 conn.execute(
                     text("ALTER TABLE playlists ADD COLUMN is_liked INTEGER DEFAULT 0")
+                )
+                conn.commit()
+            if "pinned" not in pcols:
+                conn.execute(
+                    text("ALTER TABLE playlists ADD COLUMN pinned INTEGER DEFAULT 0")
                 )
                 conn.commit()
 
@@ -363,7 +369,11 @@ def list_playlists(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Playlist).order_by(Playlist.created_at.desc())
+    stmt = select(Playlist).order_by(
+        Playlist.is_liked.desc(),
+        Playlist.pinned.desc(),
+        Playlist.created_at.desc()
+    )
     if x_auth_hash:
         stmt = stmt.where(Playlist.user_hash == x_auth_hash)
     return db.execute(stmt).scalars().all()
@@ -391,6 +401,34 @@ def get_playlist(playlist_id: str, db: Session = Depends(get_db)):
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    return playlist
+
+
+@app.put("/playlists/{playlist_id}", response_model=PlaylistOut)
+def update_playlist(
+    playlist_id: str,
+    payload: PlaylistUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_hash != x_auth_hash:
+        raise HTTPException(status_code=403, detail="Not your playlist")
+    # Disallow renaming the Liked Songs playlist
+    if playlist.is_liked and payload.name is not None:
+        raise HTTPException(status_code=403, detail="Cannot rename Liked Songs playlist")
+    # Allow name change for non-liked playlists
+    if not playlist.is_liked and payload.name is not None:
+        playlist.name = payload.name
+    # Allow pinned changes for any playlist (including Liked Songs)
+    if payload.pinned is not None:
+        playlist.pinned = 1 if payload.pinned else 0
+    db.commit()
+    db.refresh(playlist)
     return playlist
 
 

@@ -104,6 +104,7 @@ class Playlist(Base):
         String(64), ForeignKey("users.auth_hash"), index=True
     )
     is_liked: Mapped[bool] = mapped_column(Integer, default=0)
+    pinned: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="playlists")

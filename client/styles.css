@@ -2014,4 +2014,202 @@ a {
     margin: 0;
 }
 
+/* Context Menu */
+.context-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10002;
+    background: transparent;
+}
+
+.library-pin-icon {
+    font-size: 0.75rem;
+    color: #1db954;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.context-menu {
+    position: fixed;
+    background: #282828;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+    border: 1px solid #3e3e3e;
+    min-width: 180px;
+    padding: 0.5rem 0;
+    z-index: 10003;
+    animation: menuFadeIn 0.15s ease-out;
+}
+@keyframes menuFadeIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+.context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #fff;
+    transition: background 0.15s;
+}
+.context-menu-item i {
+    width: 16px;
+    text-align: center;
+    color: #b3b3b3;
+}
+.context-menu-item:hover {
+    background: #1db954;
+    color: #000;
+}
+.context-menu-item:hover i {
+    color: #000;
+}
+.context-menu-item.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: default;
+}
+.context-menu-item.disabled:hover {
+    background: transparent;
+    color: #fff;
+}
+.context-menu-item.disabled:hover i {
+    color: #b3b3b3;
+}
+
+/* Rename Modal */
+.rename-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    backdrop-filter: blur(4px);
+}
+.rename-modal {
+    background: #121212;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    border: 1px solid #282828;
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease-out;
+}
+.rename-modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #282828;
+    text-align: center;
+}
+.rename-modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #fff;
+}
+.rename-modal-header h2 i {
+    color: #1db954;
+}
+.rename-modal-content {
+    padding: 1.5rem;
+}
+.rename-modal-content input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    border: 1px solid #282828;
+    background: #000;
+    color: #fff;
+    font-family: Montserrat, sans-serif;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+.rename-modal-content input:focus {
+    border-color: #1db954;
+}
+.rename-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #282828;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+.rename-modal-footer .badge {
+    min-width: 120px;
+    margin: 0;
+}
+
+/* Confirm Modal */
+.confirm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    backdrop-filter: blur(4px);
+}
+.confirm-modal {
+    background: #121212;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    border: 1px solid #282828;
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease-out;
+}
+.confirm-modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #282828;
+    text-align: center;
+}
+.confirm-modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #e74c3c;
+}
+.confirm-modal-header h2 i {
+    color: #e74c3c;
+}
+.confirm-modal-content {
+    padding: 1.5rem;
+    text-align: center;
+    color: #fff;
+    font-size: 1rem;
+}
+.confirm-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #282828;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+.confirm-modal-footer .badge {
+    min-width: 120px;
+    margin: 0;
+}
+.confirm-modal-footer .badge.delete {
+    background: #e74c3c;
+    color: #fff;
+}
+.confirm-modal-footer .badge.delete:hover {
+    background: #c0392b;
+}
+
 
