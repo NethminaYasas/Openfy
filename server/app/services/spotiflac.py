@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import sys
 import threading
 import logging
 from pathlib import Path
+import time
 
 from sqlalchemy.orm import Session
 
@@ -13,14 +15,26 @@ from .library import scan_paths
 
 logger = logging.getLogger(__name__)
 
+# Local SpotiFLAC source
+SPOTIFLAC_SRC = Path(__file__).resolve().parents[3] / "../SpotiFLAC-Module-Version"
+_spotiflac_added = False
+
+
+def _ensure_spotiflac_import() -> None:
+    global _spotiflac_added
+    if _spotiflac_added:
+        return
+    src = SPOTIFLAC_SRC.resolve()
+    if src.is_dir() and (src / "SpotiFLAC").is_dir():
+        if str(src) not in sys.path:
+            sys.path.insert(0, str(src))
+        _spotiflac_added = True
+
 
 def _append_log(job: DownloadJob, text: str) -> None:
     if not text:
         return
-    if job.log:
-        job.log = f"{job.log}\n{text}"
-    else:
-        job.log = text
+    job.log = f"{job.log}\n{text}" if job.log else text
 
 
 def _run_download(
@@ -47,6 +61,7 @@ def _run_download(
         db.commit()
 
         try:
+            _ensure_spotiflac_import()
             from SpotiFLAC import SpotiFLAC
 
             ensure_dirs()
@@ -60,22 +75,18 @@ def _run_download(
                 p for p in settings.downloads_dir.rglob("*") if p.is_file()
             )
 
-            # Try tidal first (lossless), fall back to youtube (universal coverage)
             SpotiFLAC(
                 url=query,
                 output_dir=str(settings.downloads_dir),
-                services=["tidal", "youtube"],
-                use_artist_subfolders=False,
-                filename_format="{title} - {artist}",
+                services=["qobuz", "tidal", "deezer", "amazon", "spoti", "youtube"],
+                use_artist_subfolders=True,
             )
 
             _append_log(job, "Download process finished, scanning for audio files")
 
-            # Retry scan a few times for slow downloads
-            import time
+            moved_files = []
             for attempt in range(6):
                 time.sleep(5)
-                moved_files = []
                 for file in settings.downloads_dir.rglob("*"):
                     if file.is_file() and is_audio_file(file):
                         _append_log(job, f"Found audio: {file.name}")
@@ -88,12 +99,15 @@ def _run_download(
                     p for p in settings.downloads_dir.rglob("*") if p.is_file()
                 )
                 new_files = files_after - files_before
-                if not new_files and attempt < 5:
-                    _append_log(job, f"Waiting for download to complete... (attempt {attempt + 1})")
+                if new_files and attempt < 5:
+                    _append_log(
+                        job, f"Waiting for download to complete... (attempt {attempt + 1})"
+                    )
                     continue
-                elif new_files and attempt < 5:
-                    _append_log(job, f"Waiting for download to complete... found temp files (attempt {attempt + 1})")
-                    continue
+                elif not new_files and attempt < 5:
+                    _append_log(
+                        job, f"Waiting for download to complete... (attempt {attempt + 1})"
+                    )
 
             _append_log(job, f"Moved {len(moved_files)} files to library")
 
@@ -107,14 +121,8 @@ def _run_download(
                         job,
                         f"Non-audio files created: {', '.join(f.name for f in new_files)}",
                     )
-                _append_log(
-                    job,
-                    "No audio files downloaded - check the URL.",
-                )
                 job.status = "failed"
-                job.log = (
-                    job.log or ""
-                ) + "\nNo audio files found."
+                job.log = (job.log or "") + "\nNo audio files found - check the URL."
                 db.commit()
                 return
 
@@ -125,7 +133,7 @@ def _run_download(
             job.source = "spotiflac"
 
         except ImportError:
-            _append_log(job, "SpotiFLAC not installed. Run: pip install SpotiFLAC")
+            _append_log(job, f"SpotiFLAC source not found at {SPOTIFLAC_SRC}")
             job.status = "failed"
         except Exception as e:
             logger.exception("Download failed for job %s", job_id)
@@ -140,7 +148,9 @@ def _run_download(
 def queue_download(
     db: Session, query: str, source: str = "auto", user_hash: str | None = None
 ) -> DownloadJob:
-    job = DownloadJob(source="spotiflac", query=query, status="queued", user_hash=user_hash)
+    job = DownloadJob(
+        source="spotiflac", query=query, status="queued", user_hash=user_hash
+    )
     db.add(job)
     db.commit()
     db.refresh(job)
