@@ -81,12 +81,6 @@
             <div class="page active" id="page-home">
                 <div class="section">
                     <div class="section-header">
-                        <h2>Most Played</h2>
-                    </div>
-                    <div class="cards-container" id="most-played-grid"></div>
-                </div>
-                <div class="section">
-                    <div class="section-header">
                         <h2>Library</h2>
                     </div>
                     <div class="cards-container" id="tracks-grid"></div>
@@ -628,10 +622,7 @@
             renderTracksInRows('tracks-grid', tracks, { title: 'No tracks yet', info: 'Download a track to start' });
         }
 
-        function renderMostPlayed(tracks) {
-            renderTracksInRows('most-played-grid', tracks, { title: 'No plays yet', info: 'Play a track to build this list' });
-        }
-
+        
         function renderUploads(tracks) {
             renderTracksInRows('uploads-grid', tracks, { title: 'No uploads yet', info: 'Upload a track to see it here' });
         }
@@ -641,10 +632,7 @@
             try { var data = await api("/tracks?limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
         }
 
-        async function loadMostPlayed() {
-            try { var data = await api("/tracks/most-played?limit=10"); renderMostPlayed(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
-        }
-
+        
         function renderUploads(tracks) {
             uploadsGrid.innerHTML = "";
             if (!tracks.length) { uploadsGrid.innerHTML = '<div class="card"><p class="card-title">No uploads yet</p><p class="card-info">Upload a track to see it here</p></div>'; return; }
@@ -1191,7 +1179,7 @@
                 topBar.style.display = "flex";
                 dropdownUsername.textContent = user.name;
                 npLikeBtn.classList.add("hidden");
-                loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads();
+                loadTracks(); loadPlaylists(); loadUserUploads();
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
         });
 
@@ -1245,7 +1233,7 @@
             appMain.style.display = "flex";
             topBar.style.display = "flex";
             dropdownUsername.textContent = currentUser.name;
-            loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads();
+            loadTracks(); loadPlaylists(); loadUserUploads();
         }
 
         function copyHashToClipboard() {
@@ -1707,7 +1695,7 @@
         (async function() {
             var ok = await tryAutoLogin();
             if (!ok) { authOverlay.style.display = "flex"; appMain.style.display = "none"; }
-            else { loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads(); }
+            else { loadTracks(); loadPlaylists(); loadUserUploads(); }
         })();
 
         </script>
