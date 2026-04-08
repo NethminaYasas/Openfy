@@ -572,23 +572,92 @@ class AppleMusicDownloader:
             return expected_path
 
         print("Downloading track from YouTube...")
-        download_url = self._request_spotube_dl(video_id)
+        download_url = None
+
+        # Try SpotubeDL first with retry for 403 errors
+        download_url = None
+        for attempt in range(2):  # Try original URL, then refresh and try again
+            try:
+                if attempt == 0:
+                    download_url = self._request_spotube_dl(video_id)
+                else:
+                    # Refresh URL on retry
+                    print("SpotubeDL failed, refreshing URL and retrying...")
+                    download_url = self._request_spotube_dl(video_id)
+
+                if download_url:
+                    print(f"Attempting download from SpotubeDL (attempt {attempt + 1})...")
+                    with self.session.get(download_url, stream=True) as r:
+                        if r.status_code == 403:
+                            raise Exception(f"HTTP 403 Forbidden: {r.reason}")
+                        r.raise_for_status()
+                        total = int(r.headers.get("Content-Length", 0))
+                        downloaded = 0
+                        with open(expected_path, "wb") as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
+                                    if self.progress_callback:
+                                        self.progress_callback(downloaded, total)
+                    print("Download completed successfully via SpotubeDL")
+                    break  # Success, exit retry loop
+                else:
+                    if attempt == 0:
+                        print("SpotubeDL did not return a download URL")
+                    break  # No URL to retry
+
+            except Exception as e:
+                print(f"SpotubeDL download attempt {attempt + 1} failed: {e}")
+                download_url = None  # Reset for next attempt or to try Cobalt
+                if attempt == 0:  # First attempt failed, prepare for retry
+                    continue
+                else:  # Second attempt also failed
+                    break
+
+        # If SpotubeDL failed or didn't return a URL, try Cobalt with retry for 403 errors
         if not download_url:
-            download_url = self._request_cobalt(video_id)
+            for attempt in range(2):  # Try original URL, then refresh and try again
+                try:
+                    if attempt == 0:
+                        download_url = self._request_cobalt(video_id)
+                    else:
+                        # Refresh URL on retry
+                        print("Cobalt failed, refreshing URL and retrying...")
+                        download_url = self._request_cobalt(video_id)
+
+                    if download_url:
+                        print(f"Attempting download from Cobalt (attempt {attempt + 1})...")
+                        with self.session.get(download_url, stream=True) as r:
+                            if r.status_code == 403:
+                                raise Exception(f"HTTP 403 Forbidden: {r.reason}")
+                            r.raise_for_status()
+                            total = int(r.headers.get("Content-Length", 0))
+                            downloaded = 0
+                            with open(expected_path, "wb") as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                                        downloaded += len(chunk)
+                                        if self.progress_callback:
+                                            self.progress_callback(downloaded, total)
+                        print("Download completed successfully via Cobalt")
+                        break  # Success, exit retry loop
+                    else:
+                        if attempt == 0:
+                            print("Cobalt did not return a download URL")
+                        break  # No URL to retry
+
+                except Exception as e:
+                    print(f"Cobalt download attempt {attempt + 1} failed: {e}")
+                    download_url = None  # Reset for next attempt
+                    if attempt == 0:  # First attempt failed, prepare for retry
+                        continue
+                    else:  # Second attempt also failed
+                        break
+
         if not download_url:
             raise Exception("All YouTube download APIs failed")
-
-        with self.session.get(download_url, stream=True) as r:
-            r.raise_for_status()
-            total = int(r.headers.get("Content-Length", 0))
-            downloaded = 0
-            with open(expected_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if self.progress_callback:
-                            self.progress_callback(downloaded, total)
 
         self._embed_metadata(
             expected_path,
