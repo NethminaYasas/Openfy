@@ -667,10 +667,29 @@ a {
     justify-content: center;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
+    transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
 }
 
-.row-arrow.visible {
+/* Arrow positions before visible state: slide in from pointing direction */
+.row-arrow-left {
+    left: 4px;
+    transform: translateY(-50%) translateX(-8px);
+}
+
+.row-arrow-right {
+    right: 4px;
+    transform: translateY(-50%) translateX(8px);
+}
+
+/* When visible: slide to final position (translateX reset to 0) */
+.row-arrow-left.visible {
+    transform: translateY(-50%) translateX(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.row-arrow-right.visible {
+    transform: translateY(-50%) translateX(0);
     opacity: 1;
     pointer-events: auto;
 }
@@ -682,10 +701,6 @@ a {
 
 .row-arrow:active {
     transform: translateY(-50%) scale(0.95);
-}
-
-.row-arrow-left {
-    left: 4px;
 }
 
 .row-arrow-right {
