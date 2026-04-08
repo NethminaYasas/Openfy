@@ -227,18 +227,6 @@
                         <h2 class="np-title" id="np-title"></h2>
                         <p class="np-artist" id="np-artist"></p>
                     </div>
-                    <div class="np-stats">
-                        <div class="np-stat">
-                            <i class="fa-solid fa-play"></i>
-                            <span id="np-plays">0</span>
-                            <small>plays</small>
-                        </div>
-                        <div class="np-stat">
-                            <i class="fa-solid fa-clock"></i>
-                            <span id="np-duration">0:00</span>
-                            <small>duration</small>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -401,8 +389,6 @@
         const npTrack = document.getElementById("np-track");
         const npTitle = document.getElementById("np-title");
         const npArtist = document.getElementById("np-artist");
-        const npPlays = document.getElementById("np-plays");
-        const npDuration = document.getElementById("np-duration");
         const npCover = document.getElementById("np-cover");
         const npImg = document.getElementById("np-img");
         const npLikeBtn = document.getElementById("np-like-btn");
@@ -766,8 +752,6 @@
             npTrack.style.display = "block";
             npTitle.textContent = track.title || "";
             npArtist.textContent = getArtistDisplay(track) || "Unknown";
-            npPlays.textContent = track.play_count || 0;
-            npDuration.textContent = formatDuration(track.duration);
             clearCanvas(npCover);
             npCover.style.display = "none";
             npImg.style.display = "none";
