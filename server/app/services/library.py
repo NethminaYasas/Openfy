@@ -159,10 +159,16 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
                 if duplicate.id:
                     # Clear old associations
                     db.execute(delete(track_artist).where(track_artist.c.track_id == duplicate.id))
-                    # Insert new associations from current metadata
-                    for name in artist_names:
+                    # Insert new associations from current metadata with position order
+                    for idx, name in enumerate(artist_names):
                         artist_obj = _get_or_create_artist(db, name)
-                        db.execute(track_artist.insert().values(track_id=duplicate.id, artist_id=artist_obj.id))
+                        db.execute(
+                            track_artist.insert().values(
+                                track_id=duplicate.id,
+                                artist_id=artist_obj.id,
+                                position=idx,
+                            )
+                        )
                     # Update primary artist to first in list
                     if primary_artist:
                         duplicate.artist_id = primary_artist.id
@@ -191,12 +197,18 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         if user_hash and not existing.user_hash:
             existing.user_hash = user_hash
 
-        # Sync artist associations: delete old, insert new
+        # Sync artist associations: delete old, insert new with position
         if existing.id:
             db.execute(delete(track_artist).where(track_artist.c.track_id == existing.id))
-            for name in artist_names:
+            for idx, name in enumerate(artist_names):
                 artist_obj = _get_or_create_artist(db, name)
-                db.execute(track_artist.insert().values(track_id=existing.id, artist_id=artist_obj.id))
+                db.execute(
+                    track_artist.insert().values(
+                        track_id=existing.id,
+                        artist_id=artist_obj.id,
+                        position=idx,
+                    )
+                )
 
         db.add(existing)
         return existing
@@ -226,10 +238,16 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     db.add(track)
     db.flush()
 
-    # Insert artist associations
-    for name in artist_names:
+    # Insert artist associations with position order
+    for idx, name in enumerate(artist_names):
         artist_obj = _get_or_create_artist(db, name)
-        db.execute(track_artist.insert().values(track_id=track.id, artist_id=artist_obj.id))
+        db.execute(
+            track_artist.insert().values(
+                track_id=track.id,
+                artist_id=artist_obj.id,
+                position=idx,
+            )
+        )
 
     return track
 

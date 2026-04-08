@@ -27,6 +27,7 @@ track_artist = Table(
     Base.metadata,
     Column("track_id", String(36), ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True),
     Column("artist_id", String(36), ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True),
+    Column("position", Integer, nullable=False, default=0),  # Order of artists for a track
 )
 
 
@@ -87,7 +88,12 @@ class Track(Base):
     album_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("albums.id"))
 
     artist = relationship("Artist", back_populates="tracks")  # primary artist via artist_id
-    artists = relationship("Artist", secondary=track_artist, back_populates="many_tracks")  # full many-to-many
+    artists = relationship(
+        "Artist",
+        secondary=track_artist,
+        back_populates="many_tracks",
+        order_by="track_artist.c.position",
+    )  # full many-to-many with ordering
     album = relationship("Album", back_populates="tracks")
     plays = relationship("TrackPlay", back_populates="track", cascade="all, delete-orphan")
     playlist_tracks = relationship("PlaylistTrack", back_populates="track", cascade="all, delete-orphan")
