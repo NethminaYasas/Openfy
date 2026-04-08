@@ -16,12 +16,12 @@ from fastapi import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
 
 from .db import Base, engine, get_db, SessionLocal
-from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob, User, TrackPlay
+from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob, User, TrackPlay, track_artist
 from .schemas import (
     TrackOut,
     ArtistOut,
@@ -263,9 +263,9 @@ def list_tracks(
     db: Session = Depends(get_db),
 ):
     if random:
-        stmt = select(Track).offset(offset).limit(limit).order_by(func.random())
+        stmt = select(Track).options(selectinload(Track.artists)).offset(offset).limit(limit).order_by(func.random())
     else:
-        stmt = select(Track).order_by(Track.created_at.desc()).limit(limit).offset(offset)
+        stmt = select(Track).options(selectinload(Track.artists)).order_by(Track.created_at.desc()).limit(limit).offset(offset)
 
     # If user_hash is provided, require auth and check authorization
     if user_hash:
@@ -288,7 +288,8 @@ def list_tracks(
 
 @app.get("/tracks/{track_id}", response_model=TrackOut)
 def get_track(track_id: str, db: Session = Depends(get_db)):
-    track = db.get(Track, track_id)
+    stmt = select(Track).options(selectinload(Track.artists), selectinload(Track.album)).where(Track.id == track_id)
+    track = db.execute(stmt).scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
@@ -314,6 +315,7 @@ def most_played(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_
     one_day_ago = datetime.utcnow() - timedelta(days=1)
     stmt = (
         select(Track, func.count(TrackPlay.id).label("play_ct"))
+        .options(selectinload(Track.artists))
         .outerjoin(TrackPlay, Track.id == TrackPlay.track_id)
         .where(TrackPlay.played_at >= one_day_ago)
         .group_by(Track.id)
@@ -400,11 +402,11 @@ def search(
     pattern = f"%{q}%"
     stmt = (
         select(Track)
-        .join(Artist, isouter=True)
-        .join(Album, isouter=True)
+        .options(selectinload(Track.artists))
+        .join(Album, isouter=True)  # keep for album title search
         .where(
             (Track.title.ilike(pattern))
-            | (Artist.name.ilike(pattern))
+            | (Track.artists.any(Artist.name.ilike(pattern)))
             | (Album.title.ilike(pattern))
         )
     )
@@ -509,6 +511,10 @@ def list_playlist_tracks(
         raise HTTPException(status_code=404, detail="Playlist not found")
     stmt = (
         select(PlaylistTrack)
+        .options(
+            selectinload(PlaylistTrack.track).selectinload(Track.artists),
+            selectinload(PlaylistTrack.track).selectinload(Track.album)
+        )
         .where(PlaylistTrack.playlist_id == playlist_id)
         .order_by(PlaylistTrack.position.asc())
     )
@@ -799,16 +805,15 @@ def list_all_tracks(
     if not admin_user or not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    stmt = select(Track).order_by(Track.created_at.desc())
+    stmt = select(Track).options(selectinload(Track.artists)).order_by(Track.created_at.desc())
     if q:
         stmt = (
             stmt.where(
                 (Track.title.ilike(f"%{q}%"))
-                | (Artist.name.ilike(f"%{q}%"))
+                | (Track.artists.any(Artist.name.ilike(f"%{q}%")))
                 | (Album.title.ilike(f"%{q}%"))
             )
-            .join(Artist, isouter=True)
-            .join(Album, isouter=True)
+            .join(Album, isouter=True)  # join Album for album title search
         )
 
     tracks = db.execute(stmt).scalars().all()
@@ -817,11 +822,17 @@ def list_all_tracks(
         user = db.execute(
             select(User).where(User.auth_hash == track.user_hash)
         ).scalar_one_or_none()
+        # Get primary artist name (first in artists list or fallback)
+        artist_name = "Unknown"
+        if track.artists and len(track.artists) > 0:
+            artist_name = track.artists[0].name
+        elif track.artist:
+            artist_name = track.artist.name
         result.append(
             {
                 "id": track.id,
                 "title": track.title,
-                "artist_name": track.artist.name if track.artist else "Unknown",
+                "artist_name": artist_name,
                 "user_name": user.name if user else "Unclaimed",
                 "user_hash": track.user_hash,
                 "duration": track.duration,

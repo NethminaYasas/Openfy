@@ -32,88 +32,105 @@ class AppleMusicDownloader:
     """
     
     def _extract_spotify_metadata(self, spotify_url: str) -> dict | None:
-        """Extract track metadata from a Spotify URL using Spotify's oEmbed API (no auth needed)."""
+        """Extract track metadata from a Spotify URL by parsing embed page JSON (no auth needed)."""
         try:
             import urllib.parse
-            url = f"https://open.spotify.com/oembed?format=json&url={urllib.parse.quote(spotify_url)}"
-            resp = self.session.get(url, timeout=10)
-            data = resp.json()
-            
-            title = data.get("title", "Unknown").strip()
-            cover_url = data.get("thumbnail_url", "")
-            
-            # Title from oEmbed is typically just the song name
-            # We need artist info too - try parsing "Artist - Song" format
-            artist = ""
-            album = ""
-            
-            # Also get description for additional info
-            # Try fetching the embed page for more metadata
+            import re
+            # Extract track ID
             parsed = urllib.parse.urlparse(spotify_url)
             path_parts = [p for p in parsed.path.split("/") if p]
-            if len(path_parts) >= 2 and path_parts[0] == "track":
-                track_id = path_parts[1]
-                embed_url = f"https://open.spotify.com/embed/track/{track_id}"
+            if len(path_parts) < 2 or path_parts[0] != "track":
+                return None
+            track_id = path_parts[1]
+
+            # Get oEmbed for title and cover (simpler than embed page)
+            oembed_url = f"https://open.spotify.com/oembed?format=json&url={urllib.parse.quote(spotify_url)}"
+            resp = self.session.get(oembed_url, timeout=10)
+            data = resp.json()
+            title = data.get("title", "Unknown").strip()
+            cover_url = data.get("thumbnail_url", "")
+
+            # Fetch embed page to get structured JSON data
+            embed_url = f"https://open.spotify.com/embed/track/{track_id}"
+            embed_resp = self.session.get(embed_url, timeout=10)
+            embed_text = embed_resp.text
+
+            # Parse __NEXT_DATA__ script for full metadata
+            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', embed_text)
+            artist = ""
+            album = ""
+            duration_ms = 0
+            if match:
+                import json
                 try:
-                    embed_resp = self.session.get(embed_url, timeout=10, allow_redirects=True)
-                    # Look for metadata in the embed HTML
-                    import re
-                    
-                    # Try to find artist and album from the page
-                    artist_match = re.search(r'"name":"([^"]+)"', embed_resp.text)
-                    if artist_match:
-                        # The first "name" could be artist - try to find more context
-                        name_matches = re.findall(r'"name":"([^"]+)"', embed_resp.text)
-                        if len(name_matches) >= 2:
-                            # Usually: artist_name, track_name, album_name
-                            artist = name_matches[0]
-                            if len(name_matches) > 2:
-                                album = name_matches[2]
-                except Exception:
+                    next_data = json.loads(match.group(1))
+                    # Navigate: props -> pageProps -> state -> data -> entity
+                    entity = next_data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+                    if entity:
+                        # Extract artists array
+                        artists_list = entity.get("artists", [])
+                        if artists_list:
+                            all_artist_names = [a.get("name", "") for a in artists_list if a.get("name")]
+                            if all_artist_names:
+                                artist = ", ".join(all_artist_names)
+                                artist = re.sub(r'\s+', ' ', artist).strip(", ")
+                        # Extract album if available
+                        album_obj = entity.get("album", {})
+                        if album_obj:
+                            album = album_obj.get("name", "")
+                        # Extract duration
+                        duration_ms = entity.get("duration", 0)
+                except json.JSONDecodeError:
                     pass
-            
-            # If we still don't have artist, try Songlink to get full metadata
+
+            # Fallback: if no artists from embed, try Songlink (may rate limit)
             if not artist:
                 try:
                     songlink_url = f"https://api.song.link/v1-alpha.1/links?url={urllib.parse.quote(spotify_url)}&userCountry=US"
                     songlink_resp = self.session.get(songlink_url, timeout=10)
                     songlink_data = songlink_resp.json()
                     entities = songlink_data.get("entitiesByUniqueId", {})
-                    for uid, entity in entities.items():
-                        if entity.get("apiProvider") == "spotify":
-                            artists = entity.get("artistsByRole", {})
+                    for uid, ent in entities.items():
+                        if ent.get("apiProvider") == "spotify":
+                            artists = ent.get("artistsByRole", {})
                             if artists:
-                                all_artist_names = []
-                                for role, artists_list in artists.items():
-                                    if artists_list:
-                                        all_artist_names.extend([a.get("name", "") for a in artists_list if a.get("name")])
-                                artist = ", ".join(all_artist_names) if all_artist_names else ""
-                                artist = re.sub(r'\s+', ' ', artist).strip(", ")
-                            if not album:
-                                album_links = entity.get("album", {})
-                                if album_links:
-                                    album = album_links.get("name", "")
+                                all_names = []
+                                for role, alist in artists.items():
+                                    if alist:
+                                        all_names.extend([a.get("name", "") for a in alist if a.get("name")])
+                                if all_names:
+                                    artist = ", ".join(all_names)
+                                    artist = re.sub(r'\s+', ' ', artist).strip(", ")
+                            album_links = ent.get("album", {})
+                            if album_links and not album:
+                                album = album_links.get("name", "")
                             break
                 except Exception:
                     pass
-            
+
+            # Final fallback: parse from title "Artist - Song"
+            if not artist and " - " in title:
+                parts = title.split(" - ")
+                if len(parts) >= 2:
+                    artist = " - ".join(parts[:-1])
+
             return {
                 "name": title,
                 "artist": artist or "Unknown Artist",
                 "album": album,
                 "album_artist": artist,
-                "track_number": 1,
-                "total_tracks": 1,
+                "track_number": entity.get("track_number", 1) if isinstance(entity, dict) else 1,
+                "total_tracks": entity.get("total_tracks", 1) if isinstance(entity, dict) else 1,
                 "disc_number": 1,
                 "release_date": "",
-                "duration_ms": 0,
+                "duration_ms": duration_ms,
                 "cover_url": cover_url,
                 "genre": "",
                 "explicit": False,
             }
         except Exception as e:
             print(f"[!] Spotify metadata extraction error: {e}")
-        
+
         return None
     
     @staticmethod

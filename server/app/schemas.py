@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List
 from pydantic import BaseModel, Field
 
 
@@ -49,7 +50,8 @@ class TrackOut(TrackBase):
     created_at: datetime
     updated_at: datetime
 
-    artist: ArtistOut | None = None
+    artist: ArtistOut | None = None  # primary artist via artist_id
+    artists: List[ArtistOut] = Field(default_factory=list)  # full many-to-many list
     album: AlbumOut | None = None
 
     class Config:

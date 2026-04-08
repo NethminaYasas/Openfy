@@ -9,6 +9,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Float,
+    Table,
+    Column,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +21,15 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+# Association table for many-to-many Track-Artist relationship
+track_artist = Table(
+    "track_artist",
+    Base.metadata,
+    Column("track_id", String(36), ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True),
+    Column("artist_id", String(36), ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class Artist(Base):
     __tablename__ = "artists"
 
@@ -27,7 +38,8 @@ class Artist(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     albums = relationship("Album", back_populates="artist")
-    tracks = relationship("Track", back_populates="artist")
+    tracks = relationship("Track", back_populates="artist")  # primary artist via artist_id
+    many_tracks = relationship("Track", secondary=track_artist, back_populates="artists")  # full many-to-many
 
 
 class Album(Base):
@@ -74,7 +86,8 @@ class Track(Base):
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
     album_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("albums.id"))
 
-    artist = relationship("Artist", back_populates="tracks")
+    artist = relationship("Artist", back_populates="tracks")  # primary artist via artist_id
+    artists = relationship("Artist", secondary=track_artist, back_populates="many_tracks")  # full many-to-many
     album = relationship("Album", back_populates="tracks")
     plays = relationship("TrackPlay", back_populates="track", cascade="all, delete-orphan")
     playlist_tracks = relationship("PlaylistTrack", back_populates="track", cascade="all, delete-orphan")

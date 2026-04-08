@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterable
 
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, delete, func
 
-from ..models import Artist, Album, Track
+from ..models import Artist, Album, Track, track_artist
 from ..settings import settings
 from .storage import ensure_dirs
 from .storage import is_audio_file
@@ -108,22 +109,78 @@ def _store_artwork(album: Album, file_path: Path) -> None:
 def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None) -> Track:
     existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
 
-    artist_name = _normalize(metadata.get("artist"))
+    # Get artist names from metadata (can be string or list)
+    raw_artists = metadata.get("artist") or []
+    artist_names = []
+    if isinstance(raw_artists, str):
+        # Split on common delimiters: comma, semicolon, slash, &, "and"
+        parts = re.split(r'[,;/&]|\band\b', raw_artists, flags=re.IGNORECASE)
+        artist_names = []
+        for name in parts:
+            name = name.strip()
+            if name:
+                norm = _normalize(name, fallback=None)
+                if norm and norm.lower() not in ("unknown", "unknown artist"):
+                    artist_names.append(norm)
+    elif isinstance(raw_artists, (list, tuple)):
+        for name in raw_artists:
+            norm = _normalize(name, fallback=None)
+            if norm and norm.lower() not in ("unknown", "unknown artist"):
+                artist_names.append(norm)
+    else:
+        # Handle None or other types
+        artist_names = []
+
+    # Primary artist is first in list (for backward compatibility)
+    primary_artist_name = artist_names[0] if artist_names else None
+    primary_artist = _get_or_create_artist(db, primary_artist_name) if primary_artist_name else None
+
     album_title = _normalize(metadata.get("album"), fallback=None) if metadata.get("album") else None
     title = _normalize(metadata.get("title"), fallback=file_path.stem)
+    duration = metadata.get("duration")
 
-    artist = _get_or_create_artist(db, artist_name) if artist_name else None
-    if not album_title:
-        album_title = title
-    album = _get_or_create_album(db, album_title, artist.id if artist else None, metadata.get("year"))
-    if album:
-        _store_artwork(album, file_path)
+    if existing is None:
+        # Check for duplicates based on title + primary artist + duration
+        if primary_artist_name and duration:
+            duplicate = db.execute(
+                select(Track)
+                .join(track_artist)
+                .join(Artist)
+                .where(
+                    Track.title == title,
+                    Artist.name == primary_artist_name,
+                    func.abs(Track.duration - duration) < 2
+                )
+            ).scalar_one_or_none()
+            if duplicate:
+                if user_hash and not duplicate.user_hash:
+                    duplicate.user_hash = user_hash
+                # Update artist associations to include all artists from current metadata
+                if duplicate.id:
+                    # Clear old associations
+                    db.execute(delete(track_artist).where(track_artist.c.track_id == duplicate.id))
+                    # Insert new associations from current metadata
+                    for name in artist_names:
+                        artist_obj = _get_or_create_artist(db, name)
+                        db.execute(track_artist.insert().values(track_id=duplicate.id, artist_id=artist_obj.id))
+                    # Update primary artist to first in list
+                    if primary_artist:
+                        duplicate.artist_id = primary_artist.id
+                    db.add(duplicate)
+                return duplicate
 
     if existing:
+        # Update existing track
+        if not album_title:
+            album_title = title
+        album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"))
+        if album:
+            _store_artwork(album, file_path)
+
         existing.title = title
-        existing.artist_id = artist.id if artist else None
+        existing.artist_id = primary_artist.id if primary_artist else None
         existing.album_id = album.id if album else None
-        existing.duration = metadata.get("duration")
+        existing.duration = duration
         existing.bitrate = metadata.get("bitrate")
         existing.sample_rate = metadata.get("sample_rate")
         existing.channels = metadata.get("channels")
@@ -133,31 +190,54 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         existing.mime_type = metadata.get("mime_type")
         if user_hash and not existing.user_hash:
             existing.user_hash = user_hash
+
+        # Sync artist associations: delete old, insert new
+        if existing.id:
+            db.execute(delete(track_artist).where(track_artist.c.track_id == existing.id))
+            for name in artist_names:
+                artist_obj = _get_or_create_artist(db, name)
+                db.execute(track_artist.insert().values(track_id=existing.id, artist_id=artist_obj.id))
+
+        db.add(existing)
         return existing
+
+    # Create new track
+    if not album_title:
+        album_title = title
+    album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"))
+    if album:
+        _store_artwork(album, file_path)
 
     track = Track(
         title=title,
         file_path=str(file_path),
         file_size=metadata.get("file_size"),
-        duration=metadata.get("duration"),
+        duration=duration,
         mime_type=metadata.get("mime_type"),
         bitrate=metadata.get("bitrate"),
         sample_rate=metadata.get("sample_rate"),
         channels=metadata.get("channels"),
         track_no=metadata.get("track_no"),
         disc_no=metadata.get("disc_no"),
-        artist_id=artist.id if artist else None,
+        artist_id=primary_artist.id if primary_artist else None,
         album_id=album.id if album else None,
         user_hash=user_hash,
     )
     db.add(track)
+    db.flush()
+
+    # Insert artist associations
+    for name in artist_names:
+        artist_obj = _get_or_create_artist(db, name)
+        db.execute(track_artist.insert().values(track_id=track.id, artist_id=artist_obj.id))
+
     return track
 
 
 def _read_metadata(path: Path) -> dict:
     info = {
         "title": None,
-        "artist": None,
+        "artist": None,  # will be list of strings
         "album": None,
         "year": None,
         "duration": None,
@@ -182,7 +262,49 @@ def _read_metadata(path: Path) -> dict:
 
     tags = audio.tags or {}
     info["title"] = tags.get("TIT2") or tags.get("title") or tags.get("TITLE")
-    info["artist"] = tags.get("TPE1") or tags.get("artist") or tags.get("ARTIST")
+    # Extract artists into a list from various tag formats
+    artist_entries = []
+    tpe1 = tags.get("TPE1")
+    if tpe1:
+        text_val = None
+        if hasattr(tpe1, "text"):
+            text_val = tpe1.text
+        elif isinstance(tpe1, (list, tuple)):
+            text_val = tpe1
+        else:
+            text_val = str(tpe1)
+        if isinstance(text_val, list):
+            for t in text_val:
+                if t:
+                    artist_entries.append(str(t).strip())
+        else:
+            if text_val:
+                artist_entries.append(str(text_val).strip())
+    for key in ("artist", "ARTIST"):
+        val = tags.get(key)
+        if val:
+            if isinstance(val, list):
+                for v in val:
+                    if v:
+                        artist_entries.append(str(v).strip())
+            else:
+                artist_entries.append(str(val).strip())
+
+    split_artists = []
+    for entry in artist_entries:
+        parts = re.split(r'[,;/&]|\band\b', entry, flags=re.IGNORECASE)
+        for p in parts:
+            p = p.strip()
+            if p:
+                split_artists.append(p)
+    seen = set()
+    artists = []
+    for a in split_artists:
+        norm = a.lower()
+        if norm not in seen:
+            seen.add(norm)
+            artists.append(a)
+    info["artist"] = artists if artists else None
     info["album"] = tags.get("TALB") or tags.get("album") or tags.get("ALBUM")
     info["track_no"] = _safe_int(tags.get("TRCK") or tags.get("tracknumber"))
     info["disc_no"] = _safe_int(tags.get("TPOS") or tags.get("discnumber"))

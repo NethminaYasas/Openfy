@@ -475,6 +475,13 @@
             return mins + ":" + secs;
         }
 
+        function getArtistDisplay(track) {
+            if (track.artists && track.artists.length > 0) {
+                return track.artists.map(function(a) { return a.name; }).join(", ");
+            }
+            return (track.artist && track.artist.name) ? track.artist.name : "Unknown";
+        }
+
         function seededColor(seed) {
             var hash = 0;
             for (var i = 0; i < seed.length; i++) { hash = seed.charCodeAt(i) + ((hash << 5) - hash); }
@@ -516,7 +523,7 @@
         function buildTrackCard(track, list, index) {
             var card = document.createElement("div");
             card.className = "card";
-            var art = createArtCanvas(track.title, track.artist && track.artist.name);
+            var art = createArtCanvas(track.title, getArtistDisplay(track));
             var img = document.createElement("img");
             img.className = "card-img";
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
@@ -531,7 +538,7 @@
             title.textContent = track.title;
             var info = document.createElement("p");
             info.className = "card-info";
-            info.textContent = (track.artist && track.artist.name ? track.artist.name : "Unknown") + " \u2022 " + formatDuration(track.duration);
+            info.textContent = getArtistDisplay(track) + " • " + formatDuration(track.duration);
             card.appendChild(title);
             card.appendChild(info);
             
@@ -704,7 +711,7 @@
             audioPlayer.src = withBase("/tracks/" + track.id + "/stream");
             audioPlayer.play().catch(function(err) { console.error(err); });
             nowTitle.textContent = track.title || "";
-            nowArtist.textContent = (track.artist && track.artist.name) || "";
+            nowArtist.textContent = getArtistDisplay(track) || "";
             clearCanvas(nowCover);
             nowCover.classList.remove("visible");
             var img = new Image();
@@ -715,7 +722,7 @@
                 ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, nowCover.width, nowCover.height);
                 nowCover.classList.add("visible");
             };
-            img.onerror = function() { drawCanvas(nowCover, track.title, (track.artist && track.artist.name) || ""); nowCover.classList.add("visible"); };
+            img.onerror = function() { drawCanvas(nowCover, track.title, getArtistDisplay(track) || ""); nowCover.classList.add("visible"); };
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
             updateNowPlaying(track);
             // Show like button only if authenticated
@@ -760,7 +767,7 @@
             npPlaceholder.style.display = "none";
             npTrack.style.display = "block";
             npTitle.textContent = track.title || "";
-            npArtist.textContent = (track.artist && track.artist.name) || "Unknown";
+            npArtist.textContent = getArtistDisplay(track) || "Unknown";
             npAlbum.textContent = (track.album && track.album.title) || "";
             npPlays.textContent = track.play_count || 0;
             npDuration.textContent = formatDuration(track.duration);
@@ -774,7 +781,7 @@
                 npCover.style.display = "none";
             };
             npImgEl.onerror = function() {
-                drawCanvas(npCover, track.title, (track.artist && track.artist.name) || "");
+                drawCanvas(npCover, track.title, getArtistDisplay(track) || "");
                 npCover.style.display = "block";
                 npImg.style.display = "none";
             };
@@ -1024,7 +1031,7 @@
                     artImg.alt = pt.track.title;
                     artImg.onerror = function() { artImg.style.display = "none"; artSpan.style.background = "#282828"; };
                     artSpan.appendChild(artImg);
-                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + (pt.track.artist && pt.track.artist.name ? pt.track.artist.name : "Unknown") + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
+                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + getArtistDisplay(pt.track) + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
                     row.querySelector(".pt-title").addEventListener("click", function() { currentQueue = tracks.map(function(t) { return t.track; }); currentIndex = i; playTrack(pt.track); });
                     row.querySelector(".pt-title").style.cursor = "pointer";
                     row.insertBefore(artSpan, row.children[1]); // Insert after pt-num
