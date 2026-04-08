@@ -89,7 +89,7 @@ body {
     min-width: 0;
     border-radius: 0.5rem;
     overflow: auto;
-    padding: 0 1.5rem 0 1.5rem;
+    padding: 0;
     -ms-overflow-style: none;
     scrollbar-width: none;
 }
@@ -1656,7 +1656,7 @@ a {
 }
 
 #page-library {
-    padding: 1rem 1.5rem;
+    padding: 0;
 }
 
 .admin-dashboard {
