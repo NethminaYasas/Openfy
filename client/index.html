@@ -530,17 +530,102 @@
             return card;
         }
 
+        
+        // Row-based carousel: up to 9 cards per row with independent scroll
+        function createTrackRow(rowId) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'tracks-row-wrapper';
+            
+            const leftArrow = document.createElement('button');
+            leftArrow.className = 'row-arrow row-arrow-left';
+            leftArrow.setAttribute('aria-label', 'Scroll left');
+            leftArrow.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+            
+            const rightArrow = document.createElement('button');
+            rightArrow.className = 'row-arrow row-arrow-right';
+            rightArrow.setAttribute('aria-label', 'Scroll right');
+            rightArrow.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+            
+            const row = document.createElement('div');
+            row.className = 'tracks-row';
+            row.id = rowId;
+            
+            wrapper.appendChild(leftArrow);
+            wrapper.appendChild(row);
+            wrapper.appendChild(rightArrow);
+            
+            return { wrapper, row, leftArrow, rightArrow };
+        }
+
+        function setupRowScroll(row, leftArrow, rightArrow) {
+            function updateArrows() {
+                if (row.scrollLeft <= 10) {
+                    leftArrow.classList.remove('visible');
+                } else {
+                    leftArrow.classList.add('visible');
+                }
+                if (row.scrollLeft + row.clientWidth >= row.scrollWidth - 10) {
+                    rightArrow.classList.remove('visible');
+                } else {
+                    rightArrow.classList.add('visible');
+                }
+            }
+            
+            setTimeout(updateArrows, 100);
+            row.addEventListener('scroll', updateArrows);
+            new MutationObserver(() => setTimeout(updateArrows, 50)).observe(row, { childList: true, subtree: true });
+            window.addEventListener('resize', updateArrows);
+            
+            leftArrow.addEventListener('click', () => {
+                const cardWidth = 140 + 16;
+                row.scrollBy({ left: -cardWidth * 3, behavior: 'smooth' });
+            });
+            rightArrow.addEventListener('click', () => {
+                const cardWidth = 140 + 16;
+                row.scrollBy({ left: cardWidth * 3, behavior: 'smooth' });
+            });
+        }
+
+        function renderTracksInRows(containerId, tracks, emptyMessage) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            if (!tracks.length) {
+                const emptyCard = document.createElement('div');
+                emptyCard.className = 'card';
+                emptyCard.innerHTML = '<p class="card-title">' + emptyMessage.title + '</p><p class="card-info">' + emptyMessage.info + '</p>';
+                container.appendChild(emptyCard);
+                return;
+            }
+            
+            const cardsPerRow = 9;
+            for (let i = 0; i < tracks.length; i += cardsPerRow) {
+                const rowData = tracks.slice(i, i + cardsPerRow);
+                const { wrapper, row, leftArrow, rightArrow } = createTrackRow(containerId + '-row-' + (i / cardsPerRow));
+                
+                rowData.forEach((track, idx) => {
+                    row.appendChild(buildTrackCard(track, rowData, idx));
+                });
+                
+                setupRowScroll(row, leftArrow, rightArrow);
+                container.appendChild(wrapper);
+            }
+        }
+
         function renderTracks(tracks) {
-            tracksGrid.innerHTML = "";
-            if (!tracks.length) { tracksGrid.innerHTML = '<div class="card"><p class="card-title">No tracks yet</p><p class="card-info">Download a track to start</p></div>'; return; }
-            tracks.forEach(function(track, index) { tracksGrid.appendChild(buildTrackCard(track, tracks, index)); });
+            renderTracksInRows('tracks-grid', tracks, { title: 'No tracks yet', info: 'Download a track to start' });
         }
 
         function renderMostPlayed(tracks) {
-            mostPlayedGrid.innerHTML = "";
-            if (!tracks.length) { mostPlayedGrid.innerHTML = '<div class="card"><p class="card-title">No plays yet</p><p class="card-info">Play a track to build this list</p></div>'; return; }
-            tracks.forEach(function(track, index) { mostPlayedGrid.appendChild(buildTrackCard(track, tracks, index)); });
+            renderTracksInRows('most-played-grid', tracks, { title: 'No plays yet', info: 'Play a track to build this list' });
         }
+
+        function renderUploads(tracks) {
+            renderTracksInRows('uploads-grid', tracks, { title: 'No uploads yet', info: 'Upload a track to see it here' });
+        }
+
 
         async function loadTracks() {
             try { var data = await api("/tracks?limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
@@ -1614,6 +1699,7 @@
             if (!ok) { authOverlay.style.display = "flex"; appMain.style.display = "none"; }
             else { loadTracks(); loadMostPlayed(); loadPlaylists(); loadUserUploads(); }
         })();
-    </script>
+
+        </script>
 </body>
 </html>
