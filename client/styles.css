@@ -714,6 +714,13 @@ a {
     font-size: 0.85rem;
     opacity: 0.8;
     margin-top: 0.5rem;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+    max-height: calc(1.4em * 3);
 }
 
 
@@ -1571,11 +1578,6 @@ a {
 
 .pt-artist {
     color: #b3b3b3;
-}
-
-.pt-duration {
-    color: #b3b3b3;
-    text-align: right;
 }
 
 .pt-art {
