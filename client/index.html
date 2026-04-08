@@ -226,7 +226,6 @@
                     <div class="np-details">
                         <h2 class="np-title" id="np-title"></h2>
                         <p class="np-artist" id="np-artist"></p>
-                        <p class="np-album" id="np-album"></p>
                     </div>
                     <div class="np-stats">
                         <div class="np-stat">
@@ -402,7 +401,6 @@
         const npTrack = document.getElementById("np-track");
         const npTitle = document.getElementById("np-title");
         const npArtist = document.getElementById("np-artist");
-        const npAlbum = document.getElementById("np-album");
         const npPlays = document.getElementById("np-plays");
         const npDuration = document.getElementById("np-duration");
         const npCover = document.getElementById("np-cover");
@@ -768,7 +766,6 @@
             npTrack.style.display = "block";
             npTitle.textContent = track.title || "";
             npArtist.textContent = getArtistDisplay(track) || "Unknown";
-            npAlbum.textContent = (track.album && track.album.title) || "";
             npPlays.textContent = track.play_count || 0;
             npDuration.textContent = formatDuration(track.duration);
             clearCanvas(npCover);
