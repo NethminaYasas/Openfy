@@ -532,61 +532,73 @@
 
         
         // Row-based carousel: up to 9 cards per row with independent scroll
-        function createTrackRow(rowId) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'tracks-row-wrapper';
-            
-            const leftArrow = document.createElement('button');
-            leftArrow.className = 'row-arrow row-arrow-left';
-            leftArrow.setAttribute('aria-label', 'Scroll left');
-            leftArrow.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
-            
-            const rightArrow = document.createElement('button');
-            rightArrow.className = 'row-arrow row-arrow-right';
-            rightArrow.setAttribute('aria-label', 'Scroll right');
-            rightArrow.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-            
-            const row = document.createElement('div');
-            row.className = 'tracks-row';
-            row.id = rowId;
-            
-            wrapper.appendChild(leftArrow);
-            wrapper.appendChild(row);
-            wrapper.appendChild(rightArrow);
-            
-            return { wrapper, row, leftArrow, rightArrow };
-        }
+                                            function createTrackRow(rowId) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'tracks-row-wrapper';
 
-        function setupRowScroll(row, leftArrow, rightArrow) {
-            function updateArrows() {
-                if (row.scrollLeft <= 10) {
-                    leftArrow.classList.remove('visible');
-                } else {
-                    leftArrow.classList.add('visible');
+                const leftArrow = document.createElement('button');
+                leftArrow.className = 'row-arrow row-arrow-left';
+                leftArrow.setAttribute('aria-label', 'Scroll left');
+                leftArrow.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+
+                const rightArrow = document.createElement('button');
+                rightArrow.className = 'row-arrow row-arrow-right';
+                rightArrow.setAttribute('aria-label', 'Scroll right');
+                rightArrow.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+
+                const row = document.createElement('div');
+                row.className = 'tracks-row';
+                row.id = rowId;
+
+                wrapper.appendChild(leftArrow);
+                wrapper.appendChild(row);
+                wrapper.appendChild(rightArrow);
+
+                function updateArrowVisibility() {
+                    if (!wrapper.matches(':hover')) {
+                        leftArrow.classList.remove('visible');
+                        rightArrow.classList.remove('visible');
+                        return;
+                    }
+                    const atLeft = row.scrollLeft <= 0;
+                    const atRight = row.scrollLeft + row.clientWidth >= row.scrollWidth - 1;
+
+                    if (!atLeft) {
+                        leftArrow.classList.add('visible');
+                    } else {
+                        leftArrow.classList.remove('visible');
+                    }
+
+                    if (!atRight) {
+                        rightArrow.classList.add('visible');
+                    } else {
+                        rightArrow.classList.remove('visible');
+                    }
                 }
-                if (row.scrollLeft + row.clientWidth >= row.scrollWidth - 10) {
-                    rightArrow.classList.remove('visible');
-                } else {
-                    rightArrow.classList.add('visible');
-                }
+
+                row.addEventListener('scroll', updateArrowVisibility);
+                wrapper.addEventListener('mouseenter', updateArrowVisibility);
+                wrapper.addEventListener('mouseleave', updateArrowVisibility);
+
+                // Scroll click handlers
+                const cardWidth = 140 + 16;
+                leftArrow.addEventListener('click', () => {
+                    row.scrollBy({ left: -cardWidth * 3, behavior: 'smooth' });
+                });
+                rightArrow.addEventListener('click', () => {
+                    row.scrollBy({ left: cardWidth * 3, behavior: 'smooth' });
+                });
+
+                // Initial visibility check
+                setTimeout(updateArrowVisibility, 0);
+                // Observe DOM changes
+                new MutationObserver(updateArrowVisibility).observe(row, { childList: true });
+                // Re-check on resize
+                window.addEventListener('resize', updateArrowVisibility);
+
+                return { wrapper, row, leftArrow, rightArrow };
             }
-            
-            setTimeout(updateArrows, 100);
-            row.addEventListener('scroll', updateArrows);
-            new MutationObserver(() => setTimeout(updateArrows, 50)).observe(row, { childList: true, subtree: true });
-            window.addEventListener('resize', updateArrows);
-            
-            leftArrow.addEventListener('click', () => {
-                const cardWidth = 140 + 16;
-                row.scrollBy({ left: -cardWidth * 3, behavior: 'smooth' });
-            });
-            rightArrow.addEventListener('click', () => {
-                const cardWidth = 140 + 16;
-                row.scrollBy({ left: cardWidth * 3, behavior: 'smooth' });
-            });
-        }
-
-        function renderTracksInRows(containerId, tracks, emptyMessage) {
+                            function renderTracksInRows(containerId, tracks, emptyMessage) {
             const container = document.getElementById(containerId);
             if (!container) return;
             
@@ -608,8 +620,6 @@
                 rowData.forEach((track, idx) => {
                     row.appendChild(buildTrackCard(track, rowData, idx));
                 });
-                
-                setupRowScroll(row, leftArrow, rightArrow);
                 container.appendChild(wrapper);
             }
         }
