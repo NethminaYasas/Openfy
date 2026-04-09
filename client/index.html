@@ -527,144 +527,47 @@
         }
 
         
-        // Row-based carousel: up to 9 cards per row with independent scroll
-                                            function createTrackRow(rowId) {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'tracks-row-wrapper';
-
-                const leftArrow = document.createElement('button');
-                leftArrow.className = 'row-arrow row-arrow-left';
-                leftArrow.setAttribute('aria-label', 'Scroll left');
-                leftArrow.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
-
-                const rightArrow = document.createElement('button');
-                rightArrow.className = 'row-arrow row-arrow-right';
-                rightArrow.setAttribute('aria-label', 'Scroll right');
-                rightArrow.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-
-                const row = document.createElement('div');
-                row.className = 'tracks-row';
-                row.id = rowId;
-
-                wrapper.appendChild(leftArrow);
-                wrapper.appendChild(row);
-                wrapper.appendChild(rightArrow);
-
-                function updateArrowVisibility() {
-                    const isHovered = wrapper.matches(':hover');
-
-                    // For debugging: log the state
-                    console.log('updateArrowVisibility:', {
-                        isHovered,
-                        scrollLeft: row.scrollLeft,
-                        scrollWidth: row.scrollWidth,
-                        clientWidth: row.clientWidth
-                    });
-
-                    if (!isHovered) {
-                        leftArrow.classList.remove('visible');
-                        rightArrow.classList.remove('visible');
-                        return;
-                    }
-
-                    const atLeft = row.scrollLeft <= 0;
-                    const atRight = row.scrollLeft + row.clientWidth >= row.scrollWidth - 1;
-
-                    if (!atLeft) {
-                        leftArrow.classList.add('visible');
-                    } else {
-                        leftArrow.classList.remove('visible');
-                    }
-
-                    if (!atRight) {
-                        rightArrow.classList.add('visible');
-                    } else {
-                        rightArrow.classList.remove('visible');
-                    }
-
-                    // Add/remove scrolled-left class based on scroll position
-                    if (atLeft) {
-                        row.classList.add('scrolled-left');
-                    } else {
-                        row.classList.remove('scrolled-left');
-                    }
-                }
-
-                row.addEventListener('scroll', updateArrowVisibility);
-                wrapper.addEventListener('mouseenter', (e) => {
-                    e.stopPropagation();
-                    updateArrowVisibility();
-                });
-                wrapper.addEventListener('mouseleave', (e) => {
-                    e.stopPropagation();
-                    updateArrowVisibility();
-                });
-
-                // Scroll click handlers
-                const cardWidth = 140 + 16;
-                leftArrow.addEventListener('click', () => {
-                    row.scrollBy({ left: -cardWidth * 3, behavior: 'smooth' });
-                });
-                rightArrow.addEventListener('click', () => {
-                    row.scrollBy({ left: cardWidth * 3, behavior: 'smooth' });
-                });
-
-                // Force initial visibility check
-                setTimeout(() => {
-                    updateArrowVisibility();
-                    // Force arrows to show on hover initially
-                    wrapper.style.pointerEvents = 'auto';
-                }, 100);
-                // Observe DOM changes
-                new MutationObserver(updateArrowVisibility).observe(row, { childList: true });
-                // Re-check on resize
-                window.addEventListener('resize', updateArrowVisibility);
-
-                return { wrapper, row, leftArrow, rightArrow };
-            }
-                            function renderTracksInRows(containerId, tracks, emptyMessage) {
-            const container = document.getElementById(containerId);
+                function renderTracks(tracks) {
+            const container = document.getElementById('tracks-grid');
             if (!container) return;
-            
+
             container.innerHTML = '';
-            
+
             if (!tracks.length) {
                 const emptyCard = document.createElement('div');
                 emptyCard.className = 'card';
-                emptyCard.innerHTML = '<p class="card-title">' + emptyMessage.title + '</p><p class="card-info">' + emptyMessage.info + '</p>';
+                emptyCard.innerHTML = '<p class="card-title">No tracks yet</p><p class="card-info">Download a track to start</p>';
                 container.appendChild(emptyCard);
                 return;
             }
-            
-            const cardsPerRow = 9;
-            for (let i = 0; i < tracks.length; i += cardsPerRow) {
-                const rowData = tracks.slice(i, i + cardsPerRow);
-                const { wrapper, row, leftArrow, rightArrow } = createTrackRow(containerId + '-row-' + (i / cardsPerRow));
-                
-                rowData.forEach((track, idx) => {
-                    row.appendChild(buildTrackCard(track, rowData, idx));
-                });
-                container.appendChild(wrapper);
-            }
+
+            tracks.forEach(function(track) {
+                container.appendChild(buildTrackCard(track, tracks, tracks.indexOf(track)));
+            });
         }
 
-        function renderTracks(tracks) {
-            renderTracksInRows('tracks-grid', tracks, { title: 'No tracks yet', info: 'Download a track to start' });
-        }
-
-        
         function renderUploads(tracks) {
-            renderTracksInRows('uploads-grid', tracks, { title: 'No uploads yet', info: 'Upload a track to see it here' });
+            const container = document.getElementById('uploads-grid');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (!tracks.length) {
+                const emptyCard = document.createElement('div');
+                emptyCard.className = 'card';
+                emptyCard.innerHTML = '<p class="card-title">No uploads yet</p><p class="card-info">Upload a track to see it here</p>';
+                container.appendChild(emptyCard);
+                return;
+            }
+
+            tracks.forEach(function(track) {
+                container.appendChild(buildTrackCard(track, tracks, tracks.indexOf(track)));
+            });
         }
 
 
         async function loadTracks() {
             try { var data = await api("/tracks?limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
-        }
-
-        
-        function renderUploads(tracks) {
-            renderTracksInRows('uploads-grid', tracks, { title: 'No uploads yet', info: 'Upload a track to see it here' });
         }
 
         async function loadUserUploads() {

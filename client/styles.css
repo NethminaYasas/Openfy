@@ -108,28 +108,6 @@ body {
     width: fit-content;
 }
 
-/* Ensure track rows align with category when scrolled left */
-.main.home-page .tracks-row-wrapper {
-    margin-left: 3rem;
-}
-
-/* Position arrows relative to the main content */
-.main.home-page .tracks-row-wrapper .row-arrow {
-    left: 12px !important;
-    right: 12px !important;
-}
-
-/* Override mask-image when row is at scroll start */
-.main.home-page .tracks-row.scrolled-left .tracks-row {
-    mask-image: linear-gradient(to right, transparent, white 0%, white 100%, transparent);
-    -webkit-mask-image: linear-gradient(to right, transparent, white 0%, white 100%, transparent);
-}
-
-/* Ensure arrows are always visible when they should be */
-.tracks-row-wrapper .row-arrow.visible {
-    pointer-events: auto;
-    opacity: 1 !important;
-}
 
 .now-playing-panel {
     background-color: #121212;
@@ -659,8 +637,6 @@ a {
 #page-home .cards-container {
     display: flex;
     flex-wrap: wrap;
-    mask-image: linear-gradient(to right, transparent, white 5%, white 95%, transparent);
-    -webkit-mask-image: linear-gradient(to right, transparent, white 5%, white 95%, transparent);
 }
 
 .card {
@@ -673,97 +649,6 @@ a {
     flex-shrink: 0;
 }
 
-/* Row-based carousel: rows of up to 9 cards with independent scroll */
-.tracks-row-wrapper {
-    position: relative;
-    width: 100%;
-    /* TEMPORARY: Add border for testing */
-    /*
-    border: 2px solid red;
-    */
-}
-
-.tracks-row {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    align-items: stretch;
-}
-
-.tracks-row::-webkit-scrollbar {
-    display: none;
-}
-
-.row-arrow {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 20;
-    background: rgba(0, 0, 0, 0.7);
-    border: none;
-    color: #fff;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-/* Arrow positions before visible state: slide in from pointing direction */
-.row-arrow-left {
-    left: 12px;
-    transform: translateY(-50%) translateX(-16px);
-}
-
-.row-arrow-right {
-    right: 12px;
-    transform: translateY(-50%) translateX(16px);
-}
-
-/* When visible: slide to final position (translateX reset to 0) */
-.row-arrow-left.visible {
-    transform: translateY(-50%) translateX(0);
-    opacity: 1 !important;
-    pointer-events: auto !important;
-}
-
-.row-arrow-right.visible {
-    transform: translateY(-50%) translateX(0);
-    opacity: 1 !important;
-    pointer-events: auto !important;
-}
-
-/* TEMPORARY: Force arrows to be visible for testing */
-.main.home-page .tracks-row-wrapper .row-arrow {
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    background: red !important;
-    color: white !important;
-}
-
-.row-arrow:hover {
-    background: rgba(0, 0, 0, 0.9);
-    transform: translateY(-50%) scale(1.1);
-}
-
-.row-arrow:active {
-    transform: translateY(-50%) scale(0.95);
-}
-
-.row-arrow i {
-    font-size: 1rem;
-    line-height: 1;
-}
 
 
 
