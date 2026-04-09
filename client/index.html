@@ -585,8 +585,8 @@
 
             // Initialize track row scrolling
             setTimeout(() => {
-                initializeTrackRowScrolling();
-                updateTrackRowScrollButtons();
+                trackScrollController.reset();
+                initTrackRowScrolling();
 
                 // Force a reflow to ensure proper layout
                 const trackRow = document.getElementById('tracks-grid');
@@ -610,50 +610,9 @@
                     trackRow.style.transform = 'translateX(0)';
                 }
 
-                // Add event listeners after DOM is ready
-                setTimeout(() => {
-                    const prevBtn = document.getElementById('track-row-prev');
-                    const nextBtn = document.getElementById('track-row-next');
+                            }, 100);
 
-                    console.log('Buttons found - prev:', !!prevBtn, 'next:', !!nextBtn);
-
-                    if (prevBtn) {
-                        prevBtn.addEventListener('click', handlePrevClick);
-                        console.log('Added click listener to prev button');
                     }
-
-                    if (nextBtn) {
-                        nextBtn.addEventListener('click', handleNextClick);
-                        console.log('Added click listener to next button');
-                    }
-                }, 200);
-            }, 100);
-
-            function handlePrevClick() {
-                console.log('handlePrevClick called');
-                const trackRow = document.getElementById('tracks-grid');
-                if (trackRow) {
-                    const currentScroll = trackRow.scrollLeft;
-                    const newScroll = Math.max(0, currentScroll - trackRow.clientWidth);
-                    console.log('Scrolling from', currentScroll, 'to', newScroll);
-                    trackRow.scrollLeft = newScroll;
-                    updateTrackRowScrollButtons();
-                }
-            }
-
-            function handleNextClick() {
-                console.log('handleNextClick called');
-                const trackRow = document.getElementById('tracks-grid');
-                if (trackRow) {
-                    const currentScroll = trackRow.scrollLeft;
-                    const maxScroll = trackRow.scrollWidth - trackRow.clientWidth;
-                    const newScroll = Math.min(maxScroll, currentScroll + trackRow.clientWidth);
-                    console.log('Scrolling from', currentScroll, 'to', newScroll, 'max:', maxScroll);
-                    trackRow.scrollLeft = newScroll;
-                    updateTrackRowScrollButtons();
-                }
-            }
-        }
 
         function renderUploads(tracks) {
             const container = document.getElementById('uploads-grid');
@@ -679,7 +638,8 @@
 
             // Initialize track row scrolling for uploads
             setTimeout(() => {
-                initializeUploadsRowScrolling();
+                uploadScrollController.reset();
+                initUploadsRowScrolling();
             }, 100);
         }
 
@@ -1749,59 +1709,129 @@
 
         clearCanvas(nowCover);
 
-        // Transform-based scrolling approach
-        let scrollPosition = 0;
-        const cardWidth = 160 + 16; // card width + gap
+         // Transform-based scrolling approach
+        // Create separate controllers for each page to prevent interference
+        const trackScrollController = {
+            position: 0,
+            cardWidth: 160 + 16,
+            init: function() {
+                const prevBtn = document.getElementById('track-row-prev');
+                const nextBtn = document.getElementById('track-row-next');
+                const trackRow = document.getElementById('tracks-grid');
 
-        function initTrackRowScrolling() {
-            const prevBtn = document.getElementById('track-row-prev');
-            const nextBtn = document.getElementById('track-row-next');
-            const trackRow = document.getElementById('tracks-grid');
+                if (!prevBtn || !nextBtn || !trackRow) {
+                    console.error('Missing track elements:', {
+                        prevBtn: !!prevBtn,
+                        nextBtn: !!nextBtn,
+                        trackRow: !!trackRow
+                    });
+                    return;
+                }
 
-            if (!prevBtn || !nextBtn || !trackRow) {
-                console.error('Missing elements:', {
-                    prevBtn: !!prevBtn,
-                    nextBtn: !!nextBtn,
-                    trackRow: !!trackRow
+                console.log('Initializing track row scrolling');
+
+                // Previous button click
+                prevBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.position = Math.max(0, this.position - this.cardWidth * 2);
+                    this.updateTransform(trackRow, prevBtn, nextBtn);
                 });
-                return;
-            }
 
-            console.log('Initializing transform-based scrolling');
+                // Next button click
+                nextBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const maxScroll = (trackRow.children.length * this.cardWidth) - trackRow.parentElement.clientWidth;
+                    this.position = Math.min(maxScroll, this.position + this.cardWidth * 2);
+                    this.updateTransform(trackRow, prevBtn, nextBtn);
+                });
 
-            // Previous button click
-            prevBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                scrollPosition = Math.max(0, scrollPosition - cardWidth * 2);
-                updateTrackRowTransform();
-            });
+                // Make track row transformable
+                trackRow.style.transition = 'transform 0.3s ease-out';
+                trackRow.style.transform = 'translateX(0)';
 
-            // Next button click
-            nextBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                const maxScroll = (trackRow.children.length * cardWidth) - trackRow.parentElement.clientWidth;
-                scrollPosition = Math.min(maxScroll, scrollPosition + cardWidth * 2);
-                updateTrackRowTransform();
-            });
-
-            function updateTrackRowTransform() {
-                trackRow.style.transform = `translateX(-${scrollPosition}px)`;
+                console.log('Track row initialized with', trackRow.children.length, 'cards');
+            },
+            updateTransform: function(trackRow, prevBtn, nextBtn) {
+                trackRow.style.transform = `translateX(-${this.position}px)`;
 
                 // Update button states
-                const isAtStart = scrollPosition <= 0;
-                const isAtEnd = scrollPosition >= (trackRow.children.length * cardWidth) - trackRow.parentElement.clientWidth;
+                const isAtStart = this.position <= 0;
+                const isAtEnd = this.position >= (trackRow.children.length * this.cardWidth) - trackRow.parentElement.clientWidth;
 
                 prevBtn.classList.toggle('disabled', isAtStart);
                 nextBtn.classList.toggle('disabled', isAtEnd);
 
-                console.log('Scroll position:', scrollPosition, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
+                console.log('Track scroll position:', this.position, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
+            },
+            reset: function() {
+                this.position = 0;
             }
+        };
 
-            // Make track row transformable
-            trackRow.style.transition = 'transform 0.3s ease-out';
-            trackRow.style.transform = 'translateX(0)';
+        const uploadScrollController = {
+            position: 0,
+            cardWidth: 160 + 16,
+            init: function() {
+                const prevBtn = document.getElementById('uploads-row-prev');
+                const nextBtn = document.getElementById('uploads-row-next');
+                const trackRow = document.getElementById('uploads-grid');
 
-            console.log('Track row initialized with', trackRow.children.length, 'cards');
+                if (!prevBtn || !nextBtn || !trackRow) {
+                    console.error('Missing upload elements:', {
+                        prevBtn: !!prevBtn,
+                        nextBtn: !!nextBtn,
+                        trackRow: !!trackRow
+                    });
+                    return;
+                }
+
+                console.log('Initializing uploads row scrolling');
+
+                // Previous button click
+                prevBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.position = Math.max(0, this.position - this.cardWidth * 2);
+                    this.updateTransform(trackRow, prevBtn, nextBtn);
+                });
+
+                // Next button click
+                nextBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const maxScroll = (trackRow.children.length * this.cardWidth) - trackRow.parentElement.clientWidth;
+                    this.position = Math.min(maxScroll, this.position + this.cardWidth * 2);
+                    this.updateTransform(trackRow, prevBtn, nextBtn);
+                });
+
+                // Make track row transformable
+                trackRow.style.transition = 'transform 0.3s ease-out';
+                trackRow.style.transform = 'translateX(0)';
+
+                console.log('Uploads row initialized with', trackRow.children.length, 'cards');
+            },
+            updateTransform: function(trackRow, prevBtn, nextBtn) {
+                trackRow.style.transform = `translateX(-${this.position}px)`;
+
+                // Update button states
+                const isAtStart = this.position <= 0;
+                const isAtEnd = this.position >= (trackRow.children.length * this.cardWidth) - trackRow.parentElement.clientWidth;
+
+                prevBtn.classList.toggle('disabled', isAtStart);
+                nextBtn.classList.toggle('disabled', isAtEnd);
+
+                console.log('Uploads scroll position:', this.position, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
+            },
+            reset: function() {
+                this.position = 0;
+            }
+        };
+
+        // Initialize both scrollings
+        function initTrackRowScrolling() {
+            trackScrollController.init();
+        }
+
+        function initUploadsRowScrolling() {
+            uploadScrollController.init();
         }
 
         // Initialize when DOM is ready
@@ -1810,150 +1840,7 @@
             setTimeout(initUploadsRowScrolling, 100);
         });
 
-        // Uploads row scrolling - same approach
-        let uploadsScrollPosition = 0;
-
-        function initUploadsRowScrolling() {
-            const prevBtn = document.getElementById('uploads-row-prev');
-            const nextBtn = document.getElementById('uploads-row-next');
-            const trackRow = document.getElementById('uploads-grid');
-
-            if (!prevBtn || !nextBtn || !trackRow) {
-                console.error('Missing uploads elements:', {
-                    prevBtn: !!prevBtn,
-                    nextBtn: !!nextBtn,
-                    trackRow: !!trackRow
-                });
-                return;
-            }
-
-            console.log('Initializing uploads row scrolling');
-
-            // Previous button click
-            prevBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                uploadsScrollPosition = Math.max(0, uploadsScrollPosition - (160 + 16) * 2); // card width + gap * 2
-                updateUploadsRowTransform();
-            });
-
-            // Next button click
-            nextBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                const maxScroll = (trackRow.children.length * (160 + 16)) - trackRow.parentElement.clientWidth;
-                uploadsScrollPosition = Math.min(maxScroll, uploadsScrollPosition + (160 + 16) * 2);
-                updateUploadsRowTransform();
-            });
-
-            function updateUploadsRowTransform() {
-                trackRow.style.transform = `translateX(-${uploadsScrollPosition}px)`;
-
-                // Update button states
-                const isAtStart = uploadsScrollPosition <= 0;
-                const isAtEnd = uploadsScrollPosition >= (trackRow.children.length * (160 + 16)) - trackRow.parentElement.clientWidth;
-
-                prevBtn.classList.toggle('disabled', isAtStart);
-                nextBtn.classList.toggle('disabled', isAtEnd);
-
-                console.log('Uploads scroll position:', uploadsScrollPosition, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
-            }
-
-            // Make track row transformable
-            trackRow.style.transition = 'transform 0.3s ease-out';
-            trackRow.style.transform = 'translateX(0)';
-
-            console.log('Uploads row initialized with', trackRow.children.length, 'cards');
-        }
-
-        // Uploads row scrolling functionality
-        function initializeUploadsRowScrolling() {
-            const trackRow = document.getElementById('uploads-grid');
-            const container = trackRow.parentElement;
-
-            if (!trackRow || !container) return;
-
-            // Enable horizontal scrolling with mouse drag
-            trackRow.addEventListener('mousedown', startUploadsRowScroll);
-            trackRow.addEventListener('mouseleave', endUploadsRowScroll);
-            trackRow.addEventListener('mouseup', endUploadsRowScroll);
-            trackRow.addEventListener('mousemove', doUploadsRowScroll);
-
-            // Touch events for mobile
-            trackRow.addEventListener('touchstart', startUploadsRowScroll);
-            trackRow.addEventListener('touchend', endUploadsRowScroll);
-            trackRow.addEventListener('touchmove', doUploadsRowScroll);
-
-            // Add scrollable class if there are enough cards
-            if (trackRow.children.length > 9) {
-                trackRow.classList.add('scrollable');
-            }
-
-            // Update button states
-            updateUploadsRowScrollButtons();
-        }
-
-        let uploadsRowScrollPosition = 0;
-        let isUploadsRowScrolling = false;
-        let uploadsRowStartX = 0;
-        let uploadsRowScrollLeft = 0;
-
-        function startUploadsRowScroll(e) {
-            e.preventDefault();
-            isUploadsRowScrolling = true;
-            uploadsRowStartX = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
-            uploadsRowScrollLeft = document.getElementById('uploads-grid').scrollLeft;
-        }
-
-        function doUploadsRowScroll(e) {
-            if (!isUploadsRowScrolling) return;
-            e.preventDefault();
-
-            const x = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
-            const walk = (x - uploadsRowStartX) * 2;
-            const trackRow = document.getElementById('uploads-grid');
-            trackRow.scrollLeft = uploadsRowScrollLeft - walk;
-
-            updateUploadsRowScrollButtons();
-        }
-
-        function endUploadsRowScroll() {
-            isUploadsRowScrolling = false;
-        }
-
-        function updateUploadsRowScrollButtons() {
-            const trackRow = document.getElementById('uploads-grid');
-            const prevBtn = document.getElementById('uploads-row-prev');
-            const nextBtn = document.getElementById('uploads-row-next');
-
-            if (!trackRow || !prevBtn || !nextBtn) return;
-
-            const isAtStart = trackRow.scrollLeft <= 0;
-            const isAtEnd = trackRow.scrollLeft >= trackRow.scrollWidth - trackRow.clientWidth;
-
-            prevBtn.classList.toggle('disabled', isAtStart);
-            nextBtn.classList.toggle('disabled', isAtEnd);
-        }
-
-        // Uploads scroll button event listeners
-        document.getElementById('uploads-row-prev').addEventListener('click', function() {
-            if (this.classList.contains('disabled')) return;
-            const trackRow = document.getElementById('uploads-grid');
-            trackRow.scrollBy({
-                left: -trackRow.clientWidth,
-                behavior: 'smooth'
-            });
-            setTimeout(updateUploadsRowScrollButtons, 300);
-        });
-
-        document.getElementById('uploads-row-next').addEventListener('click', function() {
-            if (this.classList.contains('disabled')) return;
-            const trackRow = document.getElementById('uploads-grid');
-            trackRow.scrollBy({
-                left: trackRow.clientWidth,
-                behavior: 'smooth'
-            });
-            setTimeout(updateUploadsRowScrollButtons, 300);
-        });
-
+        
         // Initialize page state - this will properly set the home-page class
         setActivePage('home');
         (async function() {
