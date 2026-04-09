@@ -627,9 +627,16 @@ a {
     display: block;
 }
 
-.cards-container {
+/* Add padding under home page content so track cards can be shown over it */
+#page-home .section {
+    padding-bottom: 3rem;
+}
+
+#page-home .cards-container {
     display: flex;
     flex-wrap: wrap;
+    mask-image: linear-gradient(to right, transparent, white 5%, white 95%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, white 5%, white 95%, transparent);
 }
 
 .card {
