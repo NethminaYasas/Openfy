@@ -2345,7 +2345,7 @@ a {
     transform: translateY(-50%);
     width: 36px;
     height: 36px;
-    background-color: #181818;
+    background-color: rgba(24, 24, 24, 0.8);
     border: none;
     border-radius: 50%;
     color: #b3b3b3;
@@ -2366,7 +2366,7 @@ a {
 }
 
 .track-row-scroll-btn:hover {
-    background-color: #282828;
+    background-color: rgba(40, 40, 40, 0.8);
     color: white;
     transform: translateY(-50%) scale(1.1);
 }
@@ -2390,7 +2390,7 @@ a {
 }
 
 .track-row-scroll-btn.disabled:hover {
-    background-color: #181818;
+    background-color: rgba(24, 24, 24, 0.8);
     color: #b3b3b3;
     transform: translateY(-50%) scale(1);
 }
