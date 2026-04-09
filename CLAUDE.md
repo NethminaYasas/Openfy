@@ -10,6 +10,11 @@ docker compose up --build
 ```
 Then visit http://localhost:8000
 
+To rebuild after code changes:
+```bash
+docker compose up --build -d
+```
+
 ### Manual Server Development
 ```bash
 cd server
@@ -20,6 +25,11 @@ The API will be available at http://localhost:8000
 
 ### Running Tests
 Currently no test suite is configured. Manual testing can be done via the API endpoints or frontend interface.
+
+To test a specific API endpoint manually:
+```bash
+curl -X GET "http://localhost:8000/health"
+```
 
 ### Database Migrations
 Database schema is initialized automatically on startup. For manual migrations, modify the models in `server/app/models.py` and the startup scripts in `server/app/main.py`.
