@@ -34,6 +34,19 @@ curl -X GET "http://localhost:8000/health"
 ### Database Migrations
 Database schema is initialized automatically on startup. For manual migrations, modify the models in `server/app/models.py` and the startup scripts in `server/app/main.py`.
 
+### Git Workflow
+When working with the repository, if you encounter divergent branches:
+```bash
+# To merge remote changes with local changes
+git pull --no-rebase origin main
+
+# To rebase local changes onto remote
+git pull --rebase origin main
+
+# To fast-forward only (if no local changes)
+git pull --ff-only origin main
+```
+
 ## Code Architecture
 
 ### Overall Structure
