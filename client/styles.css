@@ -103,10 +103,8 @@ body {
     bottom: 0;
     width: 80px;
     background: linear-gradient(to right,
-        rgba(0, 0, 0, 0.2) 0%,
-        rgba(0, 0, 0, 0.1) 25%,
-        rgba(0, 0, 0, 0.03) 50%,
-        rgba(0, 0, 0, 0.01) 75%,
+        rgba(18, 18, 18, 0.3) 0%,
+        rgba(18, 18, 18, 0.15) 50%,
         transparent 100%
     );
     pointer-events: none;
@@ -121,10 +119,8 @@ body {
     bottom: 0;
     width: 80px;
     background: linear-gradient(to left,
-        rgba(0, 0, 0, 0.2) 0%,
-        rgba(0, 0, 0, 0.1) 25%,
-        rgba(0, 0, 0, 0.03) 50%,
-        rgba(0, 0, 0, 0.01) 75%,
+        rgba(18, 18, 18, 0.3) 0%,
+        rgba(18, 18, 18, 0.15) 50%,
         transparent 100%
     );
     pointer-events: none;
