@@ -444,6 +444,8 @@
             if (pageId === "library" && authHash) {
                 loadUserUploads();
             }
+            // Add/remove home-page class on main container for styling
+            document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
         }
 
         function formatDuration(seconds) {
@@ -1145,6 +1147,8 @@
             authOverlay.style.display = "flex";
             userDropdown.classList.remove("visible");
             appMain.style.display = "none";
+            // Remove home-page class when logging out (going to auth screen)
+            document.getElementById('app-main').classList.remove('home-page');
             topBar.style.display = "none";
         });
 
@@ -1202,6 +1206,9 @@
                         topBar.style.display = "flex";
                         dropdownUsername.textContent = user.name;
                         npLikeBtn.classList.add("hidden");
+                        loadTracks(); loadPlaylists(); loadUserUploads();
+                        // Set home-page class for successful auto-login (home page)
+                        document.getElementById('app-main').classList.add('home-page');
                         return true;
                     }
                 } else {
@@ -1234,6 +1241,8 @@
             topBar.style.display = "flex";
             dropdownUsername.textContent = currentUser.name;
             loadTracks(); loadPlaylists(); loadUserUploads();
+            // Ensure home-page class is present when returning to main app (home page)
+            document.getElementById('app-main').classList.add('home-page');
         }
 
         function copyHashToClipboard() {
@@ -1692,10 +1701,18 @@
         });
 
         clearCanvas(nowCover);
+        // Initialize page state - this will properly set the home-page class
+        setActivePage('home');
         (async function() {
             var ok = await tryAutoLogin();
-            if (!ok) { authOverlay.style.display = "flex"; appMain.style.display = "none"; }
-            else { loadTracks(); loadPlaylists(); loadUserUploads(); }
+            if (!ok) {
+                authOverlay.style.display = "flex";
+                appMain.style.display = "none";
+            } else {
+                loadTracks();
+                loadPlaylists();
+                loadUserUploads();
+            }
         })();
 
         </script>
