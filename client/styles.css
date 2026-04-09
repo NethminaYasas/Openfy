@@ -2388,7 +2388,7 @@ a {
 }
 
 /* Card styles for track row */
-.card {
+.track-row-wrapper .card {
     background-color: #181818;
     width: 160px;
     flex-shrink: 0;
@@ -2399,7 +2399,7 @@ a {
     border: 1px solid transparent;
 }
 
-.card:hover {
+.track-row-wrapper .card:hover {
     background-color: #282828;
     border-color: #404040;
 }

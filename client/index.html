@@ -588,7 +588,9 @@
 
                 // Add tracks to the row
                 rowTracks.forEach(function(track) {
-                    trackRow.appendChild(buildTrackCard(track, tracks, tracks.indexOf(track)));
+                    const card = buildTrackCard(track, tracks, tracks.indexOf(track));
+                    card.classList.add('track-row-card');
+                    trackRow.appendChild(card);
                 });
 
                 // Create next button
@@ -703,7 +705,9 @@
 
                 // Add tracks to the row
                 rowTracks.forEach(function(track) {
-                    trackRow.appendChild(buildTrackCard(track, tracks, tracks.indexOf(track)));
+                    const card = buildTrackCard(track, tracks, tracks.indexOf(track));
+                    card.classList.add('track-row-card');
+                    trackRow.appendChild(card);
                 });
 
                 // Create next button
