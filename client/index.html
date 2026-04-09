@@ -570,6 +570,13 @@
                     } else {
                         rightArrow.classList.remove('visible');
                     }
+
+                    // Add/remove scrolled-left class based on scroll position
+                    if (atLeft) {
+                        row.classList.add('scrolled-left');
+                    } else {
+                        row.classList.remove('scrolled-left');
+                    }
                 }
 
                 row.addEventListener('scroll', updateArrowVisibility);
@@ -585,8 +592,12 @@
                     row.scrollBy({ left: cardWidth * 3, behavior: 'smooth' });
                 });
 
-                // Initial visibility check
-                setTimeout(updateArrowVisibility, 0);
+                // Force initial visibility check
+                setTimeout(() => {
+                    updateArrowVisibility();
+                    // Force arrows to show on hover initially
+                    wrapper.style.pointerEvents = 'auto';
+                }, 100);
                 // Observe DOM changes
                 new MutationObserver(updateArrowVisibility).observe(row, { childList: true });
                 // Re-check on resize

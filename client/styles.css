@@ -105,6 +105,25 @@ body {
 .main.home-page .section-header h2 {
     margin-left: 3rem;
     margin-right: 3rem;
+    width: fit-content;
+}
+
+/* Ensure track rows align with category when scrolled left */
+.main.home-page .tracks-row-wrapper {
+    margin-left: 3rem;
+    position: relative;
+}
+
+/* Override mask-image when row is at scroll start */
+.main.home-page .tracks-row.scrolled-left .tracks-row {
+    mask-image: linear-gradient(to right, transparent, white 0%, white 100%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, white 0%, white 100%, transparent);
+}
+
+/* Ensure arrows are always visible when they should be */
+.tracks-row-wrapper .row-arrow.visible {
+    pointer-events: auto;
+    opacity: 1 !important;
 }
 
 .now-playing-panel {
@@ -674,12 +693,12 @@ a {
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
-    z-index: 10;
+    z-index: 20;
     background: rgba(0, 0, 0, 0.7);
     border: none;
     color: #fff;
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
@@ -688,17 +707,18 @@ a {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* Arrow positions before visible state: slide in from pointing direction */
 .row-arrow-left {
-    left: 4px;
-    transform: translateY(-50%) translateX(-8px);
+    left: 12px;
+    transform: translateY(-50%) translateX(-16px);
 }
 
 .row-arrow-right {
-    right: 4px;
-    transform: translateY(-50%) translateX(8px);
+    right: 12px;
+    transform: translateY(-50%) translateX(16px);
 }
 
 /* When visible: slide to final position (translateX reset to 0) */
@@ -723,11 +743,9 @@ a {
     transform: translateY(-50%) scale(0.95);
 }
 
-.row-arrow-right {
-    right: 4px;
-}
 .row-arrow i {
-    font-size: 0.875rem;
+    font-size: 1rem;
+    line-height: 1;
 }
 
 
