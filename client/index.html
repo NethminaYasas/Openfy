@@ -636,9 +636,7 @@
 
         
         function renderUploads(tracks) {
-            uploadsGrid.innerHTML = "";
-            if (!tracks.length) { uploadsGrid.innerHTML = '<div class="card"><p class="card-title">No uploads yet</p><p class="card-info">Upload a track to see it here</p></div>'; return; }
-            tracks.forEach(function(track, index) { uploadsGrid.appendChild(buildTrackCard(track, tracks, index)); });
+            renderTracksInRows('uploads-grid', tracks, { title: 'No uploads yet', info: 'Upload a track to see it here' });
         }
 
         async function loadUserUploads() {
