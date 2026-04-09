@@ -111,7 +111,12 @@ body {
 /* Ensure track rows align with category when scrolled left */
 .main.home-page .tracks-row-wrapper {
     margin-left: 3rem;
-    position: relative;
+}
+
+/* Position arrows relative to the main content */
+.main.home-page .tracks-row-wrapper .row-arrow {
+    left: 12px !important;
+    right: 12px !important;
 }
 
 /* Override mask-image when row is at scroll start */
@@ -672,6 +677,10 @@ a {
 .tracks-row-wrapper {
     position: relative;
     width: 100%;
+    /* TEMPORARY: Add border for testing */
+    /*
+    border: 2px solid red;
+    */
 }
 
 .tracks-row {
@@ -724,14 +733,22 @@ a {
 /* When visible: slide to final position (translateX reset to 0) */
 .row-arrow-left.visible {
     transform: translateY(-50%) translateX(0);
-    opacity: 1;
-    pointer-events: auto;
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
 .row-arrow-right.visible {
     transform: translateY(-50%) translateX(0);
-    opacity: 1;
-    pointer-events: auto;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* TEMPORARY: Force arrows to be visible for testing */
+.main.home-page .tracks-row-wrapper .row-arrow {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    background: red !important;
+    color: white !important;
 }
 
 .row-arrow:hover {

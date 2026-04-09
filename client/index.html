@@ -551,11 +551,22 @@
                 wrapper.appendChild(rightArrow);
 
                 function updateArrowVisibility() {
-                    if (!wrapper.matches(':hover')) {
+                    const isHovered = wrapper.matches(':hover');
+
+                    // For debugging: log the state
+                    console.log('updateArrowVisibility:', {
+                        isHovered,
+                        scrollLeft: row.scrollLeft,
+                        scrollWidth: row.scrollWidth,
+                        clientWidth: row.clientWidth
+                    });
+
+                    if (!isHovered) {
                         leftArrow.classList.remove('visible');
                         rightArrow.classList.remove('visible');
                         return;
                     }
+
                     const atLeft = row.scrollLeft <= 0;
                     const atRight = row.scrollLeft + row.clientWidth >= row.scrollWidth - 1;
 
@@ -580,8 +591,14 @@
                 }
 
                 row.addEventListener('scroll', updateArrowVisibility);
-                wrapper.addEventListener('mouseenter', updateArrowVisibility);
-                wrapper.addEventListener('mouseleave', updateArrowVisibility);
+                wrapper.addEventListener('mouseenter', (e) => {
+                    e.stopPropagation();
+                    updateArrowVisibility();
+                });
+                wrapper.addEventListener('mouseleave', (e) => {
+                    e.stopPropagation();
+                    updateArrowVisibility();
+                });
 
                 // Scroll click handlers
                 const cardWidth = 140 + 16;
