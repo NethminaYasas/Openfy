@@ -2383,16 +2383,8 @@ a {
     right: 0;
 }
 
-.track-row-scroll-btn.disabled {
-    opacity: 0.3;
-    /* Keep pointer cursor even when disabled */
-    cursor: pointer !important;
-}
-
-.track-row-scroll-btn.disabled:hover {
-    background-color: rgba(24, 24, 24, 0.8);
-    color: #b3b3b3;
-    transform: translateY(-50%) scale(1);
+.track-row-scroll-btn.hidden {
+    display: none;
 }
 
 /* Card styles for track row */

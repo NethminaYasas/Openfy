@@ -1758,13 +1758,19 @@
                 const isAtStart = this.position <= 0;
                 const isAtEnd = this.position >= (trackRow.children.length * this.cardWidth) - trackRow.parentElement.clientWidth;
 
-                prevBtn.classList.toggle('disabled', isAtStart);
-                nextBtn.classList.toggle('disabled', isAtEnd);
+                prevBtn.classList.toggle('hidden', isAtStart);
+                nextBtn.classList.toggle('hidden', isAtEnd);
 
                 console.log('Track scroll position:', this.position, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
             },
             reset: function() {
+                const trackRow = document.getElementById('tracks-grid');
+                const prevBtn = document.getElementById('track-row-prev');
+                const nextBtn = document.getElementById('track-row-next');
                 this.position = 0;
+                if (trackRow && prevBtn && nextBtn) {
+                    this.updateTransform(trackRow, prevBtn, nextBtn);
+                }
             }
         };
 
@@ -1815,13 +1821,19 @@
                 const isAtStart = this.position <= 0;
                 const isAtEnd = this.position >= (trackRow.children.length * this.cardWidth) - trackRow.parentElement.clientWidth;
 
-                prevBtn.classList.toggle('disabled', isAtStart);
-                nextBtn.classList.toggle('disabled', isAtEnd);
+                prevBtn.classList.toggle('hidden', isAtStart);
+                nextBtn.classList.toggle('hidden', isAtEnd);
 
                 console.log('Uploads scroll position:', this.position, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
             },
             reset: function() {
+                const trackRow = document.getElementById('uploads-grid');
+                const prevBtn = document.getElementById('uploads-row-prev');
+                const nextBtn = document.getElementById('uploads-row-next');
                 this.position = 0;
+                if (trackRow && prevBtn && nextBtn) {
+                    this.updateTransform(trackRow, prevBtn, nextBtn);
+                }
             }
         };
 
