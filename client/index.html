@@ -83,7 +83,17 @@
                     <div class="section-header">
                         <h2>Library</h2>
                     </div>
-                    <div class="cards-container" id="tracks-grid"></div>
+                    <div class="track-row-wrapper">
+                        <button class="track-row-scroll-btn track-row-scroll-btn-prev" id="track-row-prev">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <div class="track-row-container">
+                            <div class="track-row" id="tracks-grid"></div>
+                        </div>
+                        <button class="track-row-scroll-btn track-row-scroll-btn-next" id="track-row-next">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="footer"><div class="line"></div></div>
             </div>
@@ -104,10 +114,18 @@
                     </div>
                 </div>
                 <div class="section">
-                    <div class="section-header">
-                        <h2>Your Uploads</h2>
+                    <h2>Uploads</h2>
+                    <div class="track-row-wrapper">
+                        <button class="track-row-scroll-btn track-row-scroll-btn-prev" id="uploads-row-prev">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <div class="track-row-container">
+                            <div class="track-row" id="uploads-grid"></div>
+                        </div>
+                        <button class="track-row-scroll-btn track-row-scroll-btn-next" id="uploads-row-next">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
                     </div>
-                    <div class="cards-container" id="uploads-grid"></div>
                 </div>
             </div>
 
@@ -503,16 +521,31 @@
         function buildTrackCard(track, list, index) {
             var card = document.createElement("div");
             card.className = "card";
+
+            // Create artwork container
+            var artContainer = document.createElement("div");
+            artContainer.className = "artwork-container";
+
             var art = createArtCanvas(track.title, getArtistDisplay(track));
             var img = document.createElement("img");
             img.className = "card-img";
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
             img.alt = track.title;
             img.style.display = "none";
-            img.addEventListener("load", function() { art.style.display = "none"; img.style.display = "block"; });
-            img.addEventListener("error", function() { img.style.display = "none"; art.style.display = "block"; });
-            card.appendChild(art);
-            card.appendChild(img);
+
+            img.addEventListener("load", function() {
+                art.style.display = "none";
+                img.style.display = "block";
+            });
+            img.addEventListener("error", function() {
+                img.style.display = "none";
+                art.style.display = "block";
+            });
+
+            artContainer.appendChild(art);
+            artContainer.appendChild(img);
+            card.appendChild(artContainer);
+
             var title = document.createElement("p");
             title.className = "card-title";
             title.textContent = track.title;
@@ -521,7 +554,7 @@
             info.textContent = getArtistDisplay(track);
             card.appendChild(title);
             card.appendChild(info);
-            
+
             card.addEventListener("click", function() { currentQueue = list; currentIndex = index; playTrack(track); });
             return card;
         }
@@ -538,12 +571,23 @@
                 emptyCard.className = 'card';
                 emptyCard.innerHTML = '<p class="card-title">No tracks yet</p><p class="card-info">Download a track to start</p>';
                 container.appendChild(emptyCard);
+                updateTrackRowScrollButtons();
                 return;
             }
+
+            // Clear container first
+            container.innerHTML = '';
+            container.style.transform = 'translateX(0)';
 
             tracks.forEach(function(track) {
                 container.appendChild(buildTrackCard(track, tracks, tracks.indexOf(track)));
             });
+
+            // Initialize track row scrolling
+            setTimeout(() => {
+                initializeTrackRowScrolling();
+                updateTrackRowScrollButtons();
+            }, 100);
         }
 
         function renderUploads(tracks) {
@@ -560,9 +604,18 @@
                 return;
             }
 
+            // Clear container first
+            container.innerHTML = '';
+            container.style.transform = 'translateX(0)';
+
             tracks.forEach(function(track) {
                 container.appendChild(buildTrackCard(track, tracks, tracks.indexOf(track)));
             });
+
+            // Initialize track row scrolling for uploads
+            setTimeout(() => {
+                initializeUploadsRowScrolling();
+            }, 100);
         }
 
 
@@ -1630,6 +1683,189 @@
         });
 
         clearCanvas(nowCover);
+
+        // Track row scrolling functionality
+        let trackRowScrollPosition = 0;
+        let isTrackRowScrolling = false;
+        let trackRowStartX = 0;
+        let trackRowScrollLeft = 0;
+
+        function initializeTrackRowScrolling() {
+            const trackRow = document.querySelector('.track-row');
+            const container = document.querySelector('.track-row-container');
+
+            if (!trackRow || !container) return;
+
+            // Enable horizontal scrolling with mouse drag
+            trackRow.addEventListener('mousedown', startTrackRowScroll);
+            trackRow.addEventListener('mouseleave', endTrackRowScroll);
+            trackRow.addEventListener('mouseup', endTrackRowScroll);
+            trackRow.addEventListener('mousemove', doTrackRowScroll);
+
+            // Touch events for mobile
+            trackRow.addEventListener('touchstart', startTrackRowScroll);
+            trackRow.addEventListener('touchend', endTrackRowScroll);
+            trackRow.addEventListener('touchmove', doTrackRowScroll);
+
+            // Add scrollable class if there are enough cards
+            if (trackRow.children.length > 9) {
+                trackRow.classList.add('scrollable');
+            }
+        }
+
+        function startTrackRowScroll(e) {
+            e.preventDefault();
+            isTrackRowScrolling = true;
+            trackRowStartX = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
+            trackRowScrollLeft = document.querySelector('.track-row').scrollLeft;
+            document.querySelector('.track-row').style.cursor = 'grabbing';
+        }
+
+        function doTrackRowScroll(e) {
+            if (!isTrackRowScrolling) return;
+            e.preventDefault();
+
+            const x = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
+            const walk = (x - trackRowStartX) * 2;
+            const trackRow = document.querySelector('.track-row');
+            trackRow.scrollLeft = trackRowScrollLeft - walk;
+
+            updateTrackRowScrollButtons();
+        }
+
+        function endTrackRowScroll() {
+            isTrackRowScrolling = false;
+            document.querySelector('.track-row').style.cursor = 'grab';
+        }
+
+        function updateTrackRowScrollButtons() {
+            const trackRow = document.querySelector('.track-row');
+            const prevBtn = document.getElementById('track-row-prev');
+            const nextBtn = document.getElementById('track-row-next');
+
+            if (!trackRow || !prevBtn || !nextBtn) return;
+
+            const isAtStart = trackRow.scrollLeft <= 0;
+            const isAtEnd = trackRow.scrollLeft >= trackRow.scrollWidth - trackRow.clientWidth;
+
+            prevBtn.classList.toggle('disabled', isAtStart);
+            nextBtn.classList.toggle('disabled', isAtEnd);
+        }
+
+        // Scroll button event listeners
+        document.getElementById('track-row-prev').addEventListener('click', function() {
+            if (this.classList.contains('disabled')) return;
+            const trackRow = document.querySelector('.track-row');
+            trackRow.scrollBy({
+                left: -trackRow.clientWidth,
+                behavior: 'smooth'
+            });
+            setTimeout(updateTrackRowScrollButtons, 300);
+        });
+
+        document.getElementById('track-row-next').addEventListener('click', function() {
+            if (this.classList.contains('disabled')) return;
+            const trackRow = document.querySelector('.track-row');
+            trackRow.scrollBy({
+                left: trackRow.clientWidth,
+                behavior: 'smooth'
+            });
+            setTimeout(updateTrackRowScrollButtons, 300);
+        });
+
+        // Listen for scroll events to update button states
+        document.querySelector('.track-row-container').addEventListener('scroll', updateTrackRowScrollButtons);
+
+        // Uploads row scrolling functionality
+        function initializeUploadsRowScrolling() {
+            const trackRow = document.getElementById('uploads-grid');
+            const container = trackRow.parentElement;
+
+            if (!trackRow || !container) return;
+
+            // Enable horizontal scrolling with mouse drag
+            trackRow.addEventListener('mousedown', startUploadsRowScroll);
+            trackRow.addEventListener('mouseleave', endUploadsRowScroll);
+            trackRow.addEventListener('mouseup', endUploadsRowScroll);
+            trackRow.addEventListener('mousemove', doUploadsRowScroll);
+
+            // Touch events for mobile
+            trackRow.addEventListener('touchstart', startUploadsRowScroll);
+            trackRow.addEventListener('touchend', endUploadsRowScroll);
+            trackRow.addEventListener('touchmove', doUploadsRowScroll);
+
+            // Add scrollable class if there are enough cards
+            if (trackRow.children.length > 9) {
+                trackRow.classList.add('scrollable');
+            }
+
+            // Update button states
+            updateUploadsRowScrollButtons();
+        }
+
+        let uploadsRowScrollPosition = 0;
+        let isUploadsRowScrolling = false;
+        let uploadsRowStartX = 0;
+        let uploadsRowScrollLeft = 0;
+
+        function startUploadsRowScroll(e) {
+            e.preventDefault();
+            isUploadsRowScrolling = true;
+            uploadsRowStartX = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
+            uploadsRowScrollLeft = document.getElementById('uploads-grid').scrollLeft;
+        }
+
+        function doUploadsRowScroll(e) {
+            if (!isUploadsRowScrolling) return;
+            e.preventDefault();
+
+            const x = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
+            const walk = (x - uploadsRowStartX) * 2;
+            const trackRow = document.getElementById('uploads-grid');
+            trackRow.scrollLeft = uploadsRowScrollLeft - walk;
+
+            updateUploadsRowScrollButtons();
+        }
+
+        function endUploadsRowScroll() {
+            isUploadsRowScrolling = false;
+        }
+
+        function updateUploadsRowScrollButtons() {
+            const trackRow = document.getElementById('uploads-grid');
+            const prevBtn = document.getElementById('uploads-row-prev');
+            const nextBtn = document.getElementById('uploads-row-next');
+
+            if (!trackRow || !prevBtn || !nextBtn) return;
+
+            const isAtStart = trackRow.scrollLeft <= 0;
+            const isAtEnd = trackRow.scrollLeft >= trackRow.scrollWidth - trackRow.clientWidth;
+
+            prevBtn.classList.toggle('disabled', isAtStart);
+            nextBtn.classList.toggle('disabled', isAtEnd);
+        }
+
+        // Uploads scroll button event listeners
+        document.getElementById('uploads-row-prev').addEventListener('click', function() {
+            if (this.classList.contains('disabled')) return;
+            const trackRow = document.getElementById('uploads-grid');
+            trackRow.scrollBy({
+                left: -trackRow.clientWidth,
+                behavior: 'smooth'
+            });
+            setTimeout(updateUploadsRowScrollButtons, 300);
+        });
+
+        document.getElementById('uploads-row-next').addEventListener('click', function() {
+            if (this.classList.contains('disabled')) return;
+            const trackRow = document.getElementById('uploads-grid');
+            trackRow.scrollBy({
+                left: trackRow.clientWidth,
+                behavior: 'smooth'
+            });
+            setTimeout(updateUploadsRowScrollButtons, 300);
+        });
+
         // Initialize page state - this will properly set the home-page class
         setActivePage('home');
         (async function() {

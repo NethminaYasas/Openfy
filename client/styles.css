@@ -2279,4 +2279,143 @@ a {
     background: #c0392b;
 }
 
+/* Scrollable Track Row Styles */
+.track-row-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-top: 1.5rem;
+    padding: 0 1rem;
+}
+
+.track-row-container {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    margin: 0 -1rem;
+}
+
+.track-row {
+    display: flex;
+    gap: 1rem;
+    transition: transform 0.3s ease-out;
+    padding: 0 1rem;
+}
+
+.track-row.scrollable {
+    cursor: grab;
+}
+
+.track-row.scrollable:active {
+    cursor: grabbing;
+}
+
+.track-row-scroll-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    background-color: #181818;
+    border: none;
+    border-radius: 50%;
+    color: #b3b3b3;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.track-row-scroll-btn:hover {
+    background-color: #282828;
+    color: white;
+    transform: translateY(-50%) scale(1.1);
+}
+
+.track-row-scroll-btn:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+.track-row-scroll-btn-prev {
+    left: 0;
+}
+
+.track-row-scroll-btn-next {
+    right: 0;
+}
+
+.track-row-scroll-btn.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.track-row-scroll-btn.disabled:hover {
+    background-color: #181818;
+    color: #b3b3b3;
+    transform: translateY(-50%) scale(1);
+}
+
+/* Card styles for track row */
+.card {
+    background-color: #181818;
+    width: 160px;
+    flex-shrink: 0;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.card:hover {
+    background-color: #282828;
+    border-color: #404040;
+}
+
+.card-img {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 0.375rem;
+    object-fit: cover;
+    margin-bottom: 0.5rem;
+}
+
+.art-canvas {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 0.375rem;
+    display: none;
+    object-fit: cover;
+    margin-bottom: 0.5rem;
+}
+
+.card-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-info {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.artwork-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+
 
