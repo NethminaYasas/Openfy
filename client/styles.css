@@ -2286,20 +2286,49 @@ a {
     align-items: center;
     margin-top: 1.5rem;
     padding: 0 1rem;
+    min-height: 220px;
+    /* Ensure wrapper doesn't interfere with button clicks */
+    pointer-events: none;
+}
+
+.track-row-wrapper > * {
+    pointer-events: auto;
 }
 
 .track-row-container {
     position: relative;
     flex: 1;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: hidden;
     margin: 0 -1rem;
+    /* Ensure container takes up full space */
+    width: 100%;
+    /* Hide scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.track-row-container::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar but keep functionality */
+.track-row-container::-webkit-scrollbar {
+    display: none;
+}
+
+.track-row-container {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
 
 .track-row {
     display: flex;
     gap: 1rem;
-    transition: transform 0.3s ease-out;
     padding: 0 1rem;
+    min-width: fit-content;
+    width: auto;
+    align-items: center;
 }
 
 .track-row.scrollable {
@@ -2324,9 +2353,16 @@ a {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 10;
+    z-index: 9999;
     transition: all 0.2s ease;
     box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    pointer-events: auto;
+    /* Ensure buttons are visible */
+    opacity: 1 !important;
+    /* Always show pointer cursor, even when disabled */
+    cursor: pointer !important;
+    /* Ensure buttons are clickable */
+    touch-action: manipulation;
 }
 
 .track-row-scroll-btn:hover {
@@ -2349,7 +2385,8 @@ a {
 
 .track-row-scroll-btn.disabled {
     opacity: 0.3;
-    cursor: not-allowed;
+    /* Keep pointer cursor even when disabled */
+    cursor: pointer !important;
 }
 
 .track-row-scroll-btn.disabled:hover {

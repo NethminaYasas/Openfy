@@ -587,7 +587,72 @@
             setTimeout(() => {
                 initializeTrackRowScrolling();
                 updateTrackRowScrollButtons();
+
+                // Force a reflow to ensure proper layout
+                const trackRow = document.getElementById('tracks-grid');
+                const container = document.querySelector('.track-row-container');
+
+                if (trackRow && container) {
+                    // Ensure track row is wider than container
+                    const containerWidth = container.clientWidth;
+                    const trackWidth = trackRow.scrollWidth;
+
+                    console.log('Container width:', containerWidth);
+                    console.log('Track width:', trackWidth);
+
+                    if (trackWidth <= containerWidth) {
+                        // Force the track row to be scrollable by adding padding
+                        trackRow.style.width = (containerWidth + 200) + 'px';
+                        console.log('Forced track row width to:', trackRow.style.width);
+                    }
+
+                    // Reset transform
+                    trackRow.style.transform = 'translateX(0)';
+                }
+
+                // Add event listeners after DOM is ready
+                setTimeout(() => {
+                    const prevBtn = document.getElementById('track-row-prev');
+                    const nextBtn = document.getElementById('track-row-next');
+
+                    console.log('Buttons found - prev:', !!prevBtn, 'next:', !!nextBtn);
+
+                    if (prevBtn) {
+                        prevBtn.addEventListener('click', handlePrevClick);
+                        console.log('Added click listener to prev button');
+                    }
+
+                    if (nextBtn) {
+                        nextBtn.addEventListener('click', handleNextClick);
+                        console.log('Added click listener to next button');
+                    }
+                }, 200);
             }, 100);
+
+            function handlePrevClick() {
+                console.log('handlePrevClick called');
+                const trackRow = document.getElementById('tracks-grid');
+                if (trackRow) {
+                    const currentScroll = trackRow.scrollLeft;
+                    const newScroll = Math.max(0, currentScroll - trackRow.clientWidth);
+                    console.log('Scrolling from', currentScroll, 'to', newScroll);
+                    trackRow.scrollLeft = newScroll;
+                    updateTrackRowScrollButtons();
+                }
+            }
+
+            function handleNextClick() {
+                console.log('handleNextClick called');
+                const trackRow = document.getElementById('tracks-grid');
+                if (trackRow) {
+                    const currentScroll = trackRow.scrollLeft;
+                    const maxScroll = trackRow.scrollWidth - trackRow.clientWidth;
+                    const newScroll = Math.min(maxScroll, currentScroll + trackRow.clientWidth);
+                    console.log('Scrolling from', currentScroll, 'to', newScroll, 'max:', maxScroll);
+                    trackRow.scrollLeft = newScroll;
+                    updateTrackRowScrollButtons();
+                }
+            }
         }
 
         function renderUploads(tracks) {
@@ -1684,97 +1749,65 @@
 
         clearCanvas(nowCover);
 
-        // Track row scrolling functionality
-        let trackRowScrollPosition = 0;
-        let isTrackRowScrolling = false;
-        let trackRowStartX = 0;
-        let trackRowScrollLeft = 0;
+        // Transform-based scrolling approach
+        let scrollPosition = 0;
+        const cardWidth = 160 + 16; // card width + gap
 
-        function initializeTrackRowScrolling() {
-            const trackRow = document.querySelector('.track-row');
-            const container = document.querySelector('.track-row-container');
-
-            if (!trackRow || !container) return;
-
-            // Enable horizontal scrolling with mouse drag
-            trackRow.addEventListener('mousedown', startTrackRowScroll);
-            trackRow.addEventListener('mouseleave', endTrackRowScroll);
-            trackRow.addEventListener('mouseup', endTrackRowScroll);
-            trackRow.addEventListener('mousemove', doTrackRowScroll);
-
-            // Touch events for mobile
-            trackRow.addEventListener('touchstart', startTrackRowScroll);
-            trackRow.addEventListener('touchend', endTrackRowScroll);
-            trackRow.addEventListener('touchmove', doTrackRowScroll);
-
-            // Add scrollable class if there are enough cards
-            if (trackRow.children.length > 9) {
-                trackRow.classList.add('scrollable');
-            }
-        }
-
-        function startTrackRowScroll(e) {
-            e.preventDefault();
-            isTrackRowScrolling = true;
-            trackRowStartX = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
-            trackRowScrollLeft = document.querySelector('.track-row').scrollLeft;
-            document.querySelector('.track-row').style.cursor = 'grabbing';
-        }
-
-        function doTrackRowScroll(e) {
-            if (!isTrackRowScrolling) return;
-            e.preventDefault();
-
-            const x = e.type.includes('mouse') ? e.pageX : e.touches[0].pageX;
-            const walk = (x - trackRowStartX) * 2;
-            const trackRow = document.querySelector('.track-row');
-            trackRow.scrollLeft = trackRowScrollLeft - walk;
-
-            updateTrackRowScrollButtons();
-        }
-
-        function endTrackRowScroll() {
-            isTrackRowScrolling = false;
-            document.querySelector('.track-row').style.cursor = 'grab';
-        }
-
-        function updateTrackRowScrollButtons() {
-            const trackRow = document.querySelector('.track-row');
+        function initTrackRowScrolling() {
             const prevBtn = document.getElementById('track-row-prev');
             const nextBtn = document.getElementById('track-row-next');
+            const trackRow = document.getElementById('tracks-grid');
 
-            if (!trackRow || !prevBtn || !nextBtn) return;
+            if (!prevBtn || !nextBtn || !trackRow) {
+                console.error('Missing elements:', {
+                    prevBtn: !!prevBtn,
+                    nextBtn: !!nextBtn,
+                    trackRow: !!trackRow
+                });
+                return;
+            }
 
-            const isAtStart = trackRow.scrollLeft <= 0;
-            const isAtEnd = trackRow.scrollLeft >= trackRow.scrollWidth - trackRow.clientWidth;
+            console.log('Initializing transform-based scrolling');
 
-            prevBtn.classList.toggle('disabled', isAtStart);
-            nextBtn.classList.toggle('disabled', isAtEnd);
+            // Previous button click
+            prevBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                scrollPosition = Math.max(0, scrollPosition - cardWidth * 2);
+                updateTrackRowTransform();
+            });
+
+            // Next button click
+            nextBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const maxScroll = (trackRow.children.length * cardWidth) - trackRow.parentElement.clientWidth;
+                scrollPosition = Math.min(maxScroll, scrollPosition + cardWidth * 2);
+                updateTrackRowTransform();
+            });
+
+            function updateTrackRowTransform() {
+                trackRow.style.transform = `translateX(-${scrollPosition}px)`;
+
+                // Update button states
+                const isAtStart = scrollPosition <= 0;
+                const isAtEnd = scrollPosition >= (trackRow.children.length * cardWidth) - trackRow.parentElement.clientWidth;
+
+                prevBtn.classList.toggle('disabled', isAtStart);
+                nextBtn.classList.toggle('disabled', isAtEnd);
+
+                console.log('Scroll position:', scrollPosition, 'isAtStart:', isAtStart, 'isAtEnd:', isAtEnd);
+            }
+
+            // Make track row transformable
+            trackRow.style.transition = 'transform 0.3s ease-out';
+            trackRow.style.transform = 'translateX(0)';
+
+            console.log('Track row initialized with', trackRow.children.length, 'cards');
         }
 
-        // Scroll button event listeners
-        document.getElementById('track-row-prev').addEventListener('click', function() {
-            if (this.classList.contains('disabled')) return;
-            const trackRow = document.querySelector('.track-row');
-            trackRow.scrollBy({
-                left: -trackRow.clientWidth,
-                behavior: 'smooth'
-            });
-            setTimeout(updateTrackRowScrollButtons, 300);
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(initTrackRowScrolling, 100);
         });
-
-        document.getElementById('track-row-next').addEventListener('click', function() {
-            if (this.classList.contains('disabled')) return;
-            const trackRow = document.querySelector('.track-row');
-            trackRow.scrollBy({
-                left: trackRow.clientWidth,
-                behavior: 'smooth'
-            });
-            setTimeout(updateTrackRowScrollButtons, 300);
-        });
-
-        // Listen for scroll events to update button states
-        document.querySelector('.track-row-container').addEventListener('scroll', updateTrackRowScrollButtons);
 
         // Uploads row scrolling functionality
         function initializeUploadsRowScrolling() {
