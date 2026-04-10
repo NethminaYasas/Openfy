@@ -984,7 +984,7 @@
                     artImg.alt = pt.track.title;
                     artImg.onerror = function() { artImg.style.display = "none"; artSpan.style.background = "#282828"; };
                     artSpan.appendChild(artImg);
-                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + getArtistDisplay(pt.track) + '</span>';
+                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + getArtistDisplay(pt.track) + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
                     row.querySelector(".pt-title").addEventListener("click", function() { currentQueue = tracks.map(function(t) { return t.track; }); currentIndex = i; playTrack(pt.track); });
                     row.querySelector(".pt-title").style.cursor = "pointer";
                     row.insertBefore(artSpan, row.children[1]); // Insert after pt-num

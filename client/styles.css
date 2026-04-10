@@ -1603,7 +1603,7 @@ a {
 
 .playlist-track-row {
     display: grid;
-    grid-template-columns: 40px 40px 1fr 1fr 60px;
+    grid-template-columns: 40px 40px 1fr 1fr 1fr 60px;
     align-items: center;
     padding: 0.5rem 1rem;
     border-radius: 4px;
@@ -1626,6 +1626,11 @@ a {
 
 .pt-artist {
     color: #b3b3b3;
+}
+
+.pt-duration {
+    color: #b3b3b3;
+    text-align: right;
 }
 
 .pt-art {
