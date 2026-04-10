@@ -1,375 +1,44 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="icon" href="/static/images/logo.png">
-    <title>Openfy - Web Player</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
-</head>
-<body>
-    <div class="auth-overlay" id="auth-overlay">
-        <div class="auth-box">
-            <div class="auth-logo"><img src="/static/images/logo.png" alt="Openfy"></div>
-            <h2>Log in to Openfy</h2>
-            <div class="auth-form" id="auth-signin">
-                <input type="text" id="signin-hash" placeholder="Auth Hash" autocomplete="off" />
-                <button class="auth-btn" id="signin-btn">Log In</button>
-                <p class="auth-status" id="signin-status"></p>
-            </div>
-            <div class="auth-divider"><span>or</span></div>
-            <div class="auth-form" id="auth-signup">
-                <input type="text" id="signup-name" placeholder="Username" autocomplete="off" />
-                <button class="auth-btn auth-btn-outline" id="signup-btn">Sign Up</button>
-                <p class="auth-status" id="signup-status"></p>
-            </div>
-        </div>
-    </div>
+        const apiBase = localStorage.getItem("openfy_api") || "";
+        let authHash = localStorage.getItem("openfy_auth") || "";
+        let currentUser = null;
+        let isAdmin = false;
+        let currentPlaylistId = null;
+        let userPlaylists = [];
 
-    <div class="top-bar" id="top-bar" style="display:none;">
-        <div class="top-bar-left">
-            <img src="/static/images/logo_white.png" alt="Openfy" class="top-bar-logo">
-        </div>
-        <div class="top-bar-center">
-            <i class="fa-solid fa-house nav-icon-btn" id="top-bar-home"></i>
-            <div class="search-bar">
-                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                <input id="search-input" type="text" placeholder="What do you want to play?" autocomplete="off" />
-            </div>
-        </div>
-        <div class="top-bar-right">
-            <div class="user-menu" id="user-menu">
-                <i class="fa-solid fa-user user-icon" id="user-icon"></i>
-                 <div class="user-dropdown" id="user-dropdown">
-                     <span class="dropdown-username" id="dropdown-username"></span>
-                     <div class="dropdown-divider"></div>
-                     <div class="dropdown-item" id="admin-btn" style="display:none;"><i class="fa-solid fa-user-shield"></i> Admin</div>
-                     <div class="dropdown-item" id="profile-btn"><i class="fa-solid fa-user"></i> Profile</div>
-                       <div class="dropdown-item" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
-                    </div>
-                 </div>
-             </div>
-         </div>
+        const tracksGrid = document.getElementById("tracks-grid");
+        const mostPlayedGrid = document.getElementById("most-played-grid");
+        const uploadsGrid = document.getElementById("uploads-grid");
+        const searchInput = document.getElementById("search-input");
+        const audioPlayer = document.getElementById("audio-player");
+        const nowTitle = document.getElementById("now-title");
+        const nowArtist = document.getElementById("now-artist");
+        const nowCover = document.getElementById("now-cover");
+        const npPlaceholder = document.getElementById("np-placeholder");
+        const npTrack = document.getElementById("np-track");
+        const npTitle = document.getElementById("np-title");
+        const npArtist = document.getElementById("np-artist");
+        const npCover = document.getElementById("np-cover");
+        const npImg = document.getElementById("np-img");
+        const npLikeBtn = document.getElementById("np-like-btn");
+        npLikeBtn.classList.add("hidden");
+        const progressBar = document.getElementById("progress-bar");
+        const currTime = document.getElementById("curr-time");
+        const totTime = document.getElementById("tot-time");
+        const libBox = document.getElementById("lib-box");
+        const userIcon = document.getElementById("user-icon");
+        const userDropdown = document.getElementById("user-dropdown");
+        const dropdownUsername = document.getElementById("dropdown-username");
+        const userMenu = document.getElementById("user-menu");
+        const authOverlay = document.getElementById("auth-overlay");
+        const appMain = document.getElementById("app-main");
+        const topBar = document.getElementById("top-bar");
+        const topBarHome = document.getElementById("top-bar-home");
 
-     <div class="main" id="app-main" style="display:none;">
-        <div class="sidebar">
-            <div class="nav">
-                <div class="nav-option nav-link active" data-page="library">
-                    <i class="fa-solid fa-upload"></i>
-                    <a href="#">Upload</a>
-                </div>
-            </div>
-            <div class="library">
-                <div class="options">
-                    <div class="lib-option nav-option">
-                        <img src="/static/images/library_icon.png">
-                        <a href="#">Your Library</a>
-                    </div>
-                    <div class="icons">
-                        <i class="fa-solid fa-plus" id="new-playlist-btn"></i>
-                    </div>
-                </div>
-                <div class="lib-box" id="lib-box"></div>
-            </div>
-        </div>
-
-        <div class="main-content">
-            <div class="page active" id="page-home">
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Most Played</h2>
-                    </div>
-                    <div id="most-played-grid"></div>
-                </div>
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Library</h2>
-                    </div>
-                    <div id="tracks-grid"></div>
-                </div>
-                <div class="footer"><div class="line"></div></div>
-            </div>
-
-            <div class="page" id="page-library">
-                <button class="back-btn" id="back-to-home"><i class="fa-solid fa-chevron-left"></i></button>
-                <div class="section">
-                    <h2>Upload from Link</h2>
-                    <div class="add-form" id="download-form">
-                        <input id="download-url" type="text" placeholder="Paste Apple Music/Spotify link" autocomplete="off" />
-                        <button class="badge" id="download-button">Upload</button>
-                    </div>
-                    <div class="download-progress" id="download-progress" style="display:none;">
-                        <p class="download-status-text" id="download-status-text"></p>
-                        <div class="download-progress-bar-container">
-                            <div class="download-progress-bar" id="download-progress-bar"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Uploads</h2>
-                    </div>
-                    <div id="uploads-grid"></div>
-                </div>
-            </div>
-
-            <div class="page" id="page-playlist">
-                <div class="section">
-                    <div class="playlist-header">
-                        <div class="playlist-cover" id="playlist-cover"></div>
-                        <div class="playlist-info">
-                            <p class="playlist-type" id="playlist-type">Playlist</p>
-                            <h1 id="playlist-name"></h1>
-                            <p class="playlist-meta" id="playlist-meta"></p>
-                        </div>
-                    </div>
-                </div>
-                <div class="section">
-                    <div class="playlist-tracks" id="playlist-tracks"></div>
-                </div>
-            </div>
-
-            <div class="page" id="page-admin">
-                <div class="admin-dashboard" id="admin-dashboard">
-                    <button class="back-btn" id="admin-back-home"><i class="fa-solid fa-chevron-left"></i></button>
-                    <div class="section">
-                        <h2>Admin Panel</h2>
-                        <div class="admin-controls" id="admin-controls">
-                            <div class="admin-card">
-                                <h3><i class="fa-solid fa-folder-open"></i> Library Management</h3>
-                                <p>View and manage all tracks in your music library.</p>
-                                <div class="admin-actions">
-                                    <button class="badge" id="view-library-btn">View All Tracks</button>
-                                </div>
-                            </div>
-                            <div class="admin-card">
-                                <h3><i class="fa-solid fa-users"></i> User Management</h3>
-                                <p>View and manage system users.</p>
-                                <div class="admin-actions">
-                                    <button class="badge" id="view-users-btn">View Users</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="admin-users-view" id="admin-users-view" style="display:none;">
-                    <button class="back-btn" id="admin-users-back"><i class="fa-solid fa-chevron-left"></i></button>
-                    <div class="section">
-                        <h2>All Users</h2>
-                        <div class="admin-users-search">
-                            <div class="search-bar">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                                <input type="text" id="users-search-input" placeholder="Search users..." autocomplete="off" />
-                            </div>
-                        </div>
-                        <div class="users-table-container" id="users-table-container">
-                            <table class="users-table">
-                                <thead>
-                                    <tr>
-                                        <th>Username</th>
-                                        <th>Auth Hash</th>
-                                        <th>Role</th>
-                                        <th>Songs</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="users-table-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                 </div>
-                <div class="admin-library-view" id="admin-library-view" style="display:none;">
-                    <button class="back-btn" id="admin-library-back"><i class="fa-solid fa-chevron-left"></i></button>
-                    <div class="section">
-                        <h2>All Tracks</h2>
-                        <div class="admin-library-search">
-                            <div class="search-bar">
-                                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                                <input type="text" id="library-search-input" placeholder="Search tracks, artists..." autocomplete="off" />
-                            </div>
-                        </div>
-                        <div class="users-table-container" id="library-table-container">
-                            <table class="users-table">
-                                <thead>
-                                    <tr>
-                                        <th>Song</th>
-                                        <th>Artist</th>
-                                        <th>Added By</th>
-                                        <th>Plays</th>
-                                        <th>Duration</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="library-table-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                 </div>
-             </div>
-         </div>
-
-        <div class="now-playing-panel">
-            <div class="np-content" id="np-content">
-                <div class="np-placeholder" id="np-placeholder">
-                    <i class="fa-solid fa-music"></i>
-                    <p>No track playing</p>
-                </div>
-                <div class="np-track" id="np-track" style="display:none;">
-                    <div class="np-artwork-container">
-                        <canvas class="np-art-canvas" id="np-cover" width="260" height="260"></canvas>
-                        <img class="np-art-img" id="np-img" style="display:none;" />
-                    </div>
-                    <div class="np-details">
-                        <h2 class="np-title" id="np-title"></h2>
-                        <p class="np-artist" id="np-artist"></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="music-player">
-            <div class="player-top">
-                <div class="album">
-                    <canvas class="art-canvas" id="now-cover" width="56" height="56"></canvas>
-                    <div class="album-meta">
-                        <p class="album-title" id="now-title"></p>
-                        <p class="album-artist" id="now-artist"></p>
-                    </div>
-                    <button class="player-like-btn" id="np-like-btn" aria-label="Add to Liked Songs" title="Add to Liked Songs">
-                    </button>
-                </div>
-                <div class="player">
-                    <div class="player-controls">
-                        <button class="player-btn" id="btn-shuffle" aria-label="Shuffle"><i class="fa-solid fa-shuffle"></i></button>
-                        <button class="player-btn" id="btn-prev" aria-label="Previous"><i class="fa-solid fa-backward-step"></i></button>
-                        <button class="player-btn play-btn" id="btn-play" aria-label="Play or pause"><i class="fa-solid fa-play play-icon"></i><i class="fa-solid fa-pause pause-icon"></i></button>
-                        <button class="player-btn" id="btn-next" aria-label="Next"><i class="fa-solid fa-forward-step"></i></button>
-                        <button class="player-btn repeat-btn" id="btn-repeat" aria-label="Repeat"><i class="fa-solid fa-repeat"></i><span class="repeat-dot"></span></button>
-                    </div>
-                    <div class="playback-bar">
-                        <span class="curr-time" id="curr-time">00:00</span>
-                        <input type="range" min="0" max="100" class="progress-bar" step="1" id="progress-bar">
-                        <span class="tot-time" id="tot-time">00:00</span>
-                    </div>
-                </div>
-                <div class="controls">
-                    <div class="volume-bar">
-                        <i class="fa-solid fa-volume-high" id="volume-icon"></i>
-                        <input type="range" min="0" max="100" class="volume-slider" step="1" id="volume-slider" value="100">
-                    </div>
-                </div>
-            </div>
-            <audio id="audio-player" preload="metadata"></audio>
-        </div>
-    </div>
-
-    <!-- User Hash Modal -->
-    <div class="hash-modal-overlay" id="hash-modal-overlay" style="display:none;">
-        <div class="hash-modal">
-            <div class="hash-modal-header">
-                <h2><i class="fa-solid fa-key"></i> Your Auth Hash</h2>
-                <p class="hash-modal-subtitle">Save this securely. You'll need it to log in.</p>
-            </div>
-            <div class="hash-modal-content">
-                <div class="hash-display">
-                    <code id="user-auth-hash"></code>
-                    <button class="copy-btn" id="copy-hash-btn" title="Copy to clipboard">
-                        <i class="fa-regular fa-copy"></i> Copy
-                    </button>
-                </div>
-                <p class="hash-warning"><i class="fa-solid fa-triangle-exclamation"></i> This is your only authentication. Save it somewhere safe.</p>
-            </div>
-            <div class="hash-modal-footer">
-                <button class="badge" id="continue-btn">Continue to Openfy</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- User Profile Modal -->
-    <div class="profile-modal-overlay" id="profile-modal-overlay" style="display:none;">
-        <div class="profile-modal">
-            <div class="profile-modal-header">
-                <h2><i class="fa-solid fa-user"></i> User Profile</h2>
-            </div>
-            <div class="profile-modal-content">
-                <div class="profile-info">
-                    <div class="info-row">
-                        <span class="info-label">Username:</span>
-                        <span class="info-value" id="profile-username"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Auth Hash:</span>
-                        <div class="hash-display">
-                            <code id="profile-auth-hash"></code>
-                            <button class="copy-btn" id="profile-copy-hash-btn" title="Copy to clipboard">
-                                <i class="fa-regular fa-copy"></i> Copy
-                            </button>
-                        </div>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Member since:</span>
-                        <span class="info-value" id="profile-member-since"></span>
-                    </div>
-                </div>
-            </div>
-            <div class="profile-modal-footer">
-                <button class="badge" id="profile-close-btn">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Playlist Context Menu -->
-    <div class="context-menu-overlay" id="context-menu-overlay" style="display:none;">
-        <div class="context-menu" id="context-menu">
-            <div class="context-menu-item" id="ctx-pin">
-                <i class="fa-solid fa-thumbtack"></i> <span>Pin</span>
-            </div>
-            <div class="context-menu-item" id="ctx-rename">
-                <i class="fa-solid fa-pen"></i> <span>Rename</span>
-            </div>
-            <div class="context-menu-item" id="ctx-remove">
-                <i class="fa-solid fa-trash"></i> <span>Remove</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Rename Playlist Modal -->
-    <div class="rename-modal-overlay" id="rename-modal-overlay" style="display:none;">
-        <div class="rename-modal">
-            <div class="rename-modal-header">
-                <h2><i class="fa-solid fa-pen"></i> Rename Playlist</h2>
-            </div>
-            <div class="rename-modal-content">
-                <input type="text" id="rename-input" placeholder="Playlist name" autocomplete="off" />
-            </div>
-            <div class="rename-modal-footer">
-                <button class="badge" id="rename-cancel-btn">Cancel</button>
-                <button class="badge" id="rename-confirm-btn">Rename</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Confirm Delete Modal -->
-    <div class="confirm-modal-overlay" id="confirm-modal-overlay" style="display:none;">
-        <div class="confirm-modal">
-            <div class="confirm-modal-header">
-                <h2><i class="fa-solid fa-triangle-exclamation"></i> Delete Playlist?</h2>
-            </div>
-            <div class="confirm-modal-content">
-                <p id="confirm-message">Delete this playlist?</p>
-            </div>
-            <div class="confirm-modal-footer">
-                <button class="badge" id="confirm-cancel-btn">Cancel</button>
-                <button class="badge delete" id="confirm-delete-btn">Delete</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="/static/script.js"></script>
+        const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist"), admin: document.getElementById("page-admin") };
+        const btnPlay = document.getElementById("btn-play");
+        const btnPrev = document.getElementById("btn-prev");
+        const btnNext = document.getElementById("btn-next");
+        const btnRepeat = document.getElementById("btn-repeat");
 
         let repeatState = "off";
         let repeatCount = 0;
@@ -1941,6 +1610,3 @@
             }
         })();
 
-        </script>
-</body>
-</html>
