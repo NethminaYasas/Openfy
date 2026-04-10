@@ -1590,6 +1590,18 @@
         clearCanvas(nowCover);
 
         // Initialize when DOM is ready
+        // Keyboard event listener for space bar to play/pause
+        document.addEventListener('keydown', function(event) {
+            // Prevent space bar from scrolling the page
+            if (event.code === 'Space' && event.target.tagName !== 'INPUT') {
+                event.preventDefault();
+                // Only play/pause if there's a track playing
+                if (audioPlayer.src && audioPlayer.src !== window.location.href) {
+                    togglePlay();
+                }
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', function() {
             // Initialization is now handled in render functions
         });
