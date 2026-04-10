@@ -11,6 +11,18 @@ import requests
 from typing import Callable
 from urllib.parse import quote
 
+# Import configuration
+try:
+    from .config import SCORE_THRESHOLDS, SEARCH_STRATEGIES, FALLBACK_METHODS, SAFETY_CHECKS, LOGGING, ERROR_MESSAGES
+except ImportError:
+    # Fallback configuration if config.py is not available
+    SCORE_THRESHOLDS = {"minimum_confident_match": 10, "high_confidence_match": 30, "perfect_match": 50}
+    SEARCH_STRATEGIES = ["full_query", "track_only", "reversed", "primary_artist"]
+    FALLBACK_METHODS = ["yt_dlp_search", "html_scrape", "songlink_api"]
+    SAFETY_CHECKS = {"verify_youtube_metadata": True, "check_filename_match": True, "minimum_score_threshold": True}
+    LOGGING = {"debug_enabled": True, "log_search_scores": True, "log_verification_results": True}
+    ERROR_MESSAGES = {"invalid_url": "Invalid Spotify URL", "metadata_failed": "Could not extract metadata"}
+
 from mutagen.id3 import ID3, ID3NoHeaderError, TIT2, TPE1, TALB, TPE2, TDRC, TRCK, TPOS, APIC, WXXX, COMM
 
 
@@ -33,103 +45,143 @@ class AppleMusicDownloader:
     
     def _extract_spotify_metadata(self, spotify_url: str) -> dict | None:
         """Extract track metadata from a Spotify URL by parsing embed page JSON (no auth needed)."""
-        try:
-            import urllib.parse
-            import re
-            # Extract track ID
-            parsed = urllib.parse.urlparse(spotify_url)
-            path_parts = [p for p in parsed.path.split("/") if p]
-            if len(path_parts) < 2 or path_parts[0] != "track":
-                return None
-            track_id = path_parts[1]
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                import urllib.parse
+                import re
+                print(f"[DEBUG] Extracting metadata from Spotify URL: {spotify_url} (attempt {attempt + 1})")
 
-            # Get oEmbed for title and cover (simpler than embed page)
-            oembed_url = f"https://open.spotify.com/oembed?format=json&url={urllib.parse.quote(spotify_url)}"
-            resp = self.session.get(oembed_url, timeout=10)
-            data = resp.json()
-            title = data.get("title", "Unknown").strip()
-            cover_url = data.get("thumbnail_url", "")
+                # Extract track ID
+                parsed = urllib.parse.urlparse(spotify_url)
+                path_parts = [p for p in parsed.path.split("/") if p]
+                if len(path_parts) < 2 or path_parts[0] != "track":
+                    print(f"[DEBUG] Invalid track URL format")
+                    return None
+                track_id = path_parts[1]
+                print(f"[DEBUG] Track ID: {track_id}")
 
-            # Fetch embed page to get structured JSON data
-            embed_url = f"https://open.spotify.com/embed/track/{track_id}"
-            embed_resp = self.session.get(embed_url, timeout=10)
-            embed_text = embed_resp.text
+                # Get oEmbed for title and cover (simpler than embed page)
+                oembed_url = f"https://open.spotify.com/oembed?format=json&url={urllib.parse.quote(spotify_url)}"
+                print(f"[DEBUG] Fetching oEmbed from: {oembed_url}")
+                resp = self.session.get(oembed_url, timeout=30)
+                resp.raise_for_status()  # Check for HTTP errors
+                data = resp.json()
+                title = data.get("title", "Unknown").strip()
+                cover_url = data.get("thumbnail_url", "")
+                print(f"[DEBUG] oEmbed title: {title}")
+                print(f"[DEBUG] oEmbed cover URL: {cover_url}")
 
-            # Parse __NEXT_DATA__ script for full metadata
-            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', embed_text)
-            artist = ""
-            album = ""
-            duration_ms = 0
-            if match:
-                import json
-                try:
-                    next_data = json.loads(match.group(1))
-                    # Navigate: props -> pageProps -> state -> data -> entity
-                    entity = next_data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
-                    if entity:
-                        # Extract artists array
-                        artists_list = entity.get("artists", [])
-                        if artists_list:
-                            all_artist_names = [a.get("name", "") for a in artists_list if a.get("name")]
-                            if all_artist_names:
-                                artist = ", ".join(all_artist_names)
-                                artist = re.sub(r'\s+', ' ', artist).strip(", ")
-                        # Extract album if available
-                        album_obj = entity.get("album", {})
-                        if album_obj:
-                            album = album_obj.get("name", "")
-                        # Extract duration
-                        duration_ms = entity.get("duration", 0)
-                except json.JSONDecodeError:
-                    pass
+                # Validate oEmbed response
+                if not title or title == "Unknown":
+                    raise Exception("Invalid oEmbed response")
 
-            # Fallback: if no artists from embed, try Songlink (may rate limit)
-            if not artist:
-                try:
-                    songlink_url = f"https://api.song.link/v1-alpha.1/links?url={urllib.parse.quote(spotify_url)}&userCountry=US"
-                    songlink_resp = self.session.get(songlink_url, timeout=10)
-                    songlink_data = songlink_resp.json()
-                    entities = songlink_data.get("entitiesByUniqueId", {})
-                    for uid, ent in entities.items():
-                        if ent.get("apiProvider") == "spotify":
-                            artists = ent.get("artistsByRole", {})
-                            if artists:
-                                all_names = []
-                                for role, alist in artists.items():
-                                    if alist:
-                                        all_names.extend([a.get("name", "") for a in alist if a.get("name")])
-                                if all_names:
-                                    artist = ", ".join(all_names)
+                # Fetch embed page to get structured JSON data
+                embed_url = f"https://open.spotify.com/embed/track/{track_id}"
+                print(f"[DEBUG] Fetching embed page from: {embed_url}")
+                embed_resp = self.session.get(embed_url, timeout=30)
+                embed_resp.raise_for_status()
+                embed_text = embed_resp.text
+
+                # Parse __NEXT_DATA__ script for full metadata
+                match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', embed_text)
+                artist = ""
+                album = ""
+                duration_ms = 0
+                entity = None
+                if match:
+                    import json
+                    try:
+                        next_data = json.loads(match.group(1))
+                        # Navigate: props -> pageProps -> state -> data -> entity
+                        entity = next_data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+                        if entity:
+                            print(f"[DEBUG] Found entity data: {entity}")
+                            # Extract artists array
+                            artists_list = entity.get("artists", [])
+                            if artists_list:
+                                all_artist_names = [a.get("name", "") for a in artists_list if a.get("name")]
+                                if all_artist_names:
+                                    artist = ", ".join(all_artist_names)
                                     artist = re.sub(r'\s+', ' ', artist).strip(", ")
-                            album_links = ent.get("album", {})
-                            if album_links and not album:
-                                album = album_links.get("name", "")
-                            break
-                except Exception:
-                    pass
+                                    print(f"[DEBUG] Extracted artists: {artist}")
+                            # Extract album if available
+                            album_obj = entity.get("album", {})
+                            if album_obj:
+                                album = album_obj.get("name", "")
+                                print(f"[DEBUG] Extracted album: {album}")
+                            # Extract duration
+                            duration_ms = entity.get("duration", 0)
+                            print(f"[DEBUG] Extracted duration: {duration_ms}ms")
+                    except json.JSONDecodeError as e:
+                        print(f"[DEBUG] JSON decode error: {e}")
+                        continue  # Retry on JSON decode error
 
-            # Final fallback: parse from title "Artist - Song"
-            if not artist and " - " in title:
-                parts = title.split(" - ")
-                if len(parts) >= 2:
-                    artist = " - ".join(parts[:-1])
+                # Fallback: if no artists from embed, try Songlink (may rate limit)
+                if not artist and attempt < max_retries - 1:
+                    print(f"[DEBUG] No artists from embed, trying Songlink fallback")
+                    try:
+                        songlink_url = f"https://api.song.link/v1-alpha.1/links?url={urllib.parse.quote(spotify_url)}&userCountry=US"
+                        songlink_resp = self.session.get(songlink_url, timeout=10)
+                        songlink_resp.raise_for_status()
+                        songlink_data = songlink_resp.json()
+                        entities = songlink_data.get("entitiesByUniqueId", {})
+                        for uid, ent in entities.items():
+                            if ent.get("apiProvider") == "spotify":
+                                artists = ent.get("artistsByRole", {})
+                                if artists:
+                                    all_names = []
+                                    for role, alist in artists.items():
+                                        if alist:
+                                            all_names.extend([a.get("name", "") for a in alist if a.get("name")])
+                                    if all_names:
+                                        artist = ", ".join(all_names)
+                                        artist = re.sub(r'\s+', ' ', artist).strip(", ")
+                                        print(f"[DEBUG] Got artists from Songlink: {artist}")
+                                album_links = ent.get("album", {})
+                                if album_links and not album:
+                                    album = album_links.get("name", "")
+                                    print(f"[DEBUG] Got album from Songlink: {album}")
+                                break
+                    except Exception as e:
+                        print(f"[DEBUG] Songlink fallback failed: {e}")
 
-            return {
-                "name": title,
-                "artist": artist or "Unknown Artist",
-                "album": album,
-                "album_artist": artist,
-                "track_number": entity.get("track_number", 1) if isinstance(entity, dict) else 1,
-                "total_tracks": entity.get("total_tracks", 1) if isinstance(entity, dict) else 1,
-                "disc_number": 1,
-                "release_date": "",
-                "duration_ms": duration_ms,
-                "cover_url": cover_url,
-                "genre": "",
-                "explicit": False,
-            }
-        except Exception as e:
-            print(f"[!] Spotify metadata extraction error: {e}")
+                # Final fallback: parse from title "Artist - Song"
+                if not artist and " - " in title:
+                    parts = title.split(" - ")
+                    if len(parts) >= 2:
+                        artist = " - ".join(parts[:-1])
+                        print(f"[DEBUG] Got artist from title fallback: {artist}")
+
+                # Validate we have both title and artist
+                if not title or title == "Unknown":
+                    raise Exception("Invalid track title")
+                if not artist or artist == "Unknown Artist":
+                    raise Exception("Invalid artist name")
+
+                result = {
+                    "name": title,
+                    "artist": artist,
+                    "album": album,
+                    "album_artist": artist,
+                    "track_number": entity.get("track_number", 1) if isinstance(entity, dict) else 1,
+                    "total_tracks": entity.get("total_tracks", 1) if isinstance(entity, dict) else 1,
+                    "disc_number": 1,
+                    "release_date": "",
+                    "duration_ms": duration_ms,
+                    "cover_url": cover_url,
+                    "genre": "",
+                    "explicit": False,
+                }
+                print(f"[DEBUG] Final metadata: {result}")
+                return result
+            except Exception as e:
+                print(f"[!] Spotify metadata extraction error (attempt {attempt + 1}): {e}")
+                if attempt == max_retries - 1:
+                    import traceback
+                    traceback.print_exc()
+                # Wait before retrying
+                time.sleep(2 ** attempt)  # Exponential backoff
 
         return None
     
@@ -142,7 +194,7 @@ class AppleMusicDownloader:
             return "spotify"
         return "unknown"
 
-    def __init__(self, timeout: float = 120.0):
+    def __init__(self, timeout: float = 300.0):
         self.session = requests.Session()
         self.session.timeout = timeout
         self.session.headers.update({
@@ -245,42 +297,103 @@ class AppleMusicDownloader:
         """Find YouTube Music URL for a track using ytmusicapi.
         Searches YouTube Music for official audio tracks only (no music videos).
         """
+        print(f"[DEBUG] === SEARCH START ===")
+        print(f"[DEBUG] Searching YouTube Music for: '{track_name}' by '{artist_name}'")
+
+        # Try multiple search strategies
+        search_strategies = [
+            f"ytmusic10:{track_name} {artist_name}",  # Full query
+            f"ytmusic10:{track_name}",  # Track only
+            f"ytmusic10:{artist_name} {track_name}",  # Reversed
+        ]
+
         try:
             from ytmusicapi import YTMusic
             yt = YTMusic()
-            
-            # Search YouTube Music for songs only
-            results = yt.search(f"ytmsearch10:{track_name} {artist_name}", filter="songs", limit=10)
-            
-            if not results:
-                # Try with less specific search
-                results = yt.search(f"ytmsearch10:{track_name} {artist_name}", limit=10)
-            
-            # Pick the best match by checking artist name
-            for result in results:
-                result_artists = ", ".join(
-                    a.get("name", "") for a in result.get("artists", [])
-                )
-                # Check if artist name matches
-                if artist_name.lower().split()[0] in result_artists.lower():
-                    video_id = result.get("videoId")
-                    duration = result.get("duration", "")
-                    print(f"✓ Found on YouTube Music: {result.get('title')} - {result_artists} ({duration})")
+
+            for strategy_idx, search_query in enumerate(search_strategies):
+                print(f"[DEBUG] Search strategy {strategy_idx + 1}: {search_query}")
+
+                # Try songs filter first
+                results = yt.search(search_query, filter="songs", limit=10)
+                if not results:
+                    # Try without filter
+                    results = yt.search(search_query, limit=10)
+
+                if not results:
+                    print(f"[DEBUG] No results for strategy {strategy_idx + 1}")
+                    continue
+
+                print(f"[DEBUG] Found {len(results)} results")
+
+                # Pick the best match
+                best_match = None
+                best_score = 0
+
+                for i, result in enumerate(results):
+                    result_title = result.get('title', '').lower()
+                    result_artists = ", ".join(
+                        a.get("name", "") for a in result.get("artists", [])
+                    ).lower()
+
+                    # Calculate match score
+                    score = 0
+                    # Title match (weighted higher)
+                    if track_name.lower() in result_title:
+                        score += 20
+                    if result_title in track_name.lower():
+                        score += 15
+
+                    # Artist match
+                    if artist_name.lower() in result_artists:
+                        score += 10
+                    if result_artists in artist_name.lower():
+                        score += 5
+
+                    # Individual artist words
+                    for artist_word in artist_name.lower().split(','):
+                        artist_word = artist_word.strip()
+                        if artist_word in result_artists:
+                            score += 3
+
+                    print(f"[DEBUG] Result {i+1}: {result.get('title')} - {result.get('artists', [{}])[0].get('name', 'Unknown')} (score: {score})")
+
+                    if score > best_score:
+                        best_score = score
+                        best_match = result
+
+                if best_match and best_score >= SCORE_THRESHOLDS["minimum_confident_match"]:
+                    if LOGGING["log_search_scores"]:
+                        print(f"✓ Best match (score {best_score}): {best_match.get('title')} - {best_match.get('artists', [{}])[0].get('name', 'Unknown')}")
+                    if best_score >= SCORE_THRESHOLDS["high_confidence_match"]:
+                        print(f"🎯 High confidence match found!")
+                    video_id = best_match.get("videoId")
                     if video_id:
                         return f"https://music.youtube.com/watch?v={video_id}"
-            
-            # If no good artist match, use the first result
-            if results:
-                video_id = results[0].get("videoId")
-                print(f"✓ Found on YouTube Music: {results[0].get('title')} ({results[0].get('duration', '')})")
-                if video_id:
-                    return f"https://music.youtube.com/watch?v={video_id}"
+                elif best_match and SAFETY_CHECKS["allow_low_confidence_fallback"]:
+                    print(f"⚠ Low confidence match ({best_score}): {best_match.get('title')} - {best_match.get('artists', [{}])[0].get('name', 'Unknown')}")
+                    if LOGGING["log_search_scores"]:
+                        print(f"WARNING: This might be the wrong song. Score: {best_score}/{SCORE_THRESHOLDS['perfect_match']}")
+                    video_id = best_match.get("videoId")
+                    if video_id:
+                        return f"https://music.youtube.com/watch?v={video_id}"
+                else:
+                    print(f"❌ No suitable match found (best score: {best_score if best_match else 0})")
+                    if best_match:
+                        print(f"Best available: {best_match.get('title')} by {best_match.get('artists', [{}])[0].get('name', 'Unknown')}")
+
+            print(f"[DEBUG] No suitable match found in any strategy")
+
         except ImportError:
             print("[!] ytmusicapi not available, falling back to search")
         except Exception as e:
             print(f"[!] YouTube Music search error: {e}")
-        
+            import traceback
+            traceback.print_exc()
+
         # Fallback: Regular search
+        print(f"[DEBUG] All strategies failed, using fallback search")
+        print(f"[DEBUG] === SEARCH END (FALLBACK) ===")
         return self._search_youtube_fallback(track_name, artist_name)
 
     def _search_youtube_fallback(self, track_name: str, artist_name: str) -> str:
@@ -420,21 +533,102 @@ class AppleMusicDownloader:
 
         return score
 
+    def _verify_youtube_video(self, video_id: str, expected_track: str, expected_artist: str) -> bool:
+        """Verify the YouTube video matches the expected track and artist."""
+        video_title = ""
+        video_artists = ""
+        try:
+            print(f"[DEBUG] === VERIFICATION START ===")
+            print(f"[DEBUG] Video ID: {video_id}")
+            print(f"[DEBUG] Expected track: '{expected_track}'")
+            print(f"[DEBUG] Expected artist: '{expected_artist}'")
+
+            # Get video metadata using yt-dlp if available
+            try:
+                import yt_dlp
+                ydl_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': 'discard_in_playlist',
+                    'playlist_items': '1',
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"https://youtube.com/watch?v={video_id}", download=False)
+
+                    if info:
+                        video_title = info.get('title', '')
+                        # Handle both formats: list of dict and list of string
+                        artists_info = info.get('artists', [])
+                        if artists_info and isinstance(artists_info[0], dict):
+                            video_artists = ', '.join([a.get('name', '') for a in artists_info])
+                        else:
+                            video_artists = ', '.join(artists_info) if artists_info else ''
+                        print(f"[DEBUG] yt-dlp found video:")
+                        print(f"[DEBUG]   Title: '{video_title}'")
+                        print(f"[DEBUG]   Artists: '{video_artists}'")
+
+                        # Score the match
+                        score = self._score_candidate(video_title, video_artists, expected_track, expected_artist)
+                        print(f"[DEBUG] Verification score: {score}")
+
+                        if score >= 20:
+                            print(f"[DEBUG] ✓ Verification PASSED (score >= 20)")
+                            return True
+                        else:
+                            print(f"[DEBUG] ✗ Verification FAILED (score < 20)")
+
+            except ImportError:
+                print("[!] yt-dlp not available for verification")
+            except Exception as e:
+                print(f"[!] yt-dlp verification error: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Fallback: Check if the video title contains the track name
+            # This is less reliable but better than nothing
+            print(f"[DEBUG] Trying fallback verification...")
+            if video_title:
+                expected_track_lower = expected_track.lower()
+                video_title_lower = video_title.lower()
+                print(f"[DEBUG] Checking if '{expected_track_lower}' is in '{video_title_lower}'")
+
+                if expected_track_lower in video_title_lower:
+                    print(f"[DEBUG] ✓ Fallback verification PASSED")
+                    return True
+            else:
+                print(f"[DEBUG] No video title available for fallback check")
+
+            print(f"[DEBUG] === VERIFICATION FAILED ===")
+            return False
+
+        except Exception as e:
+            print(f"[!] Unexpected verification error: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"[DEBUG] === VERIFICATION FAILED (ERROR) ===")
+            return False
+
     def _request_spotube_dl(self, video_id: str) -> str | None:
         """Get download URL from SpotubeDL."""
         for engine in ["v1", "v3", "v2"]:
             api_url = f"https://spotubedl.com/api/download/{video_id}?engine={engine}&format=mp3&quality=320"
             try:
-                print(f"Fetching from SpotubeDL (Engine: {engine})...")
+                print(f"[DEBUG] Fetching from SpotubeDL (Engine: {engine})...")
+                print(f"[DEBUG] API URL: {api_url}")
                 resp = self.session.get(api_url, timeout=15)
+                print(f"[DEBUG] SpotubeDL response status: {resp.status_code}")
                 if resp.status_code == 200:
                     data = resp.json()
                     download_url = data.get("url")
+                    print(f"[DEBUG] SpotubeDL download URL: {download_url}")
                     if download_url:
                         if download_url.startswith("/"):
                             download_url = "https://spotubedl.com" + download_url
                         return download_url
-            except Exception:
+                else:
+                    print(f"[DEBUG] SpotubeDL response: {resp.text}")
+            except Exception as e:
+                print(f"[DEBUG] SpotubeDL error for engine {engine}: {e}")
                 continue
         return None
 
@@ -454,14 +648,21 @@ class AppleMusicDownloader:
             "Accept": "application/json"
         }
         try:
-            print("Trying Cobalt API (Fallback)...")
+            print("[DEBUG] Trying Cobalt API (Fallback)...")
+            print(f"[DEBUG] Cobalt API URL: {api_url}")
+            print(f"[DEBUG] Cobalt payload: {payload}")
             resp = self.session.post(api_url, json=payload, headers=headers, timeout=15)
+            print(f"[DEBUG] Cobalt response status: {resp.status_code}")
             if resp.status_code == 200:
                 data = resp.json()
+                print(f"[DEBUG] Cobalt response: {data}")
                 if data.get("status") in ["tunnel", "redirect"] and data.get("url"):
+                    print(f"[DEBUG] Cobalt download URL: {data['url']}")
                     return data["url"]
-        except Exception:
-            pass
+            else:
+                print(f"[DEBUG] Cobalt error response: {resp.text}")
+        except Exception as e:
+            print(f"[DEBUG] Cobalt API error: {e}")
         return None
 
     def _extract_video_id(self, url: str) -> str | None:
@@ -545,23 +746,85 @@ class AppleMusicDownloader:
         """
         os.makedirs(output_dir, exist_ok=True)
 
+        # Validate URL format first
+        if not spotify_url or "open.spotify.com/track/" not in spotify_url:
+            raise Exception("Invalid Spotify track URL format")
+
         track_info = self._extract_spotify_metadata(spotify_url)
-        if not track_info or track_info.get("name") in ("Track", "Unknown"):
+        if not track_info:
             raise Exception(f"Could not extract metadata from Spotify URL: {spotify_url}")
 
-        print(f"✓ Found: {track_info['name']} - {track_info['artist']}")
+        # Validate extracted metadata
+        track_name = track_info.get("name", "").strip()
+        artist_name = track_info.get("artist", "").strip()
 
-        return self.download_by_info(track_info, output_dir)
+        if not track_name or track_name in ("Track", "Unknown", ""):
+            raise Exception(f"Invalid track name extracted: {track_name}")
+
+        if not artist_name or artist_name == "Unknown Artist":
+            raise Exception(f"Invalid artist name extracted: {artist_name}")
+
+        # Log the expected metadata for user verification
+        print(f"✓ Expected: {track_name} by {artist_name}")
+
+        # Try to download with verification
+        try:
+            return self.download_by_info(track_info, output_dir)
+        except Exception as e:
+            print(f"[!] Verification failed: {e}")
+            # If verification fails, try without strict verification as last resort
+            print(f"[!] Attempting download without strict verification")
+            track_info["skip_verification"] = True
+            return self.download_by_info(track_info, output_dir)
 
     def download_by_info(self, track_info: dict, output_dir: str, **kwargs) -> str:
         """Download using pre-extracted track info (for use by other services)."""
+        print(f"[DEBUG] download_by_info called with: {track_info}")
         os.makedirs(output_dir, exist_ok=True)
 
+        # Validate track info before proceeding
+        if not track_info.get("name") or track_info.get("name") in ("Unknown", "Track"):
+            raise Exception("Invalid track name extracted from URL")
+
+        if not track_info.get("artist") or track_info.get("artist") == "Unknown Artist":
+            raise Exception("Invalid artist name extracted from URL")
+
+        original_track = track_info["name"]
+        original_artist = track_info["artist"]
+
         # Get YouTube URL
-        yt_url = self._get_youtube_url(track_info["name"], track_info["artist"])
+        yt_url = self._get_youtube_url(original_track, original_artist)
+        print(f"[DEBUG] Got YouTube URL: {yt_url}")
         video_id = self._extract_video_id(yt_url)
         if not video_id:
             raise Exception("Could not extract YouTube video ID")
+        print(f"[DEBUG] Extracted video ID: {video_id}")
+
+        # Before downloading, verify this is actually the correct song
+        # by fetching the YouTube video metadata and comparing
+        if not self._verify_youtube_video(video_id, original_track, original_artist):
+            # Try fallback strategies if verification fails
+            print(f"[DEBUG] Initial verification failed, trying alternative search strategies")
+            fallback_success = False
+
+            # Try searching with different artist combinations
+            artist_variations = [
+                original_artist.split(",")[0].strip(),  # Primary artist only
+                ", ".join(original_artist.split(",")[::-1]),  # Reverse artist order
+            ]
+
+            for variation in artist_variations:
+                print(f"[DEBUG] Trying artist variation: {variation}")
+                yt_url_fallback = self._get_youtube_url(original_track, variation)
+                video_id_fallback = self._extract_video_id(yt_url_fallback)
+                if video_id_fallback and self._verify_youtube_video(video_id_fallback, original_track, variation):
+                    print(f"[DEBUG] Fallback verification successful")
+                    video_id = video_id_fallback
+                    fallback_success = True
+                    break
+
+            if not fallback_success:
+                raise Exception(f"Could not verify correct song after multiple attempts. Expected: {original_track} by {original_artist}")
 
         safe_title = sanitize_filename(track_info["name"])
         safe_artist = sanitize_filename(track_info["artist"].split(",")[0])
@@ -658,6 +921,14 @@ class AppleMusicDownloader:
 
         if not download_url:
             raise Exception("All YouTube download APIs failed")
+
+        # Final safety check: verify the downloaded filename contains the track name
+        if not track_info.get("skip_verification"):
+            expected_title = track_info["name"].lower()
+            safe_filename = sanitize_filename(expected_title)
+            if safe_filename not in expected_filename.lower():
+                print(f"[WARNING] Downloaded filename may be incorrect: {expected_filename}")
+                print(f"[WARNING] Expected to contain: {safe_filename}")
 
         self._embed_metadata(
             expected_path,

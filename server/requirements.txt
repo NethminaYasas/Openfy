@@ -12,3 +12,4 @@ requests
 # YouTube Music API for audio-only downloads
 ytmusicapi
 beautifulsoup4
+yt-dlp
