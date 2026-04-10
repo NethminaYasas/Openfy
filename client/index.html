@@ -81,6 +81,12 @@
             <div class="page active" id="page-home">
                 <div class="section">
                     <div class="section-header">
+                        <h2>Most Played</h2>
+                    </div>
+                    <div id="most-played-grid"></div>
+                </div>
+                <div class="section">
+                    <div class="section-header">
                         <h2>Library</h2>
                     </div>
                     <div id="tracks-grid"></div>
@@ -777,6 +783,111 @@
             }, 100);
         }
 
+        function renderMostPlayed(tracks) {
+            const container = document.getElementById('most-played-grid');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (!tracks.length) {
+                const emptyCard = document.createElement('div');
+                emptyCard.className = 'card';
+                emptyCard.innerHTML = '<p class="card-title">No most played tracks yet</p><p class="card-info">Play some tracks to see them here</p>';
+                container.appendChild(emptyCard);
+                return;
+            }
+
+            // Create a single row with max 9 tracks
+            const maxTracksPerRow = 9;
+            const rowTracks = tracks.slice(0, maxTracksPerRow);
+
+            // Create track row wrapper
+            const rowWrapper = document.createElement('div');
+            rowWrapper.className = 'track-row-wrapper';
+            rowWrapper.style.marginTop = '1.5rem';
+
+            // Create previous button
+            const prevBtn = document.createElement('button');
+            prevBtn.className = 'track-row-scroll-btn track-row-scroll-btn-prev';
+            prevBtn.id = `most-played-row-prev`;
+            prevBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+
+            // Create container for the row
+            const rowContainer = document.createElement('div');
+            rowContainer.className = 'track-row-container';
+
+            // Create the track row
+            const trackRow = document.createElement('div');
+            trackRow.className = 'track-row';
+            trackRow.id = `most-played-grid-0`;
+
+            // Add tracks to the row
+            rowTracks.forEach(function(track, index) {
+                const card = buildTrackCard(track, tracks, index);
+                card.classList.add('track-row-card');
+                trackRow.appendChild(card);
+            });
+
+            // Create next button
+            const nextBtn = document.createElement('button');
+            nextBtn.className = 'track-row-scroll-btn track-row-scroll-btn-next';
+            nextBtn.id = `most-played-row-next`;
+            nextBtn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+
+            // Assemble the wrapper
+            rowWrapper.appendChild(prevBtn);
+            rowWrapper.appendChild(rowContainer);
+            rowWrapper.appendChild(nextBtn);
+            container.appendChild(rowWrapper);
+
+            // Add track row to container
+            rowContainer.appendChild(trackRow);
+
+            // Initialize track row scrolling
+            setTimeout(() => {
+                const prevBtn = document.getElementById(`most-played-row-prev`);
+                const nextBtn = document.getElementById(`most-played-row-next`);
+                const trackRow = document.getElementById(`most-played-grid-0`);
+                const rowContainer = prevBtn.nextElementSibling;
+
+                if (trackRow && rowContainer) {
+                    // Create a simple position tracker for this row
+                    let currentPosition = 0;
+                    const cardWidth = 176; // 160px + 16px gap
+
+                    // Initialize previous button click
+                    prevBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                        currentPosition = Math.max(0, currentPosition - cardWidth * 2);
+                        trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                        updateButtonStates();
+                    });
+
+                    // Initialize next button click
+                    nextBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                        currentPosition = Math.min(maxScroll, currentPosition + cardWidth * 2);
+                        trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                        updateButtonStates();
+                    });
+
+                    function updateButtonStates() {
+                        const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                        prevBtn.style.opacity = currentPosition <= 0 ? '0.5' : '1';
+                        nextBtn.style.opacity = currentPosition >= maxScroll ? '0.5' : '1';
+                    }
+
+                    // Reset position and update button states
+                    trackRow.style.transform = 'translateX(0)';
+                    currentPosition = 0;
+
+                    // Initial button state update
+                    updateButtonStates();
+                }
+            }, 100);
+        }
 
         async function loadTracks() {
             try { var data = await api("/tracks?limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
@@ -791,6 +902,13 @@
                 var url = isAdmin ? "/tracks?limit=24" : "/tracks?limit=24&user_hash=" + encodeURIComponent(authHash) + "&random=1";
                 var data = await api(url);
                 renderUploads(Array.isArray(data) ? data : []);
+            } catch (err) { console.error(err); }
+        }
+
+        async function loadMostPlayed() {
+            try {
+                var data = await api("/tracks/most-played?limit=9");
+                renderMostPlayed(Array.isArray(data) ? data : []);
             } catch (err) { console.error(err); }
         }
 
@@ -1858,6 +1976,7 @@
                 appMain.style.display = "none";
             } else {
                 loadTracks();
+                loadMostPlayed();
                 loadPlaylists();
                 loadUserUploads();
             }
