@@ -2396,6 +2396,7 @@ a {
     pointer-events: auto;
     /* Initial positions for animation */
     transform: translateY(-50%);
+    opacity: 0;
 }
 
 .track-row-scroll-btn:hover {
@@ -2408,13 +2409,13 @@ a {
     transform: translateY(-50%) scale(0.95);
 }
 
-/* Show buttons when they are not hidden and track row is hovered */
-.track-row-wrapper:hover .track-row-scroll-btn:not(.hidden) {
-    opacity: 1;
+/* Show buttons when cursor is near them */
+.track-row-scroll-btn.visible {
+    opacity: 1 !important;
 }
 
 /* Animation for previous button - slide in from left */
-.track-row-wrapper:hover .track-row-scroll-btn-prev {
+.track-row-scroll-btn.visible.prev-visible {
     transform: translateY(-50%) translateX(0);
     transition: opacity 0.3s ease 0.1s, transform 0.3s ease 0.1s;
 }
@@ -2424,7 +2425,7 @@ a {
 }
 
 /* Animation for next button - slide in from right */
-.track-row-wrapper:hover .track-row-scroll-btn-next {
+.track-row-scroll-btn.visible.next-visible {
     transform: translateY(-50%) translateX(0);
     transition: opacity 0.3s ease 0.1s, transform 0.3s ease 0.1s;
 }
