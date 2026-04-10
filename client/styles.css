@@ -2389,9 +2389,6 @@ a {
     transition: opacity 0.3s ease, transform 0.3s ease;
     box-shadow: 0 2px 8px rgba(0,0,0,0.5);
     pointer-events: auto;
-    /* Hide by default */
-    opacity: 0;
-    pointer-events: none;
     /* Initial positions for animation */
     transform: translateY(-50%);
 }
@@ -2406,10 +2403,9 @@ a {
     transform: translateY(-50%) scale(0.95);
 }
 
-/* Show buttons when track row is hovered */
-.track-row-wrapper:hover .track-row-scroll-btn {
+/* Show buttons when they are not hidden and track row is hovered */
+.track-row-wrapper:hover .track-row-scroll-btn:not(.hidden) {
     opacity: 1;
-    pointer-events: auto;
 }
 
 /* Animation for previous button - slide in from left */

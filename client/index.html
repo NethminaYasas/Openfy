@@ -650,8 +650,8 @@
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
                             const isAtStart = currentPosition <= 0;
                             const isAtEnd = currentPosition >= maxScroll;
-                            prevBtn.classList.toggle('hidden', isAtStart);
-                            nextBtn.classList.toggle('hidden', isAtEnd);
+                            prevBtn.classList.toggle('hidden', isAtStart || maxScroll <= 0);
+                            nextBtn.classList.toggle('hidden', isAtEnd || maxScroll <= 0);
                         }
 
                         // Make track row transformable
@@ -767,8 +767,8 @@
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
                             const isAtStart = currentPosition <= 0;
                             const isAtEnd = currentPosition >= maxScroll;
-                            prevBtn.classList.toggle('hidden', isAtStart);
-                            nextBtn.classList.toggle('hidden', isAtEnd);
+                            prevBtn.classList.toggle('hidden', isAtStart || maxScroll <= 0);
+                            nextBtn.classList.toggle('hidden', isAtEnd || maxScroll <= 0);
                         }
 
                         // Make track row transformable
