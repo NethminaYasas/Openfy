@@ -19,69 +19,165 @@ This is music as it should be.
 
 ## Features
 
-- Clean, Spotify-like web interface
-- Upload local files or download from links
-- Automatic metadata scanning (artist, album, artwork)
-- Smooth streaming with seek support
-- Play counts and most-played tracking
-- User playlists and liked songs
-- Multi-user support
-- Docker-ready deployment
+- ✨ **Modern Web Interface**: Clean, Spotify-like player with smooth animations
+- 📀 **Music Management**: Upload local files or download from Spotify/Apple Music links
+- 🎵 **Smart Metadata**: Automatic artist, album, and artwork extraction
+- 🎧 **High-Quality Streaming**: HTTP Range support for efficient audio streaming
+- 📊 **Play Statistics**: Track play counts and most-played songs
+- 🎼 **Playlists**: Create custom playlists and manage liked songs
+- 👥 **Multi-User Support**: Separate libraries with individual auth hashes
+- 🎨 **Dynamic Artwork**: Fallback canvas generation when artwork is missing
+- ⌨️ **Keyboard Controls**: Space bar for play/pause, arrow keys for navigation
+- 📱 **Responsive Design**: Works on desktop and mobile devices
+- 🐳 **Docker Ready**: Single-command deployment
+- 🔧 **Admin Interface**: User and track management for administrators
+
+## Tech Stack
+
+- **Frontend**: Vanilla HTML, CSS, JavaScript (no frameworks)
+- **Backend**: FastAPI (Python) with SQLAlchemy ORM
+- **Database**: SQLite (portable and serverless)
+- **Audio Processing**: Mutagen for metadata extraction
+- **Download Integration**: SpotiFLAC module for Spotify/Apple Music downloads
 
 ## Getting Started
 
-### Docker
+### Quick Start with Docker
 
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/Openfy.git
+cd Openfy
+```
+
+2. Run with Docker Compose:
 ```bash
 docker compose up --build
 ```
 
-Open http://localhost:8000
+3. Open your browser to http://localhost:8000
 
-### Manual
+### Manual Development
 
+1. Install server dependencies:
 ```bash
 cd server
 pip install -r requirements.txt
+```
+
+2. Start the development server:
+```bash
 uvicorn app.main:app --reload
 ```
 
-## Quick API Reference
+3. Open http://localhost:8000 in your browser
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the `server` directory:
+
+```env
+OPENFY_ALLOWED_ORIGINS=*
+OPENFY_ADMIN_USERNAME=admin
+OPENFY_ADMIN_HASH=your_hash_here
+OPENFY_API_BASE_URL=
+```
+
+### Data Persistence
+
+The Docker setup automatically creates a volume at `openfy_data` for:
+- SQLite database
+- Uploaded music files
+- Downloaded tracks
+- Album artwork
+
+## Usage Guide
+
+### First-Time Setup
+
+1. **Sign Up**: Create an account through the web interface
+2. **Save Auth Hash**: Your auth hash is stored in localStorage
+3. **Upload Music**: 
+   - Use the Upload tab for local files
+   - Paste Spotify/Apple Music links for automatic downloads
+4. **Explore**: Browse your library, create playlists, and enjoy your music
+
+### Key Features
+
+- **Home Page**: Recently added tracks and quick access
+- **Library**: Search and filter all your music
+- **Uploads**: Your personally uploaded tracks
+- **Playlists**: Create and manage custom collections
+- **Player**: Full-featured audio player with progress bar
+- **Admin**: User and track management (admin only)
+
+### Keyboard Shortcuts
+
+- `Space`: Play/Pause
+- `←` / `→`: Previous/Next track
+- `↑` / `↓`: Volume control
+
+## API Reference
+
+### Core Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/tracks` | GET | List all tracks |
-| `/tracks/{id}/stream` | GET | Play audio |
-| `/tracks/upload` | POST | Upload file |
+| `/health` | GET | Server health check |
+| `/tracks` | GET | List all tracks (with pagination) |
+| `/tracks/{id}/stream` | GET | Stream audio with Range support |
+| `/tracks/upload` | POST | Upload local audio file |
+| `/tracks/most-played` | GET | Get most played tracks |
 | `/search?q=` | GET | Search library |
-| `/playlists` | GET/POST | Manage playlists |
-| `/auth/signup` | POST | Create account |
-| `/auth/signin` | POST | Login |
+| `/playlists` | GET/POST | List/create playlists |
+| `/auth/signup` | POST | Create new account |
+| `/auth/signin` | POST | Login with auth hash |
 
-Full API docs: [API.md](./API.md)
+### Admin Endpoints
 
-## Using Openfy
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/users` | GET/POST | Manage users |
+| `/admin/tracks` | GET/DELETE | Manage tracks |
 
-1. Sign up and save your auth hash
-2. Upload music via the Upload tab (files or links)
-3. Browse and play from the home page
-4. Create playlists and like tracks to organize
+Full API documentation: [API.md](./API.md)
 
-Your uploads appear in the Uploads tab; everything else lives in the main library.
+## Project Structure
 
-## Philosophy
+```
+Openfy/
+├── client/                 # Frontend assets
+│   ├── index.html         # Main application
+│   ├── styles.css         # Application styles
+│   ├── script.js          # Client-side logic
+│   └── images/            # Static assets
+├── server/                # Backend application
+│   ├── app/               # Application code
+│   │   ├── main.py       # FastAPI app & routes
+│   │   ├── models.py     # SQLAlchemy models
+│   │   ├── schemas.py    # Pydantic schemas
+│   │   ├── services/     # Business logic
+│   │   └── db.py         # Database connection
+│   ├── requirements.txt  # Python dependencies
+│   └── Dockerfile        # Server container
+├── data/                 # Persistent storage
+│   ├── music/           # Audio files
+│   └── openfy.db        # SQLite database
+└── docker-compose.yml   # Container orchestration
+```
 
-We believe music belongs to listeners and creators, not corporations. Openfy exists to:
+## Contributing
 
-- Give you control over your collection
-- Protect your privacy
-- Reduce reliance on subscription services
-- Build community-run alternatives
-
-No algorithms pushing what to listen to next. No surveillance. No lock-in.
+We welcome contributions! Please feel free to submit issues and pull requests.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT License. See [LICENSE](./LICENSE) for details.
 
-Built by music lovers, for music lovers.
+---
+
+Built by music lovers, for music lovers. 🎵
+
+Support the project by starring it on GitHub! ⭐
