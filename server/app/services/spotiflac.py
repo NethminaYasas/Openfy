@@ -16,7 +16,7 @@ from .library import scan_paths
 logger = logging.getLogger(__name__)
 
 # Local SpotiFLAC source
-SPOTIFLAC_SRC = Path(__file__).resolve().parents[3] / "../SpotiFLAC-Module-Version"
+SPOTIFLAC_SRC = Path(__file__).resolve().parents[2] / "SpotiFLAC"
 _spotiflac_added = False
 
 
