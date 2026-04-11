@@ -535,153 +535,165 @@
                 emptyCard.className = 'card';
                 emptyCard.innerHTML = '<p class="card-title">No most played tracks yet</p><p class="card-info">Play some tracks to see them here</p>';
                 container.appendChild(emptyCard);
+                updateTrackRowScrollButtons();
                 return;
             }
 
-            // Create a single row with max 9 tracks
+            // Create multiple rows with max 9 tracks per row
             const maxTracksPerRow = 9;
-            const rowTracks = tracks.slice(0, maxTracksPerRow);
+            const rows = [];
+            for (let i = 0; i < tracks.length; i += maxTracksPerRow) {
+                const rowTracks = tracks.slice(i, i + maxTracksPerRow);
+                rows.push(rowTracks);
+            }
 
-            // Create track row wrapper
-            const rowWrapper = document.createElement('div');
-            rowWrapper.className = 'track-row-wrapper';
-            rowWrapper.style.marginTop = '1.5rem';
+            // Create track row wrapper for each row
+            rows.forEach((rowTracks, rowIndex) => {
+                const rowWrapper = document.createElement('div');
+                rowWrapper.className = 'track-row-wrapper';
+                rowWrapper.style.marginTop = rowIndex === 0 ? '1.5rem' : '1rem';
 
-            // Create previous button
-            const prevBtn = document.createElement('button');
-            prevBtn.className = 'track-row-scroll-btn track-row-scroll-btn-prev';
-            prevBtn.id = `most-played-row-prev`;
-            prevBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+                // Create previous button
+                const prevBtn = document.createElement('button');
+                prevBtn.className = 'track-row-scroll-btn track-row-scroll-btn-prev';
+                prevBtn.id = `most-played-row-prev-${rowIndex}`;
+                prevBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
 
-            // Create container for the row
-            const rowContainer = document.createElement('div');
-            rowContainer.className = 'track-row-container';
+                // Create container for the row
+                const rowContainer = document.createElement('div');
+                rowContainer.className = 'track-row-container';
 
-            // Create the track row
-            const trackRow = document.createElement('div');
-            trackRow.className = 'track-row';
-            trackRow.id = `most-played-grid-0`;
+                // Create the track row
+                const trackRow = document.createElement('div');
+                trackRow.className = 'track-row';
+                trackRow.id = `most-played-grid-${rowIndex}`;
 
-            // Add tracks to the row with animation for new tracks
-            rowTracks.forEach(function(track, index) {
-                const card = buildTrackCard(track, tracks, index);
-                card.classList.add('track-row-card');
+                // Add tracks to the row with animation for new tracks
+                rowTracks.forEach(function(track, index) {
+                    const card = buildTrackCard(track, tracks, tracks.indexOf(track));
+                    card.classList.add('track-row-card');
 
-                // Check if this is a new track
-                if (!existingTracks.has(track.id)) {
-                    card.classList.add('new-track');
-                    // Add animation delay for sequential effect
-                    card.style.animationDelay = `${index * 0.1}s`;
-                    // Add to existing tracks
-                    existingTracks.add(track.id);
-                }
+                    // Check if this is a new track
+                    if (!existingTracks.has(track.id)) {
+                        card.classList.add('new-track');
+                        // Add animation delay for sequential effect
+                        card.style.animationDelay = `${index * 0.1}s`;
+                        // Add to existing tracks
+                        existingTracks.add(track.id);
+                    }
 
-                trackRow.appendChild(card);
+                    trackRow.appendChild(card);
+                });
+
+                // Create next button
+                const nextBtn = document.createElement('button');
+                nextBtn.className = 'track-row-scroll-btn track-row-scroll-btn-next';
+                nextBtn.id = `most-played-row-next-${rowIndex}`;
+                nextBtn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+
+                // Assemble the wrapper
+                rowWrapper.appendChild(prevBtn);
+                rowWrapper.appendChild(rowContainer);
+                rowWrapper.appendChild(nextBtn);
+                container.appendChild(rowWrapper);
+
+                // Add track row to container
+                rowContainer.appendChild(trackRow);
             });
 
-            // Create next button
-            const nextBtn = document.createElement('button');
-            nextBtn.className = 'track-row-scroll-btn track-row-scroll-btn-next';
-            nextBtn.id = `most-played-row-next`;
-            nextBtn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-
-            // Assemble the wrapper
-            rowWrapper.appendChild(prevBtn);
-            rowWrapper.appendChild(rowContainer);
-            rowWrapper.appendChild(nextBtn);
-            container.appendChild(rowWrapper);
-
-            // Add track row to container
-            rowContainer.appendChild(trackRow);
-
-            // Initialize track row scrolling
+            // Initialize track row scrolling for each row
             setTimeout(() => {
-                const prevBtn = document.getElementById(`most-played-row-prev`);
-                const nextBtn = document.getElementById(`most-played-row-next`);
-                const trackRow = document.getElementById(`most-played-grid-0`);
-                const rowContainer = prevBtn.nextElementSibling;
+                rows.forEach((_, rowIndex) => {
+                    const prevBtn = document.getElementById(`most-played-row-prev-${rowIndex}`);
+                    const nextBtn = document.getElementById(`most-played-row-next-${rowIndex}`);
+                    const trackRow = document.getElementById(`most-played-grid-${rowIndex}`);
+                    const rowContainer = prevBtn.nextElementSibling;
 
-                if (trackRow && rowContainer) {
-                    // Create a simple position tracker for this row
-                    let currentPosition = 0;
-                    const cardWidth = 176; // 160px + 16px gap
+                    if (trackRow && rowContainer) {
+                        // Create a simple position tracker for this row
+                        let currentPosition = 0;
+                        const cardWidth = 176; // 160px + 16px gap
 
-                    // Proximity detection variables
-                    let showPrevBtn = false;
-                    let showNextBtn = false;
-                    const proximityThreshold = 50; // pixels
+                        // Button visibility variables
+                        let showPrevBtn = false;
+                        let showNextBtn = false;
 
-                    // Initialize previous button click
-                    prevBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                        currentPosition = Math.max(0, currentPosition - cardWidth * 2);
-                        trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                        // Initialize previous button click
+                        prevBtn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                            currentPosition = Math.max(0, currentPosition - cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            updateButtonStates();
+                        });
+
+                        // Initialize next button click
+                        nextBtn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                            currentPosition = Math.min(maxScroll, currentPosition + cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            updateButtonStates();
+                        });
+
+                        // Get the wrapper element
+                        const wrapper = prevBtn.parentElement;
+
+                        // Show buttons when hovering over the track row wrapper
+                        wrapper.addEventListener('mouseenter', () => {
+                            showPrevBtn = true;
+                            showNextBtn = true;
+                            updateProximityVisibility();
+                        });
+
+                        // Hide buttons when mouse leaves the wrapper
+                        wrapper.addEventListener('mouseleave', () => {
+                            showPrevBtn = false;
+                            showNextBtn = false;
+                            updateProximityVisibility();
+                        });
+
+                        function updateProximityVisibility() {
+                            prevBtn.classList.toggle('visible', showPrevBtn);
+                            nextBtn.classList.toggle('visible', showNextBtn);
+
+                            // Add specific classes for animations
+                            prevBtn.classList.toggle('prev-visible', showPrevBtn);
+                            nextBtn.classList.toggle('next-visible', showNextBtn);
+
+                            // Debug log
+                            if (showPrevBtn || showNextBtn) {
+                                console.log('Buttons visibility:', { showPrevBtn, showNextBtn });
+                            }
+                        }
+
+                        function updateButtonStates() {
+                            const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                            const isAtStart = currentPosition <= 0;
+                            const isAtEnd = currentPosition >= maxScroll;
+
+                            // Only hide buttons if there's no content to scroll
+                            if (maxScroll <= 0) {
+                                prevBtn.classList.add('hidden');
+                                nextBtn.classList.add('hidden');
+                            } else {
+                                prevBtn.classList.toggle('hidden', isAtStart);
+                                nextBtn.classList.toggle('hidden', isAtEnd);
+                            }
+
+                            // Update proximity visibility
+                            updateProximityVisibility();
+                        }
+
+                        // Make track row transformable
+                        trackRow.style.transition = 'transform 0.3s ease-out';
+                        trackRow.style.transform = 'translateX(0)';
+                        currentPosition = 0;
+
+                        // Initial button state update
                         updateButtonStates();
-                    });
-
-                    // Initialize next button click
-                    nextBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                        currentPosition = Math.min(maxScroll, currentPosition + cardWidth * 2);
-                        trackRow.style.transform = `translateX(-${currentPosition}px)`;
-                        updateButtonStates();
-                    });
-
-                    // Mouse move event for proximity detection
-                    rowContainer.addEventListener('mousemove', (e) => {
-                        const rect = rowContainer.getBoundingClientRect();
-                        const mouseX = e.clientX - rect.left;
-
-                        // Check proximity to previous button
-                        const prevBtnRect = prevBtn.getBoundingClientRect();
-                        const prevBtnRelativeLeft = prevBtnRect.left - rect.left;
-                        const distToPrev = Math.abs(mouseX - prevBtnRelativeLeft);
-                        showPrevBtn = distToPrev < proximityThreshold;
-
-                        // Check proximity to next button
-                        const nextBtnRect = nextBtn.getBoundingClientRect();
-                        const nextBtnRelativeLeft = nextBtnRect.left - rect.left;
-                        const distToNext = Math.abs(mouseX - nextBtnRelativeLeft);
-                        showNextBtn = distToNext < proximityThreshold;
-
-                        // Update button visibility
-                        updateProximityVisibility();
-                    });
-
-                    // Hide buttons when mouse leaves the container
-                    rowContainer.addEventListener('mouseleave', () => {
-                        showPrevBtn = false;
-                        showNextBtn = false;
-                        updateProximityVisibility();
-                    });
-
-                    function updateProximityVisibility() {
-                        prevBtn.classList.toggle('visible', showPrevBtn);
-                        nextBtn.classList.toggle('visible', showNextBtn);
-
-                        // Add specific classes for animations
-                        prevBtn.classList.toggle('prev-visible', showPrevBtn);
-                        nextBtn.classList.toggle('next-visible', showNextBtn);
                     }
-
-                    function updateButtonStates() {
-                        const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                        prevBtn.classList.toggle('hidden', currentPosition <= 0 || maxScroll <= 0);
-                        nextBtn.classList.toggle('hidden', currentPosition >= maxScroll || maxScroll <= 0);
-
-                        // Update proximity visibility
-                        updateProximityVisibility();
-                    }
-
-                    // Reset position and update button states
-                    trackRow.style.transform = 'translateX(0)';
-                    currentPosition = 0;
-
-                    // Initial button state update
-                    updateButtonStates();
-                }
+                });
             }, 100);
         }
 
@@ -1833,11 +1845,16 @@
             }
         });
 
+        function updateTrackRowScrollButtons() {
+            // This function can be used to update scroll button states if needed
+            // Currently it's a placeholder to match the library implementation
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             // Initialization is now handled in render functions
         });
 
-        
+
         // Initialize page state - this will properly set the home-page class
         setActivePage('home');
         (async function() {
