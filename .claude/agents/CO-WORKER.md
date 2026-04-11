@@ -1,5 +1,5 @@
 ---
-name: "CO-WORKER"
+name: "coworker"
 description: "Use this agent when you need to implement, refactor, or debug code. Delegate any self-contained coding task: writing functions, fixing bugs, scaffolding files, writing tests, or editing existing code. Prefer this agent over doing the coding yourself when the task is well-defined and doesn't require high-level planning."
 model: haiku
 color: green

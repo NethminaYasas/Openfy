@@ -331,6 +331,23 @@ def list_tracks(
     return tracks
 
 
+# Add most-played endpoint before the generic track-by-id endpoint to avoid route conflicts
+@app.get("/tracks/most-played", response_model=List[TrackOut])
+def most_played(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+    # Remove the 24-hour restriction to show all-time most played tracks
+    stmt = (
+        select(Track, func.count(TrackPlay.id).label("play_ct"))
+        .options(selectinload(Track.artists))
+        .outerjoin(TrackPlay, Track.id == TrackPlay.track_id)
+        .group_by(Track.id)
+        .order_by(func.count(TrackPlay.id).desc())
+        .limit(limit)
+    )
+    results = db.execute(stmt).all()
+    tracks = [row[0] for row in results]
+    return tracks
+
+
 @app.get("/tracks/{track_id}", response_model=TrackOut)
 def get_track(track_id: str, db: Session = Depends(get_db)):
     stmt = select(Track).options(selectinload(Track.artists), selectinload(Track.album)).where(Track.id == track_id)
@@ -355,20 +372,6 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
     return FileResponse(path)
 
 
-@app.get("/tracks/most-played", response_model=List[TrackOut])
-def most_played(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
-    one_day_ago = datetime.utcnow() - timedelta(days=1)
-    stmt = (
-        select(Track, func.count(TrackPlay.id).label("play_ct"))
-        .options(selectinload(Track.artists))
-        .outerjoin(TrackPlay, Track.id == TrackPlay.track_id)
-        .where(TrackPlay.played_at >= one_day_ago)
-        .group_by(Track.id)
-        .order_by(func.count(TrackPlay.id).desc())
-        .limit(limit)
-    )
-    results = db.execute(stmt).all()
-    return [row[0] for row in results]
 
 
 @app.get("/tracks/{track_id}/stream")
