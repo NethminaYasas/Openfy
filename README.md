@@ -19,18 +19,18 @@ This is music as it should be.
 
 ## Features
 
-- ✨ **Modern Web Interface**: Clean, Spotify-like player with smooth animations
-- 📀 **Music Management**: Upload local files or download from Spotify/Apple Music links
+-  **Modern Web Interface**: Clean, Spotify-like player with smooth animations
+-  **Music Management**: Upload local files or download from Spotify/Apple Music links
 - 🎵 **Smart Metadata**: Automatic artist, album, and artwork extraction
-- 🎧 **High-Quality Streaming**: HTTP Range support for efficient audio streaming
-- 📊 **Play Statistics**: Track play counts and most-played songs
-- 🎼 **Playlists**: Create custom playlists and manage liked songs
-- 👥 **Multi-User Support**: Separate libraries with individual auth hashes
-- 🎨 **Dynamic Artwork**: Fallback canvas generation when artwork is missing
-- ⌨️ **Keyboard Controls**: Space bar for play/pause, arrow keys for navigation
-- 📱 **Responsive Design**: Works on desktop and mobile devices
-- 🐳 **Docker Ready**: Single-command deployment
-- 🔧 **Admin Interface**: User and track management for administrators
+-  **High-Quality Streaming**: HTTP Range support for efficient audio streaming
+-  **Play Statistics**: Track play counts and most-played songs
+-  **Playlists**: Create custom playlists and manage liked songs
+-  **Multi-User Support**: Separate libraries with individual auth hashes
+-  **Dynamic Artwork**: Fallback canvas generation when artwork is missing
+-  **Keyboard Controls**: Space bar for play/pause, arrow keys for navigation
+-  **Responsive Design**: Works on desktop and mobile devices
+-  **Docker Ready**: Single-command deployment
+-  **Admin Interface**: User and track management for administrators
 
 ## Tech Stack
 
@@ -178,6 +178,5 @@ MIT License. See [LICENSE](./LICENSE) for details.
 
 ---
 
-Built by music lovers, for music lovers. 🎵
-
-Support the project by starring it on GitHub! ⭐
+Built by music lovers, for music lovers. 
+Support the project by starring it on GitHub!
