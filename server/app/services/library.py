@@ -351,6 +351,12 @@ def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None)
                 created += 1
 
     db.commit()
+
+    # If new tracks were created, update the global timestamp
+    if created > 0:
+        from ..main import update_track_timestamp
+        update_track_timestamp()
+
     return {"scanned": scanned, "new": created}
 
 

@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse, Response, JSONResponse
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
@@ -42,6 +42,16 @@ from .services.storage import ensure_dirs
 from .services.library import scan_default_library, scan_paths
 from .services.spotiflac import queue_download
 
+# Global variable to track last track update
+last_track_update = 0
+
+
+def update_track_timestamp():
+    """Update the global track update timestamp"""
+    global last_track_update
+    import time
+    last_track_update = int(time.time() * 1000)  # Milliseconds since epoch
+
 
 app = FastAPI(title=settings.app_name)
 
@@ -62,6 +72,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_track_update_timestamp(request: Request, call_next):
+    global last_track_update
+
+    response = await call_next(request)
+
+    # Add track update timestamp to responses for tracks endpoint
+    if request.url.path.startswith("/tracks"):
+        response.headers["X-Track-Update-Timestamp"] = str(last_track_update)
+
+    return response
 
 
 @app.on_event("startup")
@@ -222,6 +245,26 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/tracks/updates")
+def get_track_updates(
+    since: int = Query(0, ge=0),
+    x_auth_hash: str | None = Header(None),
+):
+    """Get track updates since a given timestamp"""
+    global last_track_update
+
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Return whether there are updates since the given timestamp
+    has_updates = last_track_update > since
+
+    return {
+        "has_updates": has_updates,
+        "timestamp": last_track_update
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def serve_index():
     if not static_dir.exists():
@@ -262,6 +305,8 @@ def list_tracks(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    global last_track_update
+
     if random:
         stmt = select(Track).options(selectinload(Track.artists)).offset(offset).limit(limit).order_by(func.random())
     else:

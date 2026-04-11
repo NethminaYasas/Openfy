@@ -49,6 +49,8 @@
         let currentTrackId = null;
         let currentContextPlaylist = null; // { id, name, is_liked, pinned }
         let pendingActionPlaylistId = null; // stored ID for rename/delete modals
+        let lastTrackUpdate = 0;
+        let updateCheckInterval = null;
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -798,6 +800,42 @@
             try { var data = await api("/search?q=" + encodeURIComponent(query) + "&limit=24"); renderTracks(Array.isArray(data) ? data : []); } catch (err) { console.error(err); }
         }
 
+        async function checkForTrackUpdates() {
+            try {
+                var response = await api("/tracks/updates?since=" + lastTrackUpdate);
+                if (response.has_updates) {
+                    console.log("New tracks detected, refreshing...");
+                    lastTrackUpdate = response.timestamp;
+                    loadTracks();
+                    loadMostPlayed();
+
+                    // If we're on the upload page, refresh uploads too
+                    if (pages.library.classList.contains('active')) {
+                        loadUserUploads();
+                    }
+                }
+            } catch (err) {
+                console.error("Error checking for updates:", err);
+            }
+        }
+
+        function startUpdateChecker() {
+            // Clear any existing interval
+            if (updateCheckInterval) {
+                clearInterval(updateCheckInterval);
+            }
+
+            // Check for updates every 5 seconds
+            updateCheckInterval = setInterval(checkForTrackUpdates, 5000);
+        }
+
+        function stopUpdateChecker() {
+            if (updateCheckInterval) {
+                clearInterval(updateCheckInterval);
+                updateCheckInterval = null;
+            }
+        }
+
         function playTrack(track) {
             currentTrackId = track.id;
             audioPlayer.src = withBase("/tracks/" + track.id + "/stream");
@@ -1167,6 +1205,10 @@
             isAdmin = false;
             npLikeBtn.classList.add("hidden");
             updateAdminButtonVisibility();
+
+            // Stop the update checker
+            stopUpdateChecker();
+
             authOverlay.style.display = "flex";
             userDropdown.classList.remove("visible");
             appMain.style.display = "none";
@@ -1207,6 +1249,9 @@
                 dropdownUsername.textContent = user.name;
                 npLikeBtn.classList.add("hidden");
                 loadTracks(); loadPlaylists(); loadUserUploads();
+
+                // Start the update checker
+                startUpdateChecker();
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
         });
 
@@ -1232,6 +1277,10 @@
                         loadTracks(); loadPlaylists(); loadUserUploads();
                         // Set home-page class for successful auto-login (home page)
                         document.getElementById('app-main').classList.add('home-page');
+
+                        // Start the update checker
+                        startUpdateChecker();
+
                         return true;
                     }
                 } else {
@@ -1266,6 +1315,9 @@
             loadTracks(); loadPlaylists(); loadUserUploads();
             // Ensure home-page class is present when returning to main app (home page)
             document.getElementById('app-main').classList.add('home-page');
+
+            // Start the update checker
+            startUpdateChecker();
         }
 
         function copyHashToClipboard() {
