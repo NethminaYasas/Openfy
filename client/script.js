@@ -1835,13 +1835,18 @@
         // Initialize when DOM is ready
         // Keyboard event listener for space bar to play/pause
         document.addEventListener('keydown', function(event) {
-            // Prevent space bar from scrolling the page
+            // Only handle space bar for play/pause
             if (event.code === 'Space' && event.target.tagName !== 'INPUT') {
-                event.preventDefault();
                 // Only play/pause if there's a track playing
                 if (audioPlayer.src && audioPlayer.src !== window.location.href) {
                     togglePlay();
                 }
+                event.preventDefault();
+            }
+            // Arrow keys do nothing - prevent any default behavior
+            if (event.code === 'ArrowLeft' || event.code === 'ArrowRight' ||
+                event.code === 'ArrowUp' || event.code === 'ArrowDown') {
+                event.preventDefault();
             }
         });
 
