@@ -51,6 +51,7 @@
         let pendingActionPlaylistId = null; // stored ID for rename/delete modals
         let lastTrackUpdate = 0;
         let updateCheckInterval = null;
+        let existingTracks = new Set(); // Track existing track IDs
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -222,10 +223,20 @@
                 trackRow.className = 'track-row';
                 trackRow.id = `tracks-grid-${rowIndex}`;
 
-                // Add tracks to the row
-                rowTracks.forEach(function(track) {
+                // Add tracks to the row with animation for new tracks
+                rowTracks.forEach(function(track, index) {
                     const card = buildTrackCard(track, tracks, tracks.indexOf(track));
                     card.classList.add('track-row-card');
+
+                    // Check if this is a new track
+                    if (!existingTracks.has(track.id)) {
+                        card.classList.add('new-track');
+                        // Add animation delay for sequential effect
+                        card.style.animationDelay = `${index * 0.1}s`;
+                        // Add to existing tracks
+                        existingTracks.add(track.id);
+                    }
+
                     trackRow.appendChild(card);
                 });
 
@@ -384,10 +395,20 @@
                 trackRow.className = 'track-row';
                 trackRow.id = `uploads-grid-${rowIndex}`;
 
-                // Add tracks to the row
-                rowTracks.forEach(function(track) {
+                // Add tracks to the row with animation for new tracks
+                rowTracks.forEach(function(track, index) {
                     const card = buildTrackCard(track, tracks, tracks.indexOf(track));
                     card.classList.add('track-row-card');
+
+                    // Check if this is a new track
+                    if (!existingTracks.has(track.id)) {
+                        card.classList.add('new-track');
+                        // Add animation delay for sequential effect
+                        card.style.animationDelay = `${index * 0.1}s`;
+                        // Add to existing tracks
+                        existingTracks.add(track.id);
+                    }
+
                     trackRow.appendChild(card);
                 });
 
@@ -541,10 +562,20 @@
             trackRow.className = 'track-row';
             trackRow.id = `most-played-grid-0`;
 
-            // Add tracks to the row
+            // Add tracks to the row with animation for new tracks
             rowTracks.forEach(function(track, index) {
                 const card = buildTrackCard(track, tracks, index);
                 card.classList.add('track-row-card');
+
+                // Check if this is a new track
+                if (!existingTracks.has(track.id)) {
+                    card.classList.add('new-track');
+                    // Add animation delay for sequential effect
+                    card.style.animationDelay = `${index * 0.1}s`;
+                    // Add to existing tracks
+                    existingTracks.add(track.id);
+                }
+
                 trackRow.appendChild(card);
             });
 
@@ -835,6 +866,18 @@
                 updateCheckInterval = null;
             }
         }
+
+        // Remove new-track class after animation completes
+        document.addEventListener('animationend', function(e) {
+            if (e.target.classList.contains('new-track')) {
+                // Remove the class after animation
+                setTimeout(() => {
+                    e.target.classList.remove('new-track');
+                    // Clear the animation delay property
+                    e.target.style.animationDelay = '';
+                }, 10);
+            }
+        });
 
         function playTrack(track) {
             currentTrackId = track.id;
