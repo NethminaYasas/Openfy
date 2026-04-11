@@ -662,7 +662,8 @@
                 return;
             }
             try {
-                var url = isAdmin ? "/tracks?limit=24" : "/tracks?limit=24&user_hash=" + encodeURIComponent(authHash) + "&random=1";
+                // All users (including admin) should only see their own uploads in the upload page
+                var url = "/tracks?limit=24&user_hash=" + encodeURIComponent(authHash);
                 var data = await api(url);
                 renderUploads(Array.isArray(data) ? data : []);
             } catch (err) { console.error(err); }
