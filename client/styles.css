@@ -127,11 +127,6 @@ body {
     z-index: 1;
 }
 
-/* Style for the dynamic top gradient from track artwork */
-.main-content-gradient-top {
-    /* Styles are applied dynamically via JavaScript */
-}
-
 .main.home-page .main-content {
     padding-left: 0;
     padding-right: 0;
