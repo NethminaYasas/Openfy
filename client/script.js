@@ -126,6 +126,105 @@
             ctx.fillText(initials || "OF", canvas.width / 2, canvas.height / 2);
         }
 
+        function getDominantColor(img) {
+            // Create a temporary canvas to get image data
+            var tempCanvas = document.createElement('canvas');
+            var ctx = tempCanvas.getContext('2d');
+
+            // Set canvas size to image size (or a reasonable size for performance)
+            var size = 50; // Small size for faster processing
+            tempCanvas.width = size;
+            tempCanvas.height = size;
+
+            // Draw image onto canvas
+            ctx.drawImage(img, 0, 0, size, size);
+
+            // Get image data
+            var imageData = ctx.getImageData(0, 0, size, size);
+            var data = imageData.data;
+
+            // Simple color frequency counting
+            var colorCounts = {};
+            var maxCount = 0;
+            var dominantColor = {r: 0, g: 0, b: 0};
+
+            // Sample every 4th pixel for performance (RGBA)
+            for (var i = 0; i < data.length; i += 16) {
+                var r = data[i];
+                var g = data[i + 1];
+                var b = data[i + 2];
+                var a = data[i + 3];
+
+                // Skip transparent pixels
+                if (a === 0) continue;
+
+                // Create a simple color key
+                var colorKey = r + ',' + g + ',' + b;
+
+                // Count this color
+                if (!colorCounts[colorKey]) {
+                    colorCounts[colorKey] = 0;
+                }
+                colorCounts[colorKey]++;
+
+                // Track the most frequent color
+                if (colorCounts[colorKey] > maxCount) {
+                    maxCount = colorCounts[colorKey];
+                    dominantColor = {r: r, g: g, b: b};
+                }
+            }
+
+            // Return as CSS color string
+            return 'rgb(' + dominantColor.r + ',' + dominantColor.g + ',' + dominantColor.b + ')';
+        }
+
+        function updateMainGradient(imgElement) {
+            var mainContent = document.querySelector('.main-content');
+            if (!mainContent) return;
+
+            // Remove any existing top gradient pseudo-element
+            var existingGradient = mainContent.querySelector('.main-content-gradient-top');
+            if (existingGradient) {
+                mainContent.removeChild(existingGradient);
+            }
+
+            if (imgElement && imgElement.complete && imgElement.naturalWidth !== 0) {
+                // Extract dominant color from the image
+                var dominantColor = getDominantColor(imgElement);
+
+                // Create a gradient from the dominant color to transparent
+                // Parse the rgb() string to get individual components
+                var rgbMatch = dominantColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                if (rgbMatch) {
+                    var r = parseInt(rgbMatch[1]);
+                    var g = parseInt(rgbMatch[2]);
+                    var b = parseInt(rgbMatch[3]);
+
+                    // Create a pseudo-element for the top gradient
+                    var gradientElement = document.createElement('div');
+                    gradientElement.className = 'main-content-gradient-top';
+                    gradientElement.style.position = 'absolute';
+                    gradientElement.style.top = '0';
+                    gradientElement.style.left = '0';
+                    gradientElement.style.right = '0';
+                    gradientElement.style.height = '100px'; // Reduced gradient height
+                    gradientElement.style.pointerEvents = 'none';
+                    gradientElement.style.zIndex = '1';
+                    // Create a gradient that blends with the existing dark background
+                    // Using a very subtle overlay that enhances rather than overpowers
+                    gradientElement.style.background =
+                      'linear-gradient(to bottom, ' +
+                      'rgba(' + r + ',' + g + ',' + b + ', 0.08) 0%, ' + // Very subtle color tint
+                      'rgba(' + r + ',' + g + ',' + b + ', 0) 60%)'; // Fade out sooner for subtlety
+                    gradientElement.style.transition = 'background 0.3s ease';
+
+                    // Insert at the beginning of mainContent
+                    mainContent.insertBefore(gradientElement, mainContent.firstChild);
+                }
+            }
+            // If no image or failed to load, no gradient is added (keeps existing side gradients)
+        }
+
         function clearCanvas(canvas) { var ctx = canvas.getContext("2d"); ctx.clearRect(0, 0, canvas.width, canvas.height); }
 
         function createArtCanvas(title, artist) {
@@ -909,6 +1008,16 @@
             };
             img.onerror = function() { drawCanvas(nowCover, track.title, getArtistDisplay(track) || ""); nowCover.classList.add("visible"); };
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+
+            // Update main content gradient based on track artwork
+            img.onload = function() {
+                updateMainGradient(this);
+            };
+            img.onerror = function() {
+                // If image fails to load, use a default gradient
+                updateMainGradient(null);
+            };
+
             updateNowPlaying(track);
             // Show like button only if authenticated
             if (authHash) {
@@ -961,11 +1070,15 @@
                 npImg.src = npImgEl.src;
                 npImg.style.display = "block";
                 npCover.style.display = "none";
+                // Update main gradient when image loads
+                updateMainGradient(npImgEl);
             };
             npImgEl.onerror = function() {
                 drawCanvas(npCover, track.title, getArtistDisplay(track) || "");
                 npCover.style.display = "block";
                 npImg.style.display = "none";
+                // Use default gradient when image fails to load
+                updateMainGradient(null);
             };
             npImgEl.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
 
