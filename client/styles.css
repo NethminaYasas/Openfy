@@ -128,7 +128,32 @@ body {
     background: linear-gradient(to bottom, var(--gradient-start), var(--gradient-end));
 }
 
-/* Side gradients removed - no longer needed */
+/* Side gradients - content area sides */
+#home-gradient-left, #home-gradient-right {
+    position: absolute;
+    top: 0;
+    width: 50px;
+    height: 100vh;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+#home-gradient-left {
+    left: 0;
+    background: linear-gradient(to right, #121212, rgba(18,18,18,0));
+}
+#home-gradient-right {
+    right: 0;
+    background: linear-gradient(to left, #121212, rgba(18,18,18,0));
+}
+
+/* Side gradients shown when active */
+.main.home-page #home-gradient-left,
+.main.home-page #home-gradient-right {
+    opacity: 1;
+}
+/* Side gradients */
 
 .main.home-page .main-content {
     padding-left: 0;

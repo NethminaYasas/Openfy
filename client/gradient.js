@@ -20,6 +20,7 @@ class GradientManager {
     this.fadeTimeout = null;
     this.isHome = false;
     this.isActive = false;
+    this.currentTrackInfo = null; // Store current track info
 
     // Bind event handlers
     this.onTrackChange = this.onTrackChange.bind(this);
@@ -40,6 +41,12 @@ class GradientManager {
     this.isHome = document.getElementById('app-main')?.classList.contains('home-page') || false;
     if (this.isHome) {
       this.show();
+      // Check if there's an active track and emit track changed event
+      setTimeout(() => {
+        if (this._hasActiveTrack()) {
+          this._emitTrackChangedEvent();
+        }
+      }, 100);
     }
   }
 
@@ -53,19 +60,28 @@ class GradientManager {
 
   /* ---------- Event Handlers ---------- */
   async onTrackChange(ev) {
+    const { artworkUrl, title, artist } = ev.detail;
+    // Store current track info
+    this.currentTrackInfo = { artworkUrl, title, artist };
+
     if (!this.isHome || !this.isActive) return;
 
-    const { artworkUrl, title, artist } = ev.detail;
     const colors = await this._resolveColors(artworkUrl, title, artist);
     this._queueTransition(colors);
   }
 
   onPageNav(ev) {
     const { pageId } = ev.detail;
+    const wasHome = this.isHome;
     this.isHome = pageId === 'home';
 
     if (this.isHome) {
       this.show();
+      // If we just navigated to home page and there's a track playing,
+      // emit a trackChanged event to update gradient colors
+      if (!wasHome && this._hasActiveTrack()) {
+        this._emitTrackChangedEvent();
+      }
     } else {
       this.hide();
     }
@@ -161,6 +177,7 @@ class GradientManager {
     if (!this.rafId && this.isActive) {
       this._crossfade();
     }
+    // Side gradients remain constant - no need to update
   }
 
   _crossfade() {
@@ -208,6 +225,44 @@ class GradientManager {
     return 1 - Math.pow(1 - t, 3);
   }
 
+  /* ---------- Track State Helpers ---------- */
+  _hasActiveTrack() {
+    // Check if audio player exists and has a source (track is loaded)
+    const audioPlayer = document.getElementById('audio-player');
+    return audioPlayer && audioPlayer.src && audioPlayer.src !== window.location.href;
+  }
+
+  _emitTrackChangedEvent() {
+    // Use stored track info if available
+    if (this.currentTrackInfo && this.currentTrackInfo.title) {
+      const { artworkUrl, title, artist } = this.currentTrackInfo;
+
+      // Emit event with stored info
+      const event = new CustomEvent('trackChanged', {
+        detail: {
+          artworkUrl: artworkUrl,
+          title: title,
+          artist: artist
+        }
+      });
+      document.dispatchEvent(event);
+    }
+  }
+
+  _getArtworkUrl() {
+    // Try to get artwork URL from the current track
+    // This is a simplified approach - in a real implementation, you might want to
+    // store the current track's artwork URL when it's loaded
+    return null;
+  }
+
+  _getArtworkUrlFromCanvas(canvas) {
+    // If canvas has visible image, try to get artwork URL
+    // This is a simplified approach - in a real implementation, you might want to
+    // store the current track's artwork URL in a variable when it's loaded
+    return null; // For now, we'll fall back to seeded colors
+  }
+
   /* ---------- Visibility & Timers ---------- */
   show() {
     if (!this.isHome) return;
@@ -218,6 +273,10 @@ class GradientManager {
 
     // Set initial opacity if no current gradient
     if (!this.current) {
+      this.primaryDiv.style.opacity = this.gradientOpacity.toString();
+      this.secondaryDiv.style.opacity = '0';
+    } else {
+      // If we have a current gradient, ensure proper opacity
       this.primaryDiv.style.opacity = this.gradientOpacity.toString();
       this.secondaryDiv.style.opacity = '0';
     }
@@ -273,10 +332,22 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('app-main')?.classList.contains('home-page')) {
       initGradient();
+      // Check if there's an active track and emit track changed event
+      setTimeout(() => {
+        if (window.gradientManager?._hasActiveTrack()) {
+          window.gradientManager._emitTrackChangedEvent();
+        }
+      }, 100);
     }
   });
 } else {
   if (document.getElementById('app-main')?.classList.contains('home-page')) {
     initGradient();
+    // Check if there's an active track and emit track changed event
+    setTimeout(() => {
+      if (window.gradientManager?._hasActiveTrack()) {
+        window.gradientManager._emitTrackChangedEvent();
+      }
+    }, 100);
   }
 }
