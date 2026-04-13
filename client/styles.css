@@ -96,7 +96,8 @@ body {
     z-index: 0;
 }
 
-#home-gradient {
+#home-gradient,
+#home-gradient-2 {
     position: absolute;
     top: 0;
     left: 0;
@@ -104,41 +105,30 @@ body {
     height: 100px;
     pointer-events: none;
     z-index: -1;
+    will-change: opacity;
+    transition: opacity 0.3s ease-out;
     opacity: 0;
-    transition: opacity 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), background 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.main-content::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 80px;
-    background: linear-gradient(to right,
-        rgba(18, 18, 18, 0.3) 0%,
-        rgba(18, 18, 18, 0.15) 50%,
-        transparent 100%
-    );
-    pointer-events: none;
-    z-index: 1;
+#home-gradient.hidden,
+#home-gradient-2.hidden {
+    display: none;
 }
 
-.main-content::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 80px;
-    background: linear-gradient(to left,
-        rgba(18, 18, 18, 0.3) 0%,
-        rgba(18, 18, 18, 0.15) 50%,
-        transparent 100%
-    );
-    pointer-events: none;
-    z-index: 1;
+/* Gradient variables for dynamic color updates */
+#home-gradient {
+    --gradient-start: #000000;
+    --gradient-end: rgba(0, 0, 0, 0);
+    background: linear-gradient(to bottom, var(--gradient-start), var(--gradient-end));
 }
+
+#home-gradient-2 {
+    --gradient-start: #000000;
+    --gradient-end: rgba(0, 0, 0, 0);
+    background: linear-gradient(to bottom, var(--gradient-start), var(--gradient-end));
+}
+
+/* Side gradients removed - no longer needed */
 
 .main.home-page .main-content {
     padding-left: 0;
