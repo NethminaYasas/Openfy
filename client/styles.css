@@ -93,6 +93,19 @@ body {
     -ms-overflow-style: none;
     scrollbar-width: none;
     position: relative;
+    z-index: 0;
+}
+
+#home-gradient {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100px;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), background 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .main-content::before {

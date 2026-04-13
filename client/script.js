@@ -83,6 +83,16 @@
             }
             // Add/remove home-page class on main container for styling
             document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
+
+            // Hide gradient when not on home page
+            const gradientElement = document.getElementById('home-gradient');
+            if (gradientElement) {
+                if (pageId === 'home') {
+                    // Keep current opacity (will be set by track changes)
+                } else {
+                    gradientElement.style.opacity = '0';
+                }
+            }
         }
 
         function formatDuration(seconds) {
@@ -104,6 +114,111 @@
             for (var i = 0; i < seed.length; i++) { hash = seed.charCodeAt(i) + ((hash << 5) - hash); }
             var hue = Math.abs(hash) % 360;
             return "hsl(" + hue + ", 70%, 50%)";
+        }
+
+        function extractDominantColorFromImage(img) {
+            // Create a canvas to sample the image
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Scale down the image for faster processing
+            const scale = 0.1;
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Get image data
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            // Simple color sampling - take average of center region
+            const centerX = Math.floor(canvas.width / 2);
+            const centerY = Math.floor(canvas.height / 2);
+            const sampleSize = Math.min(10, Math.floor(canvas.width / 4));
+
+            let rSum = 0, gSum = 0, bSum = 0;
+            let count = 0;
+
+            for (let y = centerY - sampleSize; y <= centerY + sampleSize; y++) {
+                for (let x = centerX - sampleSize; x <= centerX + sampleSize; x++) {
+                    if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
+                        const i = (y * canvas.width + x) * 4;
+                        rSum += data[i];
+                        gSum += data[i + 1];
+                        bSum += data[i + 2];
+                        count++;
+                    }
+                }
+            }
+
+            const r = Math.round(rSum / count);
+            const g = Math.round(gSum / count);
+            const b = Math.round(bSum / count);
+
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function updateHomeGradientFromImage(img) {
+            console.log('updateHomeGradientFromImage called with img:', img);
+            try {
+                // Extract color from the image
+                const color = extractDominantColorFromImage(img);
+                console.log('Extracted color from image:', color);
+
+                // Create a gradient from the color to transparent black
+                const gradient = `linear-gradient(to bottom, ${color} 0%, rgba(0,0,0,0) 100%)`;
+
+                // Apply the gradient - transition handled by CSS
+                const gradientElement = document.getElementById('home-gradient');
+                if (gradientElement) {
+                    gradientElement.style.background = gradient;
+                    // Fade in the gradient to 30% opacity
+                    gradientElement.style.opacity = '0.3';
+                    console.log('Applied gradient:', gradient);
+                } else {
+                    console.error('Gradient element not found!');
+                }
+            } catch (error) {
+                console.error('Error updating gradient from image:', error);
+                // Fallback to seeded color
+                const seed = img.src || 'default';
+                updateHomeGradientFromSeed(seed, '');
+            }
+        }
+
+        function updateHomeGradientFromSeed(title, artist) {
+            console.log('updateHomeGradientFromSeed called with:', title, artist);
+            try {
+                const label = ((title || "") + " " + (artist || "")).trim() || "Openfy";
+                var hash = 0;
+                for (var i = 0; i < label.length; i++) { hash = label.charCodeAt(i) + ((hash << 5) - hash); }
+                var hue = Math.abs(hash) % 360;
+                const color = `hsl(${hue}, 70%, 40%)`; // Slightly darker for better visibility
+                console.log('Generated color from seed:', color, 'for label:', label);
+
+                // Create a gradient from the color to transparent black
+                const gradient = `linear-gradient(to bottom, ${color} 0%, rgba(0,0,0,0) 100%)`;
+
+                // Apply the gradient - transition handled by CSS
+                const gradientElement = document.getElementById('home-gradient');
+                if (gradientElement) {
+                    gradientElement.style.background = gradient;
+                    gradientElement.style.opacity = '0.3';
+                    console.log('Applied seed gradient:', gradient);
+                } else {
+                    console.error('Gradient element not found in seed function!');
+                }
+            } catch (error) {
+                console.error('Error updating gradient from seed:', error);
+                // Ultimate fallback with smooth transition
+                const gradientElement = document.getElementById('home-gradient');
+                if (gradientElement) {
+                    gradientElement.style.background = 'linear-gradient(to bottom, #ff6b6b 0%, rgba(0,0,0,0) 100%)';
+                    gradientElement.style.opacity = '0.3';
+                    console.log('Applied fallback gradient');
+                }
+            }
         }
 
         function drawCanvas(canvas, title, artist) {
@@ -892,6 +1007,7 @@
         });
 
         function playTrack(track) {
+            console.log('Playing track:', track.title);
             currentTrackId = track.id;
             audioPlayer.src = withBase("/tracks/" + track.id + "/stream");
             audioPlayer.play().catch(function(err) { console.error(err); });
@@ -906,8 +1022,15 @@
                 var size = Math.min(img.width, img.height);
                 ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, nowCover.width, nowCover.height);
                 nowCover.classList.add("visible");
+                // Update home gradient with track artwork colors
+                updateHomeGradientFromImage(img);
             };
-            img.onerror = function() { drawCanvas(nowCover, track.title, getArtistDisplay(track) || ""); nowCover.classList.add("visible"); };
+            img.onerror = function() {
+                drawCanvas(nowCover, track.title, getArtistDisplay(track) || "");
+                nowCover.classList.add("visible");
+                // Update home gradient with fallback color when image fails
+                updateHomeGradientFromSeed(track.title, getArtistDisplay(track) || "");
+            };
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
             updateNowPlaying(track);
             // Show like button only if authenticated
@@ -1862,6 +1985,12 @@
 
         // Initialize page state - this will properly set the home-page class
         setActivePage('home');
+        // Initialize gradient to hidden (no gradient until a song plays)
+        const initialGradientElement = document.getElementById('home-gradient');
+        if (initialGradientElement) {
+            initialGradientElement.style.background = 'linear-gradient(to bottom, #ff6b6b 0%, rgba(0,0,0,0) 100%)';
+            initialGradientElement.style.opacity = '0'; // Start hidden
+        }
         (async function() {
             var ok = await tryAutoLogin();
             if (!ok) {
