@@ -5,8 +5,8 @@ Re-implemented the top gradient feature from scratch with a cleaner, more mainta
 
 ## Changes Made
 
-### 1. New Gradient Manager (`client/gradient.js`)
-- Encapsulated all gradient logic in a `GradientManager` class
+### 1. Gradient Manager (`client/script.js`)
+- Encapsulated all gradient logic in a `GradientManager` class within script.js
 - Uses `requestAnimationFrame` for smooth 60fps animations
 - Implements CSS custom properties for efficient DOM updates
 - Proper error handling with fallback to seeded colors
@@ -19,7 +19,7 @@ Re-implemented the top gradient feature from scratch with a cleaner, more mainta
 - Added hidden state management
 
 ### 3. Integration (`client/script.js`)
-- Added import for the gradient manager
+- Gradient manager is now part of the main script.js file
 - Replaced old gradient update functions with event-based approach
 - Added `trackChanged` and `pageNavigated` event emissions
 - Removed all old gradient-related code
