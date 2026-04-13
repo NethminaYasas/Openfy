@@ -6,12 +6,14 @@ class GradientManager {
     primaryId = 'home-gradient',
     secondaryId = 'home-gradient-2',
     fadeMs = 6000,
-    fadeInMs = 300
+    fadeInMs = 300,
+    gradientOpacity = 0.25
   } = {}) {
     this.primaryDiv = document.getElementById(primaryId);
     this.secondaryDiv = document.getElementById(secondaryId);
     this.fadeMs = fadeMs;
     this.fadeInMs = fadeInMs;
+    this.gradientOpacity = gradientOpacity;
     this.current = null;   // {primary, secondary}
     this.next = null;
     this.rafId = null;
@@ -184,8 +186,8 @@ class GradientManager {
 
       // Easing function for smoother transition
       const eased = this._easeOutCubic(progress);
-      to.style.opacity = eased.toString();
-      from.style.opacity = (1 - eased).toString();
+      to.style.opacity = (eased * this.gradientOpacity).toString();
+      from.style.opacity = ((1 - eased) * this.gradientOpacity).toString();
 
       if (progress < 1) {
         this.rafId = requestAnimationFrame(step);
@@ -216,11 +218,12 @@ class GradientManager {
 
     // Set initial opacity if no current gradient
     if (!this.current) {
-      this.primaryDiv.style.opacity = '0.3';
+      this.primaryDiv.style.opacity = this.gradientOpacity.toString();
       this.secondaryDiv.style.opacity = '0';
     }
 
-    this._resetFadeTimer();
+    // Don't auto-fade out anymore
+    this._clearFadeTimeout();
   }
 
   hide() {
@@ -230,13 +233,6 @@ class GradientManager {
     this.secondaryDiv.classList.add('hidden');
     this.primaryDiv.style.opacity = '0';
     this.secondaryDiv.style.opacity = '0';
-  }
-
-  _resetFadeTimer() {
-    this._clearFadeTimeout();
-    if (this.isActive) {
-      this.fadeTimeout = setTimeout(() => this.hide(), this.fadeMs);
-    }
   }
 
   _clearFadeTimeout() {
