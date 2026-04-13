@@ -334,8 +334,8 @@
               initGradient();
               // Check if there's an active track and emit track changed event
               setTimeout(() => {
-                if (window.gradientManager?._hasActiveTrack()) {
-                  window.gradientManager._emitTrackChangedEvent();
+                if (gradientManager?._hasActiveTrack()) {
+                  gradientManager._emitTrackChangedEvent();
                 }
               }, 100);
             }
@@ -345,8 +345,8 @@
             initGradient();
             // Check if there's an active track and emit track changed event
             setTimeout(() => {
-              if (window.gradientManager?._hasActiveTrack()) {
-                window.gradientManager._emitTrackChangedEvent();
+              if (gradientManager?._hasActiveTrack()) {
+                gradientManager._emitTrackChangedEvent();
               }
             }, 100);
           }
@@ -439,7 +439,7 @@
             document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
 
             // Notify gradient manager about page navigation
-            if (window.gradientManager) {
+            if (gradientManager) {
                 const event = new CustomEvent('pageNavigated', {
                     detail: { pageId }
                 });
@@ -1310,7 +1310,7 @@
             nowCover.classList.remove("visible");
 
             // Emit trackChanged event for gradient manager
-            if (window.gradientManager) {
+            if (gradientManager) {
                 const event = new CustomEvent('trackChanged', {
                     detail: {
                         artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
