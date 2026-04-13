@@ -8,6 +8,7 @@ import json
 import os
 import re
 import requests
+import string
 from typing import Callable
 from urllib.parse import quote
 
@@ -519,17 +520,49 @@ class AppleMusicDownloader:
         track_lower = track_name.lower()
         artist_target_lower = artist_name.lower()
 
-        # Exact matches (case insensitive)
-        if track_lower in title_lower or title_lower in track_lower:
+        # Exact matches (case insensitive) - improved to handle punctuation/format variations
+        # Check if core track name matches ignoring common separators
+        import re
+        # Normalize by replacing common separators with spaces and collapsing whitespace
+        def normalize_for_match(text):
+            # Replace common punctuation/separators with space
+            text = re.sub(r'[\-_\(\)\[\]\{\}:;.,!?]', ' ', text)
+            # Collapse multiple spaces
+            text = re.sub(r'\s+', ' ', text)
+            return text.strip()
+
+        norm_title = normalize_for_match(title_lower)
+        norm_track = normalize_for_match(track_lower)
+
+        if norm_track in norm_title or norm_title in norm_track:
             score += 10
+        elif track_lower in title_lower or title_lower in track_lower:  # fallback to original
+            score += 10
+
         if artist_target_lower in artist_lower or artist_lower in artist_target_lower:
             score += 10
 
-        # Word overlap
-        track_words = set(re.findall(r'\b\w+\b', track_lower))
-        title_words = set(re.findall(r'\b\w+\b', title_lower))
+        # Word overlap - clean punctuation for better matching
+        translator = str.maketrans('', '', string.punctuation)
+
+        # Clean track name and title for word extraction
+        clean_track = track_lower.translate(translator)
+        clean_title = title_lower.translate(translator)
+
+        track_words = set(re.findall(r'\b\w+\b', clean_track))
+        title_words = set(re.findall(r'\b\w+\b', clean_title))
         common_words = track_words & title_words
         score += len(common_words)
+
+        # Bonus: if we have a strong word overlap but missed exact match,
+        # try to see if track name is contained when ignoring extra descriptive text
+        # This helps with cases like "Dopamine (Bonus Track)" vs "Dopamine - Bonus Track"
+        if len(common_words) >= 2 and score < 15:  # Only apply if we have decent word match but low score
+            # Check if all significant track words are in the title
+            significant_track_words = {w for w in track_words if len(w) > 2}  # Ignore very short words
+            significant_title_words = {w for w in title_words if len(w) > 2}
+            if significant_track_words.issubset(significant_title_words):
+                score += 5  # Bonus for containing all significant track words
 
         return score
 
