@@ -124,7 +124,7 @@ class PlaylistTrackOut(BaseModel):
 
 class DownloadRequest(BaseModel):
     query: str = Field(..., min_length=1)
-    source: str = "auto"
+    source: str | None = "auto"
 
 
 class DownloadJobOut(BaseModel):

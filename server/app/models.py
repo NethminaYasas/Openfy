@@ -47,7 +47,7 @@ class Album(Base):
     __tablename__ = "albums"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    title: Mapped[str] = mapped_column(String(255), index=True)
+    title: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     artwork_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
@@ -56,16 +56,14 @@ class Album(Base):
     artist = relationship("Artist", back_populates="albums")
     tracks = relationship("Track", back_populates="album")
 
-    __table_args__ = (
-        UniqueConstraint("title", "artist_id", name="uq_album_title_artist"),
-    )
+    # Unique constraint removed to allow albums with same title when artist is unspecified
 
 
 class Track(Base):
     __tablename__ = "tracks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    title: Mapped[str] = mapped_column(String(255), index=True)
+    title: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     file_path: Mapped[str] = mapped_column(String(512), unique=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -359,6 +359,12 @@ def get_track(track_id: str, db: Session = Depends(get_db)):
 
 @app.get("/tracks/{track_id}/artwork")
 def track_artwork(track_id: str, db: Session = Depends(get_db)):
+    # Validate track_id as UUID
+    import uuid
+    try:
+        uuid.UUID(track_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid track ID format")
     track = db.get(Track, track_id)
     if not track or not track.album:
         raise HTTPException(status_code=404, detail="Artwork not found")
@@ -376,6 +382,12 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
 
 @app.get("/tracks/{track_id}/stream")
 def stream_track(track_id: str, request: Request, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
+    # Validate track_id as UUID
+    import uuid
+    try:
+        uuid.UUID(track_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid track ID format")
     track = db.get(Track, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -443,7 +455,7 @@ def list_albums(db: Session = Depends(get_db)):
 
 @app.get("/search", response_model=List[TrackOut])
 def search(
-    q: str,
+    q: str = Query(..., min_length=1, max_length=255, description="Search query"),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
@@ -882,7 +894,7 @@ def list_all_tracks(
                 "title": track.title,
                 "artist_name": artist_name,
                 "user_name": user.name if user else "Unclaimed",
-                "user_hash": track.user_hash,
+                # user_hash omitted for privacy
                 "duration": track.duration,
                 "play_count": track.play_count,
             }

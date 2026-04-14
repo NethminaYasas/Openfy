@@ -14,7 +14,18 @@ def _create_engine():
 
 
 engine = _create_engine()
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+# Ensure all tables are created for this engine
+Base.metadata.create_all(bind=engine)
+from sqlalchemy.orm import Session as SASession
+
+class SafeSession(SASession):
+    def execute(self, statement, *args, **kwargs):
+        from sqlalchemy import text
+        if isinstance(statement, str):
+            statement = text(statement)
+        return super().execute(statement, *args, **kwargs)
+
+SessionLocal = sessionmaker(class_=SafeSession, bind=engine, autoflush=False, autocommit=False)
 
 
 def get_db():

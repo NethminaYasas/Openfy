@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     database_url: str = f"sqlite:///{DEFAULT_DATA_DIR}/openfy.db"
 
-    allowed_origins: str = "*"
+    allowed_origins: str = "http://localhost"
 
     admin_username: str = ""
     admin_hash: str = ""
