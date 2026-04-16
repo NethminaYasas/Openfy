@@ -373,6 +373,8 @@
         const npArtist = document.getElementById("np-artist");
         const npCover = document.getElementById("np-cover");
         const npImg = document.getElementById("np-img");
+        const npNextPanel = document.getElementById("np-next-panel");
+        const npQueueNext = document.getElementById("np-queue-next");
         const npLikeBtn = document.getElementById("np-like-btn");
         npLikeBtn.classList.add("hidden");
         const progressBar = document.getElementById("progress-bar");
@@ -1335,6 +1337,7 @@
             };
             img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
             updateNowPlaying(track);
+            renderNowPlayingQueue();
             // Show like button only if authenticated
             if (authHash) {
                 npLikeBtn.classList.remove("hidden");
@@ -1401,6 +1404,95 @@
             npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
             npLikeBtn.setAttribute("title", "Add to Liked Songs");
         }
+
+        function queueArtworkUrl(track) {
+            return withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+        }
+
+        function buildQueueItem(track, index, opts) {
+            opts = opts || {};
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "np-queue-item" + (opts.isNext ? " next" : "");
+
+            const artistText = getArtistDisplay(track) || "Unknown";
+            const seed = ((track.title || "") + " " + artistText).trim() || "Openfy";
+
+            const art = document.createElement("div");
+            art.className = "np-queue-art";
+            art.style.setProperty("--queue-color", seededColor(seed));
+
+            const img = document.createElement("img");
+            img.alt = (track.title || "Track") + " artwork";
+            img.loading = "lazy";
+            img.decoding = "async";
+            img.src = queueArtworkUrl(track);
+            img.onerror = function() { img.remove(); };
+            art.appendChild(img);
+
+            const meta = document.createElement("div");
+            meta.className = "np-queue-meta";
+
+            const titleEl = document.createElement("div");
+            titleEl.className = "np-queue-title";
+            titleEl.textContent = track.title || "";
+
+            const artistEl = document.createElement("div");
+            artistEl.className = "np-queue-artist";
+            artistEl.textContent = artistText;
+
+            meta.appendChild(titleEl);
+            meta.appendChild(artistEl);
+
+            const badge = document.createElement("div");
+            badge.className = "np-queue-badge";
+            badge.textContent = opts.badgeText || "";
+            if (!badge.textContent) badge.style.display = "none";
+
+            btn.appendChild(art);
+            btn.appendChild(meta);
+            btn.appendChild(badge);
+
+            btn.addEventListener("click", function(ev) {
+                ev.preventDefault();
+                if (!currentQueue || !currentQueue.length) return;
+                if (index < 0 || index >= currentQueue.length) return;
+                currentIndex = index;
+                playTrack(currentQueue[currentIndex]);
+            });
+
+            return btn;
+        }
+
+        function renderNowPlayingQueue() {
+            if (!npNextPanel || !npQueueNext) return;
+
+            npQueueNext.innerHTML = "";
+            npNextPanel.style.display = "";
+
+            if (!currentQueue || !currentQueue.length || currentIndex < 0) {
+                const empty = document.createElement("div");
+                empty.className = "np-queue-empty";
+                empty.textContent = "Play something to build a queue.";
+                npQueueNext.appendChild(empty);
+                return;
+            }
+
+            const nextIndex = currentIndex + 1;
+            if (nextIndex >= currentQueue.length) {
+                const empty = document.createElement("div");
+                empty.className = "np-queue-empty";
+                empty.textContent = "End of queue.";
+                npQueueNext.appendChild(empty);
+                return;
+            }
+
+            const nextTrack = currentQueue[nextIndex];
+            npQueueNext.appendChild(buildQueueItem(nextTrack, nextIndex));
+        }
+
+        // Paint initial empty state for the queue panel.
+        renderNowPlayingQueue();
 
         function togglePlay() {
             if (!audioPlayer.src || audioPlayer.src === window.location.href) return;
@@ -2309,4 +2401,3 @@
                 loadUserUploads();
             }
         })();
-

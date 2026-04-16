@@ -226,7 +226,126 @@ body {
     flex-direction: column;
     align-items: center;
     width: 100%;
-    gap: 2.5rem;
+    gap: 1.25rem;
+}
+
+.np-queue-panel {
+    width: 100%;
+    background: #181818;
+    border-radius: 14px;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+    overflow: hidden;
+}
+
+.np-details + .np-queue-panel {
+    margin-top: 1.1rem;
+}
+
+.np-queue-header {
+    padding: 0.85rem 1rem 0.55rem;
+}
+
+.np-queue-header h3 {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #b3b3b3;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.np-queue-next {
+    padding: 0 1rem 0.75rem;
+}
+
+.np-queue-empty {
+    padding: 0.9rem 1rem 1.1rem;
+    color: rgba(255,255,255,0.55);
+    font-size: 0.85rem;
+}
+
+.np-queue-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.np-queue-item:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.08);
+    transform: translateY(-1px);
+}
+
+.np-queue-item:active {
+    transform: translateY(0);
+}
+
+.np-queue-item:focus-visible {
+    outline: 2px solid rgba(255,255,255,0.22);
+    outline-offset: 2px;
+}
+
+.np-queue-art {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: radial-gradient(circle at 20% 10%, rgba(255,255,255,0.18), rgba(255,255,255,0.02)), var(--queue-color, #2a2a2a);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    position: relative;
+}
+
+.np-queue-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.np-queue-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 0.2rem;
+}
+
+.np-queue-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.np-queue-artist {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.np-queue-badge {
+    margin-left: auto;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.35);
+    flex-shrink: 0;
 }
 
 .np-artwork-container {
@@ -255,6 +374,7 @@ body {
     text-align: center;
     width: 100%;
     position: relative;
+    min-height: 3.6rem;
 }
 
 .player-like-btn {
@@ -364,6 +484,9 @@ body {
     font-size: 0.9rem;
     color: #b3b3b3;
     margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .np-album {
@@ -2552,5 +2675,3 @@ a {
     overflow: hidden;
     margin-bottom: 0.5rem;
 }
-
-
