@@ -200,6 +200,14 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    box-sizing: border-box;
+    min-height: 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.np-content::-webkit-scrollbar {
+    display: none;
 }
 
 .np-placeholder {
@@ -234,6 +242,13 @@ body {
     background: #1f1f1f;
     border-radius: 14px;
     overflow: hidden;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.np-queue-panel.expanded {
+    flex: 0 0 auto;
 }
 
 .np-details + .np-queue-panel {
@@ -242,6 +257,13 @@ body {
 
 .np-queue-header {
     padding: 0.85rem 1rem 0.55rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
 }
 
 .np-queue-header h3 {
@@ -250,10 +272,41 @@ body {
     color: #b3b3b3;
     text-transform: uppercase;
     letter-spacing: 0.12em;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.queue-toggle-icon {
+    font-size: 1rem;
+    color: #727272;
+    opacity: 0;
+    transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.np-queue-panel:hover .queue-toggle-icon,
+.np-queue-header:hover .queue-toggle-icon {
+    opacity: 1;
+}
+
+.queue-toggle-icon:hover {
+    color: #fff;
 }
 
 .np-queue-next {
+    flex: 0 0 auto;
     padding: 0 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    box-sizing: border-box;
+}
+
+.np-queue-next::-webkit-scrollbar {
+    display: none;
 }
 
 .np-queue-empty {

@@ -377,6 +377,9 @@
         const npNextPanel = document.getElementById("np-next-panel");
         const npQueueNext = document.getElementById("np-queue-next");
         const npLikeBtn = document.getElementById("np-like-btn");
+        const queueHeader = document.getElementById("queue-header");
+        const queueToggle = document.getElementById("queue-toggle");
+        let showFullQueue = false; // tracks whether to show full queue (true) or just next track (false)
         npLikeBtn.classList.add("hidden");
         const progressBar = document.getElementById("progress-bar");
         const currTime = document.getElementById("curr-time");
@@ -1500,7 +1503,7 @@
 
         function updateNowPlaying(track) {
             npPlaceholder.style.display = "none";
-            npTrack.style.display = "block";
+            npTrack.style.display = "flex";
             npTitle.textContent = track.title || "";
             npArtist.textContent = getArtistDisplay(track) || "Unknown";
             clearCanvas(npCover);
@@ -1609,9 +1612,35 @@
                 return;
             }
 
-            const nextTrack = currentQueue[nextIndex];
-            npQueueNext.appendChild(buildQueueItem(nextTrack, nextIndex));
+            // Determine which tracks to show
+            const tracksToShow = showFullQueue ? currentQueue.slice(nextIndex) : [currentQueue[nextIndex]];
+            const startIdx = nextIndex;
+
+            tracksToShow.forEach((track, i) => {
+                const itemIndex = startIdx + i;
+                npQueueNext.appendChild(buildQueueItem(track, itemIndex));
+            });
         }
+
+        // Toggle full queue view on header click
+        queueHeader.addEventListener("click", function(e) {
+            e.preventDefault();
+            showFullQueue = !showFullQueue;
+            // Update header text and icon
+            const h3 = queueHeader.querySelector("h3");
+            if (showFullQueue) {
+                h3.textContent = "QUEUE";
+                queueToggle.classList.remove("fa-list-ul");
+                queueToggle.classList.add("fa-chevron-up");
+                npNextPanel.classList.add("expanded");
+            } else {
+                h3.textContent = "NEXT IN QUEUE";
+                queueToggle.classList.remove("fa-chevron-up");
+                queueToggle.classList.add("fa-list-ul");
+                npNextPanel.classList.remove("expanded");
+            }
+            renderNowPlayingQueue();
+        });
 
         function indexOfTrackId(queue, trackId) {
             if (!trackId || !Array.isArray(queue)) return -1;
