@@ -416,6 +416,8 @@
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
 
+        const QUEUE_LOOKAHEAD = 6; // store current + next 6
+
         async function api(url, opts) {
             opts = opts || {};
             const headers = Object.assign({}, apiHeaders(), opts.headers || {});
@@ -472,6 +474,24 @@
             for (var i = 0; i < seed.length; i++) { hash = seed.charCodeAt(i) + ((hash << 5) - hash); }
             var hue = Math.abs(hash) % 360;
             return "hsl(" + hue + ", 70%, 50%)";
+        }
+
+        function setQueueFromList(list, startIndex) {
+            const arr = Array.isArray(list) ? list : [];
+            if (!arr.length) {
+                currentQueue = [];
+                currentIndex = -1;
+                queueOriginal = null;
+                renderNowPlayingQueue();
+                return;
+            }
+
+            const idx = Math.max(0, Math.min((startIndex | 0), arr.length - 1));
+            currentQueue = arr.slice(idx, idx + 1 + QUEUE_LOOKAHEAD);
+            currentIndex = 0;
+            queueOriginal = null;
+            shuffleQueueOnce();
+            renderNowPlayingQueue();
         }
 
         function extractDominantColorFromImage(img) {
@@ -589,11 +609,8 @@
             card.appendChild(info);
 
             card.addEventListener("click", function() {
-                currentQueue = Array.isArray(list) ? list.slice() : [];
-                currentIndex = index;
-                queueOriginal = null;
-                shuffleQueueOnce();
-                playTrack(track);
+                setQueueFromList(list, index);
+                if (currentQueue.length) playTrack(currentQueue[0]);
             });
             return card;
         }
@@ -1339,11 +1356,8 @@
 
                 btn.addEventListener("click", function(ev) {
                     ev.preventDefault();
-                    currentQueue = items.slice();
-                    currentIndex = index;
-                    queueOriginal = null;
-                    shuffleQueueOnce();
-                    playTrack(track);
+                    setQueueFromList(items, index);
+                    if (currentQueue.length) playTrack(currentQueue[0]);
                     hideSearchDropdown();
                     searchInput.blur();
                 });
@@ -1898,11 +1912,8 @@
                     artSpan.appendChild(artImg);
                     row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + getArtistDisplay(pt.track) + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
                     row.querySelector(".pt-title").addEventListener("click", function() {
-                        currentQueue = tracks.map(function(t) { return t.track; });
-                        currentIndex = i;
-                        queueOriginal = null;
-                        shuffleQueueOnce();
-                        playTrack(pt.track);
+                        setQueueFromList(tracks.map(function(t) { return t.track; }), i);
+                        if (currentQueue.length) playTrack(currentQueue[0]);
                     });
                     row.querySelector(".pt-title").style.cursor = "pointer";
                     row.insertBefore(artSpan, row.children[1]); // Insert after pt-num
