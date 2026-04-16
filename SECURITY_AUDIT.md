@@ -2,18 +2,57 @@
 
 **Project:** Openfy — Self-hosted music streaming server
 **Path:** /home/nethmina/Documents/GITHUB/Openfy
-**Audit Date:** April 07, 2026
-**Scope:** Full review of server/app/ (main.py, models.py, schemas.py, settings.py, db.py, services/)
+**Audit Date:** April 07, 2026 (initial)
+**Audit Update:** April 16, 2026 (post-fix recheck)
+**Scope:** server/app/ and client/ (focused on auth, access control, file access, and XSS)
 
 ---
 
 ## EXECUTIVE SUMMARY
 
-Openfy contains **6 CRITICAL**, **5 HIGH**, **5 MEDIUM**, and **4 LOW** severity vulnerabilities. The most dangerous issues enable complete identity theft (auth_hash leakage), unrestricted server-side file system access via path traversal, and unauthenticated destructive/management actions.
+The initial audit (April 07, 2026) identified multiple critical issues across authentication, access control, and unsafe file access. A set of fixes has since been implemented and rechecked (April 16, 2026).
+
+As of **April 16, 2026**, the most impactful issues from the initial report are **addressed**:
+- Authentication is enforced on data endpoints that previously allowed anonymous access.
+- Path traversal risks are mitigated by resolving paths and ensuring they remain under allowed base directories.
+- Streaming range parsing is hardened to avoid malformed range handling.
+- Admin user deletion no longer requires exposing user auth hashes to the UI.
+- Client-side DOM rendering hotspots that could enable XSS via playlist/track/user names were rewritten to use `textContent`/DOM APIs.
+
+Important **remaining risks** (design / operational):
+- Token-only auth (`auth_hash`) is still a long-lived bearer credential; compromise = account takeover until rotated.
+- The audio stream endpoint supports `?auth=...` because `<audio>` cannot send custom headers; this can leak via logs/proxies. `Referrer-Policy: same-origin` is set server-side to reduce incidental leakage, but URL logging remains a concern.
+- No rate limiting / brute-force protections (recommended for any internet-facing deployment).
 
 ---
 
 ## VULNERABILITY INDEX
+
+Note: The tables and detailed findings below reflect the **initial (April 07, 2026)** state. See “STATUS (April 16, 2026)” for what is fixed vs. remaining.
+
+---
+
+## STATUS (April 16, 2026)
+
+**Resolved / Mitigated (server):**
+- Library scan now requires auth + admin and rejects paths outside `settings.music_dir` (`server/app/main.py`).
+- Downloads require auth; job status is owner/admin scoped (`server/app/main.py`).
+- Track listing/search/most-played/artist/album endpoints require auth (`server/app/main.py`).
+- Artwork reads are restricted to `settings.artwork_dir` (`server/app/main.py`).
+- Track streaming enforces auth, validates `Range`, and restricts file reads to `settings.music_dir` (`server/app/main.py`).
+- CORS now avoids the unsafe `"*"+credentials` combination (`server/app/main.py`, `server/app/settings.py`).
+- Track API schemas no longer expose filesystem paths to non-admins (`server/app/schemas.py`).
+- Playlist schemas no longer expose `user_hash` (`server/app/schemas.py`).
+- Admin users list no longer returns `auth_hash`; admin user deletion now uses `user_id` instead of `auth_hash` (`server/app/main.py`).
+- `/auth/me` now uses a public schema and no longer returns `auth_hash` (`server/app/main.py`, `server/app/schemas.py`).
+
+**Resolved / Mitigated (client):**
+- Removed `innerHTML` rendering of untrusted strings (playlist names, track titles/artists in playlist view, admin tables) (`client/script.js`).
+
+**Still Open / Recommendations:**
+- Consider adding rotation/revocation for `auth_hash` and/or a real session mechanism.
+- Consider rate limiting on auth endpoints and download creation.
+- Consider using a short-lived stream token (instead of `auth_hash`) for `?auth=...` playback URLs.
 
 ### CRITICAL Issues (CR)
 

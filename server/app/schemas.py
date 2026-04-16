@@ -95,6 +95,7 @@ class UserSignin(BaseModel):
 
 class UserOut(BaseModel):
     """User schema with auth_hash — ONLY for signup/signin responses"""
+    id: str
     name: str
     auth_hash: str
     is_admin: bool = False
@@ -106,6 +107,7 @@ class UserOut(BaseModel):
 
 class UserOutPublic(BaseModel):
     """User schema without auth_hash — for /auth/me and all other user responses"""
+    id: str
     name: str
     is_admin: bool = False
     created_at: datetime

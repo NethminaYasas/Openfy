@@ -65,10 +65,34 @@ if static_dir.exists():
         "/static", StaticFiles(directory=str(static_dir), html=True), name="static"
     )
 
+def _is_within_dir(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except Exception:
+        return False
+
+
+def _require_user(db: Session, x_auth_hash: str | None) -> User:
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    return user
+
+
+allowed_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
+cors_allow_credentials = True
+if "*" in allowed_origins:
+    # Wildcard + credentials is unsafe and rejected by browsers anyway.
+    allowed_origins = ["*"]
+    cors_allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.allowed_origins.split(",")],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -79,6 +103,15 @@ async def add_track_update_timestamp(request: Request, call_next):
     global last_track_update
 
     response = await call_next(request)
+
+    # Basic hardening headers for the UI/API responses.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    )
 
     # Add track update timestamp to responses for tracks endpoint
     if request.url.path.startswith("/tracks"):
@@ -253,8 +286,11 @@ def get_track_updates(
     """Get track updates since a given timestamp"""
     global last_track_update
 
-    if not x_auth_hash:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    db = SessionLocal()
+    try:
+        _require_user(db, x_auth_hash)
+    finally:
+        db.close()
 
     # Return whether there are updates since the given timestamp
     has_updates = last_track_update > since
@@ -281,14 +317,12 @@ def scan_library(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    if not x_auth_hash:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = _get_user(db, x_auth_hash)
+    user = _require_user(db, x_auth_hash)
     if not user or not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     if path:
         target = Path(path).resolve()
-        if not str(target).startswith(str(settings.music_dir)):
+        if not _is_within_dir(target, settings.music_dir):
             raise HTTPException(status_code=403, detail="Path outside music directory")
         if not target.exists():
             raise HTTPException(status_code=404, detail="Path not found")
@@ -306,6 +340,7 @@ def list_tracks(
     db: Session = Depends(get_db),
 ):
     global last_track_update
+    user = _require_user(db, x_auth_hash)
 
     if random:
         stmt = select(Track).options(selectinload(Track.artists)).offset(offset).limit(limit).order_by(func.random())
@@ -314,18 +349,12 @@ def list_tracks(
 
     # If user_hash is provided, require auth and check authorization
     if user_hash:
-        if not x_auth_hash:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        user = _get_user(db, x_auth_hash)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid auth hash")
         # Admin can query any user's tracks; regular users can only query their own
         if not user.is_admin and user.auth_hash != user_hash:
             raise HTTPException(
                 status_code=403, detail="Not authorized to view these tracks"
             )
         stmt = stmt.where(Track.user_hash == user_hash)
-    # If no user_hash, return all tracks (main library) - no filter applied
 
     tracks = db.execute(stmt).scalars().all()
     return tracks
@@ -333,7 +362,12 @@ def list_tracks(
 
 # Add most-played endpoint before the generic track-by-id endpoint to avoid route conflicts
 @app.get("/tracks/most-played", response_model=List[TrackOut])
-def most_played(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+def most_played(
+    limit: int = Query(10, ge=1, le=100),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_user(db, x_auth_hash)
     # Remove the 24-hour restriction to show all-time most played tracks
     stmt = (
         select(Track, func.count(TrackPlay.id).label("play_ct"))
@@ -373,7 +407,7 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
     path = Path(track.album.artwork_path).resolve()
     if not path.exists():
         raise HTTPException(status_code=404, detail="Artwork not found")
-    if not str(path).startswith(str(settings.artwork_dir)):
+    if not _is_within_dir(path, settings.artwork_dir):
         raise HTTPException(status_code=403, detail="Access denied")
     return FileResponse(path)
 
@@ -391,30 +425,46 @@ def stream_track(track_id: str, request: Request, x_auth_hash: str | None = Head
     track = db.get(Track, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    track.play_count = (track.play_count or 0) + 1
-    db.commit()
+    # Audio elements can't set custom headers, so we support passing the auth hash via query too.
+    auth = request.query_params.get("auth")
+    user = _require_user(db, x_auth_hash or auth)
 
-    play = TrackPlay(track_id=track_id, user_hash=x_auth_hash)
-    db.add(play)
-    db.commit()
-
-    path = Path(track.file_path)
+    path = Path(track.file_path).resolve()
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
+    if not _is_within_dir(path, settings.music_dir):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     range_header = request.headers.get("range")
     if not range_header:
+        track.play_count = (track.play_count or 0) + 1
+        db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
+        db.commit()
         return FileResponse(path, media_type=track.mime_type or "audio/mpeg")
 
     size = path.stat().st_size
-    bytes_unit, byte_range = range_header.split("=")
-    if bytes_unit != "bytes":
-        return FileResponse(path, media_type=track.mime_type or "audio/mpeg")
+    try:
+        bytes_unit, byte_range = range_header.split("=", 1)
+        if bytes_unit.strip().lower() != "bytes":
+            raise ValueError("Unsupported range unit")
+        start_str, end_str = byte_range.split("-", 1)
+        start = int(start_str) if start_str else 0
+        end = int(end_str) if end_str else size - 1
+    except Exception:
+        return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
 
-    start_str, end_str = byte_range.split("-")
-    start = int(start_str) if start_str else 0
-    end = int(end_str) if end_str else size - 1
+    if start < 0 or end < 0 or start > end or start >= size:
+        return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+
     end = min(end, size - 1)
+
+    if start == 0:
+        track.play_count = (track.play_count or 0) + 1
+        db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
+        db.commit()
+
+    if start == 0 and end == size - 1:
+        return FileResponse(path, media_type=track.mime_type or "audio/mpeg")
 
     def iterfile():
         with path.open("rb") as file:
@@ -442,13 +492,15 @@ def stream_track(track_id: str, request: Request, x_auth_hash: str | None = Head
 
 
 @app.get("/artists", response_model=List[ArtistOut])
-def list_artists(db: Session = Depends(get_db)):
+def list_artists(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
+    _require_user(db, x_auth_hash)
     artists = db.execute(select(Artist).order_by(Artist.name.asc())).scalars().all()
     return artists
 
 
 @app.get("/albums", response_model=List[AlbumOut])
-def list_albums(db: Session = Depends(get_db)):
+def list_albums(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
+    _require_user(db, x_auth_hash)
     albums = db.execute(select(Album).order_by(Album.title.asc())).scalars().all()
     return albums
 
@@ -457,8 +509,10 @@ def list_albums(db: Session = Depends(get_db)):
 def search(
     q: str = Query(..., min_length=1, max_length=255, description="Search query"),
     limit: int = Query(50, ge=1, le=200),
+    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    _require_user(db, x_auth_hash)
     pattern = f"%{q}%"
     stmt = (
         select(Track)
@@ -478,13 +532,13 @@ def list_playlists(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    user = _require_user(db, x_auth_hash)
     stmt = select(Playlist).order_by(
         Playlist.is_liked.desc(),
         Playlist.pinned.desc(),
         Playlist.created_at.desc()
     )
-    if x_auth_hash:
-        stmt = stmt.where(Playlist.user_hash == x_auth_hash)
+    stmt = stmt.where(Playlist.user_hash == user.auth_hash)
     return db.execute(stmt).scalars().all()
 
 
@@ -524,6 +578,8 @@ def get_playlist(
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_hash != user.auth_hash and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Not your playlist")
     return playlist
 
 
@@ -569,6 +625,8 @@ def list_playlist_tracks(
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_hash != user.auth_hash and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Not your playlist")
     stmt = (
         select(PlaylistTrack)
         .options(
@@ -768,7 +826,7 @@ def signin(payload: UserSignin, db: Session = Depends(get_db)):
     return user
 
 
-@app.get("/auth/me", response_model=UserOut)
+@app.get("/auth/me", response_model=UserOutPublic)
 def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     if not x_auth_hash:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -815,9 +873,9 @@ def list_all_users(
     return result
 
 
-@app.delete("/admin/users/{user_hash}")
+@app.delete("/admin/users/{user_id}")
 def delete_user(
-    user_hash: str,
+    user_id: str,
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -829,14 +887,13 @@ def delete_user(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     # Prevent self-deletion
-    if user_hash == admin_user.auth_hash:
+    if user_id == admin_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
 
-    user = db.execute(
-        select(User).where(User.auth_hash == user_hash)
-    ).scalar_one_or_none()
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    user_hash = user.auth_hash
 
     # Delete user's playlists first (cascade may not work for all DBs)
     db.execute(delete(Playlist).where(Playlist.user_hash == user_hash))
@@ -927,8 +984,8 @@ def delete_track(
 
     # Delete file from disk
     try:
-        p = Path(file_path)
-        if p.exists():
+        p = Path(file_path).resolve()
+        if p.exists() and _is_within_dir(p, settings.music_dir):
             p.unlink()
     except Exception as e:
         pass  # File deletion failure shouldn't break the response

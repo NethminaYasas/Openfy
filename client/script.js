@@ -1419,7 +1419,9 @@
         function playTrack(track) {
             console.log('Playing track:', track.title);
             currentTrackId = track.id;
-            audioPlayer.src = withBase("/tracks/" + track.id + "/stream");
+            var streamUrl = "/tracks/" + track.id + "/stream";
+            if (authHash) streamUrl += "?auth=" + encodeURIComponent(authHash);
+            audioPlayer.src = withBase(streamUrl);
             audioPlayer.play().catch(function(err) { console.error(err); });
             nowTitle.textContent = track.title || "";
             nowArtist.textContent = getArtistDisplay(track) || "";
@@ -1874,9 +1876,36 @@
                 var item = document.createElement("div");
                 item.className = "lib-item";
                 var bg = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
-                var icon = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<i class="fa-solid fa-list"></i>';
-                var pinIcon = pl.pinned ? '<i class="fa-solid fa-thumbtack library-pin-icon"></i>' : '';
-                item.innerHTML = '<div class="lib-item-cover" style="background:' + bg + '">' + icon + '</div><div class="lib-item-info"><p class="lib-item-name">' + pinIcon + ' ' + pl.name + '</p><p class="lib-item-type">Playlist</p></div>';
+
+                var cover = document.createElement("div");
+                cover.className = "lib-item-cover";
+                cover.style.background = bg;
+                var iconEl = document.createElement("i");
+                iconEl.className = pl.is_liked ? "fa-solid fa-heart" : "fa-solid fa-list";
+                cover.appendChild(iconEl);
+
+                var info = document.createElement("div");
+                info.className = "lib-item-info";
+
+                var nameEl = document.createElement("p");
+                nameEl.className = "lib-item-name";
+                if (pl.pinned) {
+                    var pinEl = document.createElement("i");
+                    pinEl.className = "fa-solid fa-thumbtack library-pin-icon";
+                    nameEl.appendChild(pinEl);
+                    nameEl.appendChild(document.createTextNode(" "));
+                }
+                nameEl.appendChild(document.createTextNode(pl.name || ""));
+
+                var typeEl = document.createElement("p");
+                typeEl.className = "lib-item-type";
+                typeEl.textContent = "Playlist";
+
+                info.appendChild(nameEl);
+                info.appendChild(typeEl);
+
+                item.appendChild(cover);
+                item.appendChild(info);
                 item.addEventListener("click", function() { openPlaylist(pl.id); });
                 // Right-click context menu
                 item.addEventListener("contextmenu", function(e) {
@@ -1907,16 +1936,37 @@
                     artSpan.className = "pt-art";
                     var artImg = document.createElement("img");
                     artImg.src = withBase("/tracks/" + pt.track.id + "/artwork?v=" + encodeURIComponent(pt.track.updated_at || ""));
-                    artImg.alt = pt.track.title;
+                    artImg.alt = pt.track.title || "";
                     artImg.onerror = function() { artImg.style.display = "none"; artSpan.style.background = "#282828"; };
                     artSpan.appendChild(artImg);
-                    row.innerHTML = '<span class="pt-num">' + (i + 1) + '</span><span class="pt-title">' + pt.track.title + '</span><span class="pt-artist">' + getArtistDisplay(pt.track) + '</span><span class="pt-duration">' + formatDuration(pt.track.duration) + '</span>';
-                    row.querySelector(".pt-title").addEventListener("click", function() {
+
+                    var num = document.createElement("span");
+                    num.className = "pt-num";
+                    num.textContent = String(i + 1);
+
+                    var title = document.createElement("span");
+                    title.className = "pt-title";
+                    title.textContent = pt.track.title || "";
+
+                    var artist = document.createElement("span");
+                    artist.className = "pt-artist";
+                    artist.textContent = getArtistDisplay(pt.track) || "";
+
+                    var duration = document.createElement("span");
+                    duration.className = "pt-duration";
+                    duration.textContent = formatDuration(pt.track.duration);
+
+                    row.appendChild(num);
+                    row.appendChild(artSpan);
+                    row.appendChild(title);
+                    row.appendChild(artist);
+                    row.appendChild(duration);
+
+                    title.addEventListener("click", function() {
                         setQueueFromList(tracks.map(function(t) { return t.track; }), i);
                         if (currentQueue.length) playTrack(currentQueue[0]);
                     });
-                    row.querySelector(".pt-title").style.cursor = "pointer";
-                    row.insertBefore(artSpan, row.children[1]); // Insert after pt-num
+                    title.style.cursor = "pointer";
                     container.appendChild(row);
                 });
                 setActivePage("playlist");
@@ -2111,7 +2161,7 @@
         function showProfileModal() {
             if (!currentUser) return;
             profileUsername.textContent = currentUser.name || "N/A";
-            profileAuthHash.textContent = currentUser.auth_hash || "N/A";
+            profileAuthHash.textContent = authHash || "N/A";
             // Format date to show only YYYY-MM-DD
             const createdAt = currentUser.created_at || "N/A";
             if (createdAt !== "N/A") {
@@ -2360,30 +2410,51 @@
                 tableBody.innerHTML = "";
                 
                 if (!users || users.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No users found</td></tr>';
+                    const row = document.createElement("tr");
+                    const td = document.createElement("td");
+                    td.colSpan = 5;
+                    td.style.textAlign = "center";
+                    td.textContent = "No users found";
+                    row.appendChild(td);
+                    tableBody.appendChild(row);
                     return;
                 }
 
                 users.forEach(user => {
                     const row = document.createElement("tr");
-                    row.innerHTML = `
-                        <td>${user.name}${user.auth_hash === currentUser?.auth_hash ? ' (You)' : ''}</td>
-                        <td><code class="user-hash" title="${user.auth_hash}">${user.auth_hash}</code></td>
-                        <td><span class="user-role ${user.is_admin ? 'admin' : 'user'}">${user.is_admin ? 'Admin' : 'User'}</span></td>
-                        <td>${user.uploaded_tracks_count || 0}</td>
-                        <td>
-                            <button class="btn-delete" data-user-hash="${user.auth_hash}" ${user.auth_hash === currentUser?.auth_hash ? 'disabled' : ''}>
-                                Delete
-                            </button>
-                        </td>
-                    `;
+
+                    const nameTd = document.createElement("td");
+                    const isSelf = user.id === currentUser?.id;
+                    nameTd.textContent = (user.name || "") + (isSelf ? " (You)" : "");
+
+                    const roleTd = document.createElement("td");
+                    const role = document.createElement("span");
+                    role.className = "user-role " + (user.is_admin ? "admin" : "user");
+                    role.textContent = user.is_admin ? "Admin" : "User";
+                    roleTd.appendChild(role);
+
+                    const countTd = document.createElement("td");
+                    countTd.textContent = String(user.uploaded_tracks_count || 0);
+
+                    const actionsTd = document.createElement("td");
+                    const delBtn = document.createElement("button");
+                    delBtn.className = "btn-delete";
+                    delBtn.dataset.userId = user.id || "";
+                    delBtn.textContent = "Delete";
+                    if (isSelf) delBtn.disabled = true;
+                    actionsTd.appendChild(delBtn);
+
+                    row.appendChild(nameTd);
+                    row.appendChild(roleTd);
+                    row.appendChild(countTd);
+                    row.appendChild(actionsTd);
                     tableBody.appendChild(row);
                 });
 
                 // Add delete event listeners
                 tableBody.querySelectorAll(".btn-delete").forEach(btn => {
                     btn.addEventListener("click", async function() {
-                        const userHash = this.dataset.userHash;
+                        const userId = this.dataset.userId;
                         const confirmed = confirm("Are you sure you want to delete this user? Their playlists will be removed and tracks will become unowned. This cannot be undone.");
                         if (!confirmed) return;
 
@@ -2391,7 +2462,7 @@
                         this.textContent = "Deleting...";
 
                         try {
-                            await api(`/admin/users/${userHash}`, { method: "DELETE" });
+                            await api(`/admin/users/${userId}`, { method: "DELETE" });
                             alert("User deleted successfully");
                             loadUsersList(searchQuery); // Refresh with current search
                         } catch (err) {
@@ -2404,7 +2475,15 @@
 
         } catch (err) {
             console.error("Failed to load users:", err);
-            tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#e74c3c;">Error loading users. Admin access required.</td></tr>';
+            tableBody.innerHTML = "";
+            const row = document.createElement("tr");
+            const td = document.createElement("td");
+            td.colSpan = 5;
+            td.style.textAlign = "center";
+            td.style.color = "#e74c3c";
+            td.textContent = "Error loading users. Admin access required.";
+            row.appendChild(td);
+            tableBody.appendChild(row);
         }
         }
 
@@ -2423,24 +2502,47 @@
                 tableBody.innerHTML = "";
                 
                 if (!tracks || tracks.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No tracks found</td></tr>';
+                    const row = document.createElement("tr");
+                    const td = document.createElement("td");
+                    td.colSpan = 6;
+                    td.style.textAlign = "center";
+                    td.textContent = "No tracks found";
+                    row.appendChild(td);
+                    tableBody.appendChild(row);
                     return;
                 }
 
                 tracks.forEach(track => {
                     const row = document.createElement("tr");
-                    row.innerHTML = `
-                        <td>${track.title}</td>
-                        <td>${track.artist_name}</td>
-                        <td>${track.user_name}</td>
-                        <td>${track.play_count || 0}</td>
-                        <td>${formatDuration(track.duration)}</td>
-                        <td>
-                            <button class="btn-delete" data-track-id="${track.id}">
-                                Delete
-                            </button>
-                        </td>
-                    `;
+
+                    const titleTd = document.createElement("td");
+                    titleTd.textContent = track.title || "";
+
+                    const artistTd = document.createElement("td");
+                    artistTd.textContent = track.artist_name || "";
+
+                    const userTd = document.createElement("td");
+                    userTd.textContent = track.user_name || "";
+
+                    const playsTd = document.createElement("td");
+                    playsTd.textContent = String(track.play_count || 0);
+
+                    const durTd = document.createElement("td");
+                    durTd.textContent = formatDuration(track.duration);
+
+                    const actionsTd = document.createElement("td");
+                    const delBtn = document.createElement("button");
+                    delBtn.className = "btn-delete";
+                    delBtn.dataset.trackId = track.id || "";
+                    delBtn.textContent = "Delete";
+                    actionsTd.appendChild(delBtn);
+
+                    row.appendChild(titleTd);
+                    row.appendChild(artistTd);
+                    row.appendChild(userTd);
+                    row.appendChild(playsTd);
+                    row.appendChild(durTd);
+                    row.appendChild(actionsTd);
                     tableBody.appendChild(row);
                 });
 
@@ -2468,7 +2570,15 @@
 
             } catch (err) {
                 console.error("Failed to load tracks:", err);
-                tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#e74c3c;">Error loading tracks. Admin access required.</td></tr>';
+                tableBody.innerHTML = "";
+                const row = document.createElement("tr");
+                const td = document.createElement("td");
+                td.colSpan = 6;
+                td.style.textAlign = "center";
+                td.style.color = "#e74c3c";
+                td.textContent = "Error loading tracks. Admin access required.";
+                row.appendChild(td);
+                tableBody.appendChild(row);
             }
         }
 
