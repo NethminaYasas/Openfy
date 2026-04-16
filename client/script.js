@@ -400,7 +400,7 @@
         let repeatState = "off";
         let repeatCount = 0;
         let shuffle = false;
-        let unshuffledQueue = null; // Snapshot to restore when shuffle is turned off
+        let queueOriginal = null; // Snapshot of the unshuffled order (for current queue) when shuffle is enabled
 
         let currentQueue = [];
         let currentIndex = -1;
@@ -591,7 +591,8 @@
             card.addEventListener("click", function() {
                 currentQueue = Array.isArray(list) ? list.slice() : [];
                 currentIndex = index;
-                applyShuffleToQueueIfEnabled();
+                queueOriginal = null;
+                shuffleQueueOnce();
                 playTrack(track);
             });
             return card;
@@ -1340,7 +1341,8 @@
                     ev.preventDefault();
                     currentQueue = items.slice();
                     currentIndex = index;
-                    applyShuffleToQueueIfEnabled();
+                    queueOriginal = null;
+                    shuffleQueueOnce();
                     playTrack(track);
                     hideSearchDropdown();
                     searchInput.blur();
@@ -1598,31 +1600,30 @@
             return -1;
         }
 
-        function shuffleSuffixInPlace(arr, startIndex) {
-            // Fisher-Yates shuffle for arr[startIndex..end]
-            if (!Array.isArray(arr)) return;
-            const start = Math.max(0, startIndex | 0);
-            for (let i = arr.length - 1; i > start; i--) {
-                const j = start + Math.floor(Math.random() * (i - start + 1));
-                const tmp = arr[i];
-                arr[i] = arr[j];
-                arr[j] = tmp;
-            }
-        }
-
-        function applyShuffleToQueueIfEnabled() {
+        function shuffleQueueOnce() {
+            // Shuffle only the upcoming part of the queue, keeping the current track fixed.
             if (!shuffle) return;
             if (!Array.isArray(currentQueue) || currentQueue.length < 2) return;
             if (currentIndex < 0) return;
-            unshuffledQueue = currentQueue.slice();
-            shuffleSuffixInPlace(currentQueue, currentIndex + 1);
+
+            if (!queueOriginal) queueOriginal = currentQueue.slice();
+
+            const start = currentIndex + 1;
+            const suffix = currentQueue.slice(start);
+            for (let i = suffix.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = suffix[i];
+                suffix[i] = suffix[j];
+                suffix[j] = tmp;
+            }
+            currentQueue = currentQueue.slice(0, start).concat(suffix);
         }
 
-        function restoreQueueIfShuffled() {
-            if (!unshuffledQueue) return;
+        function unshuffleQueue() {
+            if (!queueOriginal) return;
             const activeTrackId = currentTrackId;
-            currentQueue = unshuffledQueue.slice();
-            unshuffledQueue = null;
+            currentQueue = queueOriginal.slice();
+            queueOriginal = null;
             if (activeTrackId) {
                 const idx = indexOfTrackId(currentQueue, activeTrackId);
                 if (idx !== -1) currentIndex = idx;
@@ -1639,8 +1640,8 @@
 
         function playByIndex(index, fromRepeat) {
             if (!currentQueue.length) return;
-            var safeIndex = (index + currentQueue.length) % currentQueue.length;
-            currentIndex = safeIndex;
+            if (index < 0 || index >= currentQueue.length) return;
+            currentIndex = index;
             if (!fromRepeat) {
                 repeatState = "off";
                 repeatCount = 0;
@@ -1747,9 +1748,9 @@
             shuffle = !shuffle;
             btnShuffle.classList.toggle("active", shuffle);
             if (shuffle) {
-                applyShuffleToQueueIfEnabled();
+                shuffleQueueOnce();
             } else {
-                restoreQueueIfShuffled();
+                unshuffleQueue();
             }
             renderNowPlayingQueue();
         });
@@ -1899,7 +1900,8 @@
                     row.querySelector(".pt-title").addEventListener("click", function() {
                         currentQueue = tracks.map(function(t) { return t.track; });
                         currentIndex = i;
-                        applyShuffleToQueueIfEnabled();
+                        queueOriginal = null;
+                        shuffleQueueOnce();
                         playTrack(pt.track);
                     });
                     row.querySelector(".pt-title").style.cursor = "pointer";
