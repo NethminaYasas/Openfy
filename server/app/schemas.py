@@ -60,6 +60,7 @@ class TrackOut(TrackBase):
 
 class TrackOutAdmin(TrackOut):
     """Track schema with file_path — ONLY for admin responses"""
+
     file_path: str
 
 
@@ -93,12 +94,18 @@ class UserSignin(BaseModel):
     auth_hash: str = Field(..., min_length=64, max_length=64)
 
 
+class UserUploadPreferenceUpdate(BaseModel):
+    upload_enabled: bool
+
+
 class UserOut(BaseModel):
     """User schema with auth_hash — ONLY for signup/signin responses"""
+
     id: str
     name: str
     auth_hash: str
     is_admin: bool = False
+    upload_enabled: bool = True
     created_at: datetime
 
     class Config:
@@ -107,9 +114,11 @@ class UserOut(BaseModel):
 
 class UserOutPublic(BaseModel):
     """User schema without auth_hash — for /auth/me and all other user responses"""
+
     id: str
     name: str
     is_admin: bool = False
+    upload_enabled: bool = True
     created_at: datetime
 
     class Config:

@@ -15,13 +15,29 @@ from fastapi import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse, Response, JSONResponse
+from fastapi.responses import (
+    StreamingResponse,
+    FileResponse,
+    HTMLResponse,
+    Response,
+    JSONResponse,
+)
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
 
 from .db import Base, engine, get_db, SessionLocal
-from .models import Track, Artist, Album, Playlist, PlaylistTrack, DownloadJob, User, TrackPlay, track_artist
+from .models import (
+    Track,
+    Artist,
+    Album,
+    Playlist,
+    PlaylistTrack,
+    DownloadJob,
+    User,
+    TrackPlay,
+    track_artist,
+)
 from .schemas import (
     TrackOut,
     ArtistOut,
@@ -36,6 +52,7 @@ from .schemas import (
     UserSignin,
     UserOut,
     UserOutPublic,
+    UserUploadPreferenceUpdate,
 )
 from .settings import settings
 from .services.storage import ensure_dirs
@@ -50,6 +67,7 @@ def update_track_timestamp():
     """Update the global track update timestamp"""
     global last_track_update
     import time
+
     last_track_update = int(time.time() * 1000)  # Milliseconds since epoch
 
 
@@ -64,6 +82,7 @@ if static_dir.exists():
     app.mount(
         "/static", StaticFiles(directory=str(static_dir), html=True), name="static"
     )
+
 
 def _is_within_dir(path: Path, root: Path) -> bool:
     try:
@@ -82,7 +101,9 @@ def _require_user(db: Session, x_auth_hash: str | None) -> User:
     return user
 
 
-allowed_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
+allowed_origins = [
+    origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()
+]
 cors_allow_credentials = True
 if "*" in allowed_origins:
     # Wildcard + credentials is unsafe and rejected by browsers anyway.
@@ -166,7 +187,9 @@ def _startup():
 
             djcols = [
                 row[1]
-                for row in conn.execute(text("PRAGMA table_info(download_jobs)")).fetchall()
+                for row in conn.execute(
+                    text("PRAGMA table_info(download_jobs)")
+                ).fetchall()
             ]
             if "user_hash" not in djcols:
                 conn.execute(
@@ -176,9 +199,21 @@ def _startup():
 
             # Create track_plays table if not exists
             try:
-                conn.execute(text("CREATE TABLE IF NOT EXISTS track_plays (id VARCHAR(36) PRIMARY KEY, track_id VARCHAR(36), played_at DATETIME, user_hash VARCHAR(64), FOREIGN KEY(track_id) REFERENCES tracks(id))"))
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_track_plays_played_at ON track_plays(played_at)"))
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_track_plays_track_id ON track_plays(track_id)"))
+                conn.execute(
+                    text(
+                        "CREATE TABLE IF NOT EXISTS track_plays (id VARCHAR(36) PRIMARY KEY, track_id VARCHAR(36), played_at DATETIME, user_hash VARCHAR(64), FOREIGN KEY(track_id) REFERENCES tracks(id))"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_track_plays_played_at ON track_plays(played_at)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_track_plays_track_id ON track_plays(track_id)"
+                    )
+                )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -190,6 +225,21 @@ def _startup():
             if "is_admin" not in ucols:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+                )
+                conn.commit()
+
+            if "upload_enabled" not in ucols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN upload_enabled INTEGER DEFAULT 1"
+                    )
+                )
+                conn.commit()
+                # Ensure all existing users have upload_enabled set to 1
+                conn.execute(
+                    text(
+                        "UPDATE users SET upload_enabled = 1 WHERE upload_enabled IS NULL"
+                    )
                 )
                 conn.commit()
 
@@ -295,10 +345,7 @@ def get_track_updates(
     # Return whether there are updates since the given timestamp
     has_updates = last_track_update > since
 
-    return {
-        "has_updates": has_updates,
-        "timestamp": last_track_update
-    }
+    return {"has_updates": has_updates, "timestamp": last_track_update}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -343,9 +390,21 @@ def list_tracks(
     user = _require_user(db, x_auth_hash)
 
     if random:
-        stmt = select(Track).options(selectinload(Track.artists)).offset(offset).limit(limit).order_by(func.random())
+        stmt = (
+            select(Track)
+            .options(selectinload(Track.artists))
+            .offset(offset)
+            .limit(limit)
+            .order_by(func.random())
+        )
     else:
-        stmt = select(Track).options(selectinload(Track.artists)).order_by(Track.created_at.desc()).limit(limit).offset(offset)
+        stmt = (
+            select(Track)
+            .options(selectinload(Track.artists))
+            .order_by(Track.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
 
     # If user_hash is provided, require auth and check authorization
     if user_hash:
@@ -384,7 +443,11 @@ def most_played(
 
 @app.get("/tracks/{track_id}", response_model=TrackOut)
 def get_track(track_id: str, db: Session = Depends(get_db)):
-    stmt = select(Track).options(selectinload(Track.artists), selectinload(Track.album)).where(Track.id == track_id)
+    stmt = (
+        select(Track)
+        .options(selectinload(Track.artists), selectinload(Track.album))
+        .where(Track.id == track_id)
+    )
     track = db.execute(stmt).scalar_one_or_none()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -395,6 +458,7 @@ def get_track(track_id: str, db: Session = Depends(get_db)):
 def track_artwork(track_id: str, db: Session = Depends(get_db)):
     # Validate track_id as UUID
     import uuid
+
     try:
         uuid.UUID(track_id)
     except ValueError:
@@ -412,12 +476,16 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
     return FileResponse(path)
 
 
-
-
 @app.get("/tracks/{track_id}/stream")
-def stream_track(track_id: str, request: Request, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
+def stream_track(
+    track_id: str,
+    request: Request,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
     # Validate track_id as UUID
     import uuid
+
     try:
         uuid.UUID(track_id)
     except ValueError:
@@ -534,9 +602,7 @@ def list_playlists(
 ):
     user = _require_user(db, x_auth_hash)
     stmt = select(Playlist).order_by(
-        Playlist.is_liked.desc(),
-        Playlist.pinned.desc(),
-        Playlist.created_at.desc()
+        Playlist.is_liked.desc(), Playlist.pinned.desc(), Playlist.created_at.desc()
     )
     stmt = stmt.where(Playlist.user_hash == user.auth_hash)
     return db.execute(stmt).scalars().all()
@@ -599,7 +665,9 @@ def update_playlist(
         raise HTTPException(status_code=403, detail="Not your playlist")
     # Disallow renaming the Liked Songs playlist
     if playlist.is_liked and payload.name is not None:
-        raise HTTPException(status_code=403, detail="Cannot rename Liked Songs playlist")
+        raise HTTPException(
+            status_code=403, detail="Cannot rename Liked Songs playlist"
+        )
     # Allow name change for non-liked playlists
     if not playlist.is_liked and payload.name is not None:
         playlist.name = payload.name
@@ -631,7 +699,7 @@ def list_playlist_tracks(
         select(PlaylistTrack)
         .options(
             selectinload(PlaylistTrack.track).selectinload(Track.artists),
-            selectinload(PlaylistTrack.track).selectinload(Track.album)
+            selectinload(PlaylistTrack.track).selectinload(Track.album),
         )
         .where(PlaylistTrack.playlist_id == playlist_id)
         .order_by(PlaylistTrack.position.asc())
@@ -721,6 +789,10 @@ def create_download(
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
+    if not user.is_admin and not user.upload_enabled:
+        raise HTTPException(
+            status_code=403, detail="Uploads are disabled for your account"
+        )
     from .services.spotiflac import queue_download
 
     return queue_download(db, payload.query, payload.source or "auto", user.auth_hash)
@@ -836,6 +908,24 @@ def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db
     return user
 
 
+@app.put("/user/upload-preference")
+def update_upload_preference(
+    payload: UserUploadPreferenceUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update user's upload enabled preference"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    user.upload_enabled = 1 if payload.upload_enabled else 0
+    db.commit()
+    return {"status": "updated", "upload_enabled": payload.upload_enabled}
+
+
 # Admin endpoints
 @app.get("/admin/users")
 def list_all_users(
@@ -866,6 +956,7 @@ def list_all_users(
             "id": user.id,
             "name": user.name,
             "is_admin": user.is_admin,
+            "upload_enabled": bool(user.upload_enabled),
             "created_at": user.created_at,
             "uploaded_tracks_count": len(track_count),
         }
@@ -922,15 +1013,18 @@ def list_all_tracks(
     if not admin_user or not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    stmt = select(Track).options(selectinload(Track.artists)).order_by(Track.created_at.desc())
+    stmt = (
+        select(Track)
+        .options(selectinload(Track.artists))
+        .order_by(Track.created_at.desc())
+    )
     if q:
         stmt = (
             stmt.where(
                 (Track.title.ilike(f"%{q}%"))
                 | (Track.artists.any(Artist.name.ilike(f"%{q}%")))
                 | (Album.title.ilike(f"%{q}%"))
-            )
-            .join(Album, isouter=True)  # join Album for album title search
+            ).join(Album, isouter=True)  # join Album for album title search
         )
 
     tracks = db.execute(stmt).scalars().all()

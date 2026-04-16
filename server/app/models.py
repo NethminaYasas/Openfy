@@ -25,9 +25,21 @@ def _uuid() -> str:
 track_artist = Table(
     "track_artist",
     Base.metadata,
-    Column("track_id", String(36), ForeignKey("tracks.id", ondelete="CASCADE"), primary_key=True),
-    Column("artist_id", String(36), ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True),
-    Column("position", Integer, nullable=False, default=0),  # Order of artists for a track
+    Column(
+        "track_id",
+        String(36),
+        ForeignKey("tracks.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "artist_id",
+        String(36),
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "position", Integer, nullable=False, default=0
+    ),  # Order of artists for a track
 )
 
 
@@ -39,8 +51,12 @@ class Artist(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     albums = relationship("Album", back_populates="artist")
-    tracks = relationship("Track", back_populates="artist")  # primary artist via artist_id
-    many_tracks = relationship("Track", secondary=track_artist, back_populates="artists")  # full many-to-many
+    tracks = relationship(
+        "Track", back_populates="artist"
+    )  # primary artist via artist_id
+    many_tracks = relationship(
+        "Track", secondary=track_artist, back_populates="artists"
+    )  # full many-to-many
 
 
 class Album(Base):
@@ -85,7 +101,9 @@ class Track(Base):
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
     album_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("albums.id"))
 
-    artist = relationship("Artist", back_populates="tracks")  # primary artist via artist_id
+    artist = relationship(
+        "Artist", back_populates="tracks"
+    )  # primary artist via artist_id
     artists = relationship(
         "Artist",
         secondary=track_artist,
@@ -93,8 +111,12 @@ class Track(Base):
         order_by="track_artist.c.position",
     )  # full many-to-many with ordering
     album = relationship("Album", back_populates="tracks")
-    plays = relationship("TrackPlay", back_populates="track", cascade="all, delete-orphan")
-    playlist_tracks = relationship("PlaylistTrack", back_populates="track", cascade="all, delete-orphan")
+    plays = relationship(
+        "TrackPlay", back_populates="track", cascade="all, delete-orphan"
+    )
+    playlist_tracks = relationship(
+        "PlaylistTrack", back_populates="track", cascade="all, delete-orphan"
+    )
 
 
 class User(Base):
@@ -105,6 +127,7 @@ class User(Base):
     auth_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Integer, default=0)
+    upload_enabled: Mapped[bool] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     playlists = relationship(
@@ -150,8 +173,12 @@ class TrackPlay(Base):
     __tablename__ = "track_plays"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    track_id: Mapped[str] = mapped_column(String(36), ForeignKey("tracks.id", ondelete="CASCADE"), index=True)
-    played_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    track_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tracks.id", ondelete="CASCADE"), index=True
+    )
+    played_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
     user_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     track = relationship("Track", back_populates="plays")

@@ -1161,6 +1161,11 @@
         var activeDownloadPolls = [];
 
         async function downloadFromLink() {
+            // Check if upload is enabled for current user (admins can always upload)
+            if (!currentUser || (!currentUser.is_admin && !currentUser.upload_enabled)) {
+                alert("Uploads are disabled for your account.");
+                return;
+            }
             var url = document.getElementById("download-url").value.trim();
             var progressDiv = document.getElementById("download-progress");
             var statusText = document.getElementById("download-status-text");
@@ -1169,7 +1174,7 @@
             if (!url.startsWith("http")) { statusText.textContent = "Paste a valid https:// link."; progressDiv.style.display = "block"; return; }
             
             progressDiv.style.display = "block";
-            statusText.textContent = "Queuing download\u2026";
+            statusText.textContent = "Queuing download…";
             progressBar.style.width = "0%";
             
             try {
@@ -2022,6 +2027,68 @@
             topBar.style.display = "none";
         });
 
+        // Upload toggle functionality
+        (function() {
+            const uploadCheckbox = document.getElementById("upload-enabled");
+            const sidebar = document.querySelector('.sidebar');
+
+            // Function to update UI based on uploadEnabled state
+            function updateUploadUI(enabled) {
+                if (uploadCheckbox) {
+                    uploadCheckbox.checked = enabled;
+                }
+                if (sidebar) {
+                    sidebar.classList.toggle('upload-disabled', !enabled);
+                }
+                localStorage.setItem("upload_enabled", enabled);
+            }
+
+            // Load state from currentUser if available, else from localStorage
+            function loadUploadState() {
+                if (currentUser && typeof currentUser.upload_enabled !== 'undefined') {
+                    updateUploadUI(currentUser.upload_enabled);
+                } else {
+                    const saved = localStorage.getItem("upload_enabled");
+                    if (saved !== null) {
+                        updateUploadUI(saved !== "false");
+                    } else {
+                        updateUploadUI(true); // default to enabled
+                    }
+                }
+            }
+
+            // Initial load
+            loadUploadState();
+
+            // Handle toggle change
+            if (uploadCheckbox) {
+                uploadCheckbox.addEventListener("change", async function() {
+                    const enabled = this.checked;
+                    updateUploadUI(enabled);
+                    
+                    // Sync with server if user is logged in
+                    if (currentUser && authHash) {
+                        try {
+                            await api("/user/upload-preference", {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ upload_enabled: enabled })
+                            });
+                            // Update currentUser to reflect change
+                            currentUser.upload_enabled = enabled;
+                        } catch (err) {
+                            console.error("Failed to update upload preference:", err);
+                            // Revert on error
+                            updateUploadUI(!enabled);
+                        }
+                    }
+                });
+            }
+
+            // Expose function to refresh state when user data changes
+            window.refreshUploadState = loadUploadState;
+        })();
+
         document.getElementById("signup-btn").addEventListener("click", async function() {
             var name = document.getElementById("signup-name").value.trim();
             if (!name || !name.trim()) return;
@@ -2035,6 +2102,9 @@
                 
                 // Show hash modal instead of directly showing app
                 showHashModal(user.auth_hash);
+                
+                // Refresh upload toggle to reflect server-stored preference
+                if (window.refreshUploadState) window.refreshUploadState();
             } catch (err) { alert("Failed: " + err.message); }
         });
 
@@ -2054,6 +2124,9 @@
                 dropdownUsername.textContent = user.name;
                 npLikeBtn.classList.add("hidden");
                 loadTracks(); loadPlaylists(); loadUserUploads();
+
+                // Refresh upload toggle to reflect server-stored preference
+                if (window.refreshUploadState) window.refreshUploadState();
 
                 // Start the update checker
                 startUpdateChecker();
@@ -2082,6 +2155,9 @@
                         loadTracks(); loadPlaylists(); loadUserUploads();
                         // Set home-page class for successful auto-login (home page)
                         document.getElementById('app-main').classList.add('home-page');
+
+                        // Refresh upload toggle to reflect server-stored preference
+                        if (window.refreshUploadState) window.refreshUploadState();
 
                         // Start the update checker
                         startUpdateChecker();
@@ -2120,6 +2196,9 @@
             loadTracks(); loadPlaylists(); loadUserUploads();
             // Ensure home-page class is present when returning to main app (home page)
             document.getElementById('app-main').classList.add('home-page');
+
+            // Refresh upload toggle to reflect server-stored preference
+            if (window.refreshUploadState) window.refreshUploadState();
 
             // Start the update checker
             startUpdateChecker();
