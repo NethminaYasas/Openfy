@@ -1203,6 +1203,21 @@
             } catch (err) { console.error(err); }
         }
 
+        async function loadLastTrackPaused() {
+            if (!authHash) return;
+            try {
+                var data = await api("/user/last-track");
+                if (data && data.id) {
+                    // Reset current player state before loading last track
+                    audioPlayer.pause();
+                    audioPlayer.src = "";
+                    btnPlay.classList.remove("playing");
+                    progressBar.classList.remove("active");
+                    loadTrackPaused(data);
+                }
+            } catch (err) { console.error("Failed to load last track:", err); }
+        }
+
         var activeDownloadPolls = [];
 
         async function downloadFromLink() {
@@ -1509,13 +1524,70 @@
             if (authHash) {
                 npLikeBtn.classList.remove("hidden");
                 npLikeBtn.classList.remove("liked", "adding");
-                npLikeBtn.disabled = false;
                 npLikeBtn.innerHTML = "";
                 // Check if already liked
                 checkIfLiked(track.id);
             } else {
                 npLikeBtn.classList.add("hidden");
             }
+        }
+
+        function loadTrackPaused(track) {
+            console.log('Loading track (paused):', track.title);
+            currentTrackId = track.id;
+            // Set track to current queue (single track)
+            setQueueFromList([track], 0);
+            // Set audio source so it's ready to play, but keep paused
+            var streamUrl = "/tracks/" + track.id + "/stream";
+            if (authHash) streamUrl += "?auth=" + encodeURIComponent(authHash);
+            audioPlayer.src = withBase(streamUrl);
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
+            // Update UI
+            nowTitle.textContent = track.title || "";
+            nowArtist.textContent = getArtistDisplay(track) || "";
+            clearCanvas(nowCover);
+            nowCover.classList.remove("visible");
+
+            // Emit trackChanged event for gradient manager
+            if (gradientManager) {
+                const event = new CustomEvent('trackChanged', {
+                    detail: {
+                        artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
+                        title: track.title,
+                        artist: getArtistDisplay(track)
+                    }
+                });
+                document.dispatchEvent(event);
+            }
+
+            var img = new Image();
+            img.onload = function() {
+                var ctx = nowCover.getContext("2d");
+                ctx.clearRect(0, 0, nowCover.width, nowCover.height);
+                var size = Math.min(img.width, img.height);
+                ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, nowCover.width, nowCover.height);
+                nowCover.classList.add("visible");
+            };
+            img.onerror = function() {
+                drawCanvas(nowCover, track.title, getArtistDisplay(track) || "");
+                nowCover.classList.add("visible");
+            };
+            img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+            updateNowPlaying(track);
+            renderNowPlayingQueue();
+            // Show like button only if authenticated
+            if (authHash) {
+                npLikeBtn.classList.remove("hidden");
+                npLikeBtn.classList.remove("liked", "adding");
+                npLikeBtn.innerHTML = "";
+                checkIfLiked(track.id);
+            } else {
+                npLikeBtn.classList.add("hidden");
+            }
+            // Ensure play button shows paused state
+            btnPlay.classList.remove("playing");
+            progressBar.classList.remove("active");
         }
 
         async function checkIfLiked(trackId) {
@@ -1580,8 +1652,11 @@
             opts = opts || {};
             const btn = document.createElement("button");
             btn.type = "button";
-            btn.className = "np-queue-item" + (opts.isNext ? " next" : "");
-            btn.draggable = showFullQueue; // only allow dragging when queue is expanded
+            let className = "np-queue-item";
+            if (opts.isNext) className += " next";
+            if (opts.isCurrent) className += " current";
+            btn.className = className;
+            btn.draggable = showFullQueue && !opts.isCurrent; // only allow dragging when queue expanded, and not for current track
             btn.dataset.index = index;
 
             const artistText = getArtistDisplay(track) || "Unknown";
@@ -1618,11 +1693,20 @@
             badge.textContent = opts.badgeText || "";
             if (!badge.textContent) badge.style.display = "none";
 
-            // Drag handle - only visible when queue expanded
+            // Now Playing indicator for current track
+            if (opts.isCurrent) {
+                const nowPlayingBadge = document.createElement("span");
+                nowPlayingBadge.className = "np-queue-now-playing";
+                nowPlayingBadge.innerHTML = '<i class="fa-solid fa-music"></i> Now Playing';
+                meta.appendChild(nowPlayingBadge);
+            }
+
+            // Drag handle - only visible when queue expanded and not current track
             const dragHandle = document.createElement("span");
             dragHandle.className = "np-queue-drag-handle";
             dragHandle.innerHTML = "⋮";
             dragHandle.setAttribute("title", "Drag to reorder");
+            if (opts.isCurrent) dragHandle.style.display = 'none';
 
             btn.appendChild(dragHandle);
             btn.appendChild(art);
@@ -1635,11 +1719,19 @@
                 if (!currentQueue || !currentQueue.length) return;
                 if (index < 0 || index >= currentQueue.length) return;
                 currentIndex = index;
+                // Reset repeat state when manually selecting a track
+                repeatState = "off";
+                repeatCount = 0;
+                btnRepeat.classList.remove("active", "loop-twice");
                 playTrack(currentQueue[currentIndex]);
             });
 
             // Drag start
             btn.addEventListener("dragstart", function(ev) {
+                if (opts.isCurrent) {
+                    ev.preventDefault();
+                    return;
+                }
                 dragSourceIndex = index;
                 draggedElement = btn;
                 btn.classList.add("dragging");
@@ -1674,9 +1766,9 @@
             });
 
             return btn;
-        }
+         }
 
-        // Get the element before which the dragged item should be inserted
+         // Get the element before which the dragged item should be inserted
         function getInsertBeforeElement(container) {
             const items = Array.from(container.querySelectorAll(".np-queue-item:not(.dragging)"));
             const dragY = lastDragY;
@@ -1805,14 +1897,25 @@
                 return;
             }
 
-            // Determine which tracks to show
-            const tracksToShow = showFullQueue ? currentQueue.slice(nextIndex) : [currentQueue[nextIndex]];
-            const startIdx = nextIndex;
+             // Determine which tracks to show - never include current track
+             let tracksToShow = showFullQueue ? currentQueue.slice(nextIndex) : [currentQueue[nextIndex]];
+             // Explicitly filter out the currently playing track by ID to ensure it doesn't appear
+             if (currentTrackId) {
+                 tracksToShow = tracksToShow.filter(track => track.id !== currentTrackId);
+             }
+             if (tracksToShow.length === 0) {
+                 const empty = document.createElement("div");
+                 empty.className = "np-queue-empty";
+                 empty.textContent = "End of queue.";
+                 npQueueNext.appendChild(empty);
+                 return;
+             }
+             const startIdx = nextIndex;
 
-            tracksToShow.forEach((track, i) => {
-                const itemIndex = startIdx + i;
-                npQueueNext.appendChild(buildQueueItem(track, itemIndex));
-            });
+             tracksToShow.forEach((track, i) => {
+                 const itemIndex = startIdx + i;
+                 npQueueNext.appendChild(buildQueueItem(track, itemIndex));
+             });
         }
 
         // Toggle full queue view on header click
@@ -1895,7 +1998,14 @@
         renderNowPlayingQueue();
 
         function togglePlay() {
-            if (!audioPlayer.src || audioPlayer.src === window.location.href) return;
+            if (!audioPlayer.src || audioPlayer.src === window.location.href) {
+                // If no source but we have a current track, start playback
+                if (currentTrackId && currentQueue.length && currentIndex >= 0) {
+                    playTrack(currentQueue[currentIndex]);
+                    return;
+                }
+                return;
+            }
             if (audioPlayer.paused) { audioPlayer.play().catch(function(err) { console.error(err); }); } else { audioPlayer.pause(); }
         }
 
@@ -2364,6 +2474,7 @@
                 dropdownUsername.textContent = user.name;
                 npLikeBtn.classList.add("hidden");
                 loadTracks(); loadPlaylists(); loadUserUploads();
+                loadLastTrackPaused();
 
                 // Refresh upload toggle to reflect server-stored preference
                 if (window.refreshUploadState) window.refreshUploadState();
@@ -2393,6 +2504,7 @@
                         dropdownUsername.textContent = user.name;
                         npLikeBtn.classList.add("hidden");
                         loadTracks(); loadPlaylists(); loadUserUploads();
+                        loadLastTrackPaused();
                         // Set home-page class for successful auto-login (home page)
                         document.getElementById('app-main').classList.add('home-page');
 
@@ -2434,6 +2546,7 @@
             topBar.style.display = "flex";
             dropdownUsername.textContent = currentUser.name;
             loadTracks(); loadPlaylists(); loadUserUploads();
+            loadLastTrackPaused();
             // Ensure home-page class is present when returning to main app (home page)
             document.getElementById('app-main').classList.add('home-page');
 

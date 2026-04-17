@@ -128,11 +128,15 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Integer, default=0)
     upload_enabled: Mapped[bool] = mapped_column(Integer, default=1)
+    last_track_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("tracks.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     playlists = relationship(
         "Playlist", back_populates="user", cascade="all, delete-orphan"
     )
+    last_track = relationship("Track", foreign_keys=[last_track_id])
 
 
 class Playlist(Base):

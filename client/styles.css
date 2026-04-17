@@ -353,6 +353,20 @@ body {
     outline-offset: 2px;
 }
 
+.np-queue-item.current {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+.np-queue-item .np-queue-now-playing {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.7);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
 /* Drag handle icon - hidden by default, visible only when queue expanded */
 .np-queue-drag-handle {
     display: none;

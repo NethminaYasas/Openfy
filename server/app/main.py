@@ -243,6 +243,12 @@ def _startup():
                 )
                 conn.commit()
 
+            if "last_track_id" not in ucols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN last_track_id VARCHAR(36)")
+                )
+                conn.commit()
+
             # Clean up orphaned playlist_tracks that reference missing tracks or playlists
             with engine.connect() as conn2:
                 conn2.execute(
@@ -508,6 +514,9 @@ def stream_track(
         track.play_count = (track.play_count or 0) + 1
         db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
         db.commit()
+        # Update user's last played track
+        user.last_track_id = track_id
+        db.commit()
         return FileResponse(path, media_type=track.mime_type or "audio/mpeg")
 
     size = path.stat().st_size
@@ -529,6 +538,9 @@ def stream_track(
     if start == 0:
         track.play_count = (track.play_count or 0) + 1
         db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
+        db.commit()
+        # Update user's last played track
+        user.last_track_id = track_id
         db.commit()
 
     if start == 0 and end == size - 1:
@@ -924,6 +936,39 @@ def update_upload_preference(
     user.upload_enabled = 1 if payload.upload_enabled else 0
     db.commit()
     return {"status": "updated", "upload_enabled": payload.upload_enabled}
+
+
+@app.get("/user/last-track", response_model=TrackOut | None)
+def get_last_track(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get the user's last played track"""
+    user = _require_user(db, x_auth_hash)
+    if not user.last_track_id:
+        return None
+    track = db.execute(
+        select(Track)
+        .options(selectinload(Track.artists), selectinload(Track.album))
+        .where(Track.id == user.last_track_id)
+    ).scalar_one_or_none()
+    return track
+
+
+@app.put("/user/last-track")
+def update_last_track(
+    track_id: str = Query(..., description="Track ID to set as last played"),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update the user's last played track"""
+    user = _require_user(db, x_auth_hash)
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    user.last_track_id = track_id
+    db.commit()
+    return {"status": "updated", "track_id": track_id}
 
 
 # Admin endpoints
