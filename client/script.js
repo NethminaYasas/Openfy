@@ -380,6 +380,7 @@
         const queueHeader = document.getElementById("queue-header");
         const queueToggle = document.getElementById("queue-toggle");
         let showFullQueue = false; // tracks whether to show full queue (true) or just next track (false)
+        let collapseTimeout = null; // tracks pending collapse render timeout
         npLikeBtn.classList.add("hidden");
         const progressBar = document.getElementById("progress-bar");
         const currTime = document.getElementById("curr-time");
@@ -408,6 +409,9 @@
         let currentQueue = [];
         let currentIndex = -1;
         let currentTrackId = null;
+        let dragSourceIndex = null; // Track index being dragged
+        let draggedElement = null; // DOM element being dragged
+        let lastInsertBeforeEl = null; // For FLIP animation during reordering
         let currentContextPlaylist = null; // { id, name, is_liked, pinned }
         let pendingActionPlaylistId = null; // stored ID for rename/delete modals
         let lastTrackUpdate = 0;
@@ -480,6 +484,18 @@
         }
 
         function setQueueFromList(list, startIndex) {
+            // Auto‑expand queue on first playback after page load
+            if (currentTrackId === null && !showFullQueue) {
+                showFullQueue = true;
+                if (npNextPanel) npNextPanel.classList.add('expanded');
+                const h3 = queueHeader && queueHeader.querySelector('h3');
+                if (h3) h3.textContent = 'QUEUE';
+                if (queueToggle) {
+                    queueToggle.classList.remove('fa-list-ul');
+                    queueToggle.classList.add('fa-chevron-up');
+                }
+            }
+
             const arr = Array.isArray(list) ? list : [];
             if (!arr.length) {
                 currentQueue = [];
@@ -494,6 +510,32 @@
             currentIndex = 0;
             queueOriginal = null;
             shuffleQueueOnce();
+            renderNowPlayingQueue();
+        }
+
+        // Reorder queue: move track at fromIndex to toIndex (inserts before target)
+        function reorderQueue(fromIndex, toIndex) {
+            if (!Array.isArray(currentQueue) || fromIndex < 0 || fromIndex >= currentQueue.length) return;
+            if (toIndex < 0 || toIndex >= currentQueue.length) return;
+            if (fromIndex === toIndex) return;
+
+            // After removal, splice at toIndex gives the correct final position
+            const insertAt = toIndex;
+
+            // Remove from old position, insert at new
+            const [track] = currentQueue.splice(fromIndex, 1);
+            currentQueue.splice(insertAt, 0, track);
+
+            // Update currentIndex if needed
+            if (currentTrackId) {
+                const idx = indexOfTrackId(currentQueue, currentTrackId);
+                if (idx !== -1) currentIndex = idx;
+            }
+
+            // Clear shuffle state since manual reorder overrides it
+            queueOriginal = null;
+
+            // Re-render queue panel
             renderNowPlayingQueue();
         }
 
@@ -1539,6 +1581,8 @@
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className = "np-queue-item" + (opts.isNext ? " next" : "");
+            btn.draggable = showFullQueue; // only allow dragging when queue is expanded
+            btn.dataset.index = index;
 
             const artistText = getArtistDisplay(track) || "Unknown";
             const seed = ((track.title || "") + " " + artistText).trim() || "Openfy";
@@ -1574,10 +1618,18 @@
             badge.textContent = opts.badgeText || "";
             if (!badge.textContent) badge.style.display = "none";
 
+            // Drag handle - only visible when queue expanded
+            const dragHandle = document.createElement("span");
+            dragHandle.className = "np-queue-drag-handle";
+            dragHandle.innerHTML = "⋮";
+            dragHandle.setAttribute("title", "Drag to reorder");
+
+            btn.appendChild(dragHandle);
             btn.appendChild(art);
             btn.appendChild(meta);
             btn.appendChild(badge);
 
+            // Click to play
             btn.addEventListener("click", function(ev) {
                 ev.preventDefault();
                 if (!currentQueue || !currentQueue.length) return;
@@ -1586,8 +1638,149 @@
                 playTrack(currentQueue[currentIndex]);
             });
 
+            // Drag start
+            btn.addEventListener("dragstart", function(ev) {
+                dragSourceIndex = index;
+                draggedElement = btn;
+                btn.classList.add("dragging");
+                if (ev.dataTransfer) {
+                    ev.dataTransfer.setData("text/plain", index.toString());
+                    ev.dataTransfer.effectAllowed = "move";
+                }
+                lastDragY = ev.clientY;
+                lastInsertBeforeEl = null; // reset FLIP tracker
+            });
+
+            // Drag end - cleanup
+            btn.addEventListener("dragend", function(ev) {
+                btn.classList.remove("dragging");
+                // Cleanup any inline styles from FLIP animation
+                document.querySelectorAll('.np-queue-item').forEach(el => {
+                    el.style.transform = '';
+                    el.style.transition = '';
+                });
+                document.querySelectorAll(".np-queue-item.drag-over").forEach(function(el) {
+                    el.classList.remove("drag-over");
+                });
+                dragSourceIndex = null;
+                draggedElement = null;
+                lastDragY = null;
+                lastInsertBeforeEl = null;
+            });
+
+            // Track mouse movement during drag
+            btn.addEventListener("drag", function(ev) {
+                lastDragY = ev.clientY;
+            });
+
             return btn;
         }
+
+        // Get the element before which the dragged item should be inserted
+        function getInsertBeforeElement(container) {
+            const items = Array.from(container.querySelectorAll(".np-queue-item:not(.dragging)"));
+            const dragY = lastDragY;
+            if (dragY === null || items.length === 0) return null;
+
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const rect = item.getBoundingClientRect();
+                const itemMidY = rect.top + rect.height / 2;
+                if (dragY < itemMidY) {
+                    return item;
+                }
+            }
+            return null; // append at end
+        }
+
+        // Real-time reordering during dragover
+        npQueueNext.addEventListener("dragover", function(ev) {
+            ev.preventDefault();
+            if (!draggedElement) return;
+            if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+            lastDragY = ev.clientY;
+            updateDragPosition();
+        });
+
+        function updateDragPosition() {
+            if (!draggedElement || !npQueueNext.contains(draggedElement)) return;
+
+            const insertBeforeEl = getInsertBeforeElement(npQueueNext);
+
+            // Only act if the insertion target changed
+            if (insertBeforeEl === lastInsertBeforeEl) return;
+
+            // --- FLIP: capture "before" positions of siblings ---
+            const siblings = Array.from(npQueueNext.querySelectorAll('.np-queue-item:not(.dragging)'));
+            const beforeRects = new Map();
+            siblings.forEach(el => beforeRects.set(el, el.getBoundingClientRect()));
+
+            // Perform DOM reorder
+            if (insertBeforeEl) {
+                if (draggedElement.nextSibling !== insertBeforeEl) {
+                    npQueueNext.insertBefore(draggedElement, insertBeforeEl);
+                }
+            } else {
+                if (draggedElement.nextSibling !== null) {
+                    npQueueNext.appendChild(draggedElement);
+                }
+            }
+
+            // --- FLIP: animate siblings to their new positions ---
+            siblings.forEach(el => {
+                const before = beforeRects.get(el);
+                const after = el.getBoundingClientRect();
+                const deltaX = before.left - after.left;
+                const deltaY = before.top - after.top;
+                if (deltaX !== 0 || deltaY !== 0) {
+                    // Hold element at old position
+                    el.style.transition = 'none';
+                    el.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+                    // Force reflow to apply the transform
+                    el.offsetHeight;
+                    // Animate to natural new position
+                    el.style.transition = 'transform 0.15s ease';
+                    el.style.transform = '';
+                }
+            });
+
+            // Update visual indicator
+            document.querySelectorAll('.np-queue-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+            if (insertBeforeEl) {
+                insertBeforeEl.classList.add('drag-over');
+            }
+
+            // Remember this insertion point for the next dragover
+            lastInsertBeforeEl = insertBeforeEl;
+        }
+
+        // Reset on dragleave of container
+        npQueueNext.addEventListener("dragleave", function(ev) {
+            if (!npQueueNext.contains(ev.relatedTarget)) {
+                document.querySelectorAll(".np-queue-item.drag-over").forEach(function(el) {
+                    el.classList.remove("drag-over");
+                });
+            }
+        });
+
+        // Drop finalizes reorder
+        npQueueNext.addEventListener("drop", function(ev) {
+            ev.preventDefault();
+            if (dragSourceIndex === null || !draggedElement) return;
+
+            // Compute new index based on dragged element's position in DOM
+            const allItems = Array.from(npQueueNext.querySelectorAll(".np-queue-item"));
+            const newVisualIndex = allItems.indexOf(draggedElement);
+            if (newVisualIndex === -1) return;
+
+            // Visual index → absolute queue index
+            const nextIndex = currentIndex + 1;
+            const toIndex = nextIndex + newVisualIndex;
+
+            if (toIndex === dragSourceIndex) return;
+
+            reorderQueue(dragSourceIndex, toIndex);
+        });
 
         function renderNowPlayingQueue() {
             if (!npNextPanel || !npQueueNext) return;
@@ -1625,21 +1818,39 @@
         // Toggle full queue view on header click
         queueHeader.addEventListener("click", function(e) {
             e.preventDefault();
-            showFullQueue = !showFullQueue;
-            // Update header text and icon
             const h3 = queueHeader.querySelector("h3");
+            const collapseDelay = 280; // matches CSS transition duration (0.28s)
+
             if (showFullQueue) {
-                h3.textContent = "QUEUE";
-                queueToggle.classList.remove("fa-list-ul");
-                queueToggle.classList.add("fa-chevron-up");
-                npNextPanel.classList.add("expanded");
-            } else {
+                // Collapse to "NEXT IN QUEUE"
+                showFullQueue = false;
                 h3.textContent = "NEXT IN QUEUE";
                 queueToggle.classList.remove("fa-chevron-up");
                 queueToggle.classList.add("fa-list-ul");
                 npNextPanel.classList.remove("expanded");
+
+                if (collapseTimeout) {
+                    clearTimeout(collapseTimeout);
+                    collapseTimeout = null;
+                }
+
+                collapseTimeout = setTimeout(function() {
+                    collapseTimeout = null;
+                    renderNowPlayingQueue();
+                }, collapseDelay);
+            } else {
+                // Expand to "QUEUE"
+                showFullQueue = true;
+                h3.textContent = "QUEUE";
+                queueToggle.classList.remove("fa-list-ul");
+                queueToggle.classList.add("fa-chevron-up");
+                npNextPanel.classList.add("expanded");
+                if (collapseTimeout) {
+                    clearTimeout(collapseTimeout);
+                    collapseTimeout = null;
+                }
+                renderNowPlayingQueue();
             }
-            renderNowPlayingQueue();
         });
 
         function indexOfTrackId(queue, trackId) {

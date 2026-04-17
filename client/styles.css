@@ -245,10 +245,14 @@ body {
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
+    transition: max-height 0.28s cubic-bezier(0.25, 0.8, 0.25, 1);
+    max-height: 140px;
+    contain: content;
+    will-change: max-height;
 }
 
 .np-queue-panel.expanded {
-    flex: 0 0 auto;
+    max-height: 70vh;
 }
 
 .np-details + .np-queue-panel {
@@ -284,7 +288,7 @@ body {
     font-size: 1rem;
     color: #727272;
     opacity: 0;
-    transition: opacity 0.2s ease, color 0.2s ease;
+    transition: opacity 0.2s ease, color 0.2s ease, transform 0.3s ease;
 }
 
 .np-queue-panel:hover .queue-toggle-icon,
@@ -296,8 +300,13 @@ body {
     color: #fff;
 }
 
+/* Smooth rotation when expanded */
+.np-queue-panel.expanded .queue-toggle-icon {
+    transform: rotate(180deg);
+}
+
 .np-queue-next {
-    flex: 0 0 auto;
+    overflow: hidden;
     padding: 0 1rem 0.75rem;
     display: flex;
     flex-direction: column;
@@ -341,6 +350,53 @@ body {
 .np-queue-item:focus-visible {
     outline: 2px solid rgba(255,255,255,0.22);
     outline-offset: 2px;
+}
+
+/* Drag handle icon - hidden by default, visible only when queue expanded */
+.np-queue-drag-handle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    font-size: 1rem;
+    color: rgba(255,255,255,0.25);
+    cursor: grab;
+    flex-shrink: 0;
+    border-radius: 4px;
+    transition: opacity 0.2s ease, color 0.2s ease;
+    user-select: none;
+    pointer-events: none; /* let mouse events pass through to button */
+}
+
+.np-queue-panel.expanded .np-queue-drag-handle {
+    display: inline-flex;
+    opacity: 1;
+}
+
+.np-queue-drag-handle:active {
+    cursor: grabbing;
+    color: rgba(255,255,255,0.45);
+}
+
+/* Dragging state - applied to the item being dragged */
+.np-queue-item.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+    transform: rotate(1deg);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
+
+/* Drop target indication */
+.np-queue-item.drag-over {
+    background: rgba(255,255,255,0.1);
+    outline: 2px dashed rgba(255,255,255,0.3);
+    outline-offset: -2px;
+}
+
+/* Disable pointer events on children of dragging item */
+.np-queue-item.dragging * {
+    pointer-events: none;
 }
 
 .np-queue-art {
