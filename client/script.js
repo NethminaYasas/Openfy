@@ -413,6 +413,7 @@
         let draggedElement = null; // DOM element being dragged
         let lastInsertBeforeEl = null; // For FLIP animation during reordering
         let currentContextPlaylist = null; // { id, name, is_liked, pinned }
+        let currentContextTrack = null; // track object for track context menu
         let pendingActionPlaylistId = null; // stored ID for rename/delete modals
         let lastTrackUpdate = 0;
         let updateCheckInterval = null;
@@ -657,6 +658,13 @@
                 setQueueFromList(list, index);
                 if (currentQueue.length) playTrack(currentQueue[0]);
             });
+
+            // Right-click context menu for track
+            card.addEventListener("contextmenu", function(e) {
+                e.preventDefault();
+                showTrackContextMenu(e, track);
+            });
+
             return card;
         }
 
@@ -2254,7 +2262,13 @@
 
                 var typeEl = document.createElement("p");
                 typeEl.className = "lib-item-type";
-                typeEl.textContent = "Playlist";
+                if (pl.pinned) {
+                    var pinElType = document.createElement("i");
+                    pinElType.className = "fa-solid fa-thumbtack library-pin-icon";
+                    typeEl.appendChild(pinElType);
+                    typeEl.appendChild(document.createTextNode(" "));
+                }
+                typeEl.appendChild(document.createTextNode("Playlist"));
 
                 info.appendChild(nameEl);
                 info.appendChild(typeEl);
@@ -2329,9 +2343,7 @@
         }
 
         document.getElementById("new-playlist-btn").addEventListener("click", async function() {
-            var name = prompt("Playlist name:");
-            if (!name || !name.trim()) return;
-            try { await api("/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) }); loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
+            try { await api("/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "My Playlist" }) }); loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
         });
 
         userIcon.addEventListener("click", function(event) {
@@ -2644,6 +2656,7 @@
         const ctxPin = document.getElementById("ctx-pin");
         const ctxRename = document.getElementById("ctx-rename");
         const ctxRemove = document.getElementById("ctx-remove");
+        const ctxTrackAddQueue = document.getElementById("ctx-track-add-queue");
 
         const renameModalOverlay = document.getElementById("rename-modal-overlay");
         const renameInput = document.getElementById("rename-input");
@@ -2657,6 +2670,7 @@
 
         function showContextMenu(e, playlist) {
             currentContextPlaylist = playlist;
+            currentContextTrack = null; // clear track context
             // Position menu near mouse
             const menuWidth = 180;
             const menuHeight = 110; // approx
@@ -2685,13 +2699,55 @@
                 ctxPin.classList.remove("disabled");
             }
 
+            // Show playlist items, hide track-specific items
+            ctxPin.style.display = '';
+            ctxRename.style.display = '';
+            ctxRemove.style.display = '';
+            ctxTrackAddQueue.style.display = 'none';
+
             contextMenuOverlay.style.display = "block";
         }
 
         function hideContextMenu() {
             contextMenuOverlay.style.display = "none";
             currentContextPlaylist = null;
+            currentContextTrack = null;
         }
+
+        function showTrackContextMenu(e, track) {
+            // Close any existing context menu first
+            hideContextMenu();
+
+            currentContextTrack = track;
+            currentContextPlaylist = null; // clear playlist context
+
+            // Position menu near mouse
+            const menuWidth = 180;
+            const menuHeight = 110; // approx
+            let x = e.clientX;
+            let y = e.clientY;
+            if (x + menuWidth > window.innerWidth) x -= menuWidth;
+            if (y + menuHeight > window.innerHeight) y -= menuHeight;
+            contextMenu.style.left = x + "px";
+            contextMenu.style.top = y + "px";
+
+            // Hide playlist items
+            ctxPin.style.display = 'none';
+            ctxRename.style.display = 'none';
+            ctxRemove.style.display = 'none';
+            // Show Add to Queue
+            ctxTrackAddQueue.style.display = '';
+            // Disable (gray out) if track already in queue
+            if (indexOfTrackId(currentQueue, track.id) !== -1) {
+                ctxTrackAddQueue.classList.add('disabled');
+            } else {
+                ctxTrackAddQueue.classList.remove('disabled');
+            }
+
+            // Show the menu
+            contextMenuOverlay.style.display = "block";
+        }
+
 
         // Context menu item clicks
         ctxPin.addEventListener("click", async function() {
@@ -2728,6 +2784,24 @@
             hideContextMenu();
             confirmMessage.textContent = 'Delete playlist "' + targetName + '"?';
             confirmModalOverlay.style.display = "flex";
+        });
+
+        ctxTrackAddQueue.addEventListener("click", function() {
+            // Ignore if disabled
+            if (ctxTrackAddQueue.classList.contains('disabled')) return;
+            if (!currentContextTrack) return;
+            const track = currentContextTrack;
+            // Double-check if already in queue
+            if (indexOfTrackId(currentQueue, track.id) !== -1) {
+                hideContextMenu();
+                return;
+            }
+            // Add track to end of queue
+            currentQueue.push(track);
+            // Invalidate shuffle state since queue changed manually
+            queueOriginal = null;
+            renderNowPlayingQueue();
+            hideContextMenu();
         });
 
         // Close context menu on overlay click

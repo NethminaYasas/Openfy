@@ -65,7 +65,7 @@ class TrackOutAdmin(TrackOut):
 
 
 class PlaylistCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
 
 

@@ -25,6 +25,7 @@ from fastapi.responses import (
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 
 from .db import Base, engine, get_db, SessionLocal
 from .models import (
@@ -184,6 +185,23 @@ def _startup():
                     text("ALTER TABLE playlists ADD COLUMN pinned INTEGER DEFAULT 0")
                 )
                 conn.commit()
+
+            # Ensure unique constraint/index on (user_hash, name) to prevent duplicate playlist names per user
+            indexes = [
+                row[1]
+                for row in conn.execute(text("PRAGMA index_list(playlists)")).fetchall()
+            ]
+            if "idx_playlists_user_hash_name" not in indexes:
+                try:
+                    conn.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_user_hash_name ON playlists(user_hash, name)"
+                        )
+                    )
+                    conn.commit()
+                except Exception as e:
+                    # If index creation fails (e.g., duplicates already exist), log but continue
+                    print(f"Warning: Could not create unique index on playlists: {e}")
 
             djcols = [
                 row[1]
@@ -631,15 +649,36 @@ def create_playlist(
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
-    playlist = Playlist(
-        name=payload.name,
-        description=payload.description,
-        user_hash=user.auth_hash,
+
+    # Determine base name: use provided name or default to "My Playlist"
+    base_name = (payload.name or "").strip()
+    if not base_name:
+        base_name = "My Playlist"
+
+    final_name = base_name
+    counter = 2
+    max_retries = 1000  # Safety limit
+
+    for attempt in range(max_retries):
+        try:
+            playlist = Playlist(
+                name=final_name,
+                description=payload.description,
+                user_hash=user.auth_hash,
+            )
+            db.add(playlist)
+            db.commit()
+            db.refresh(playlist)
+            return playlist
+        except IntegrityError:
+            db.rollback()
+            # Name collision, try next incremented name
+            final_name = f"{base_name} #{counter}"
+            counter += 1
+
+    raise HTTPException(
+        status_code=409, detail="Could not generate unique playlist name"
     )
-    db.add(playlist)
-    db.commit()
-    db.refresh(playlist)
-    return playlist
 
 
 @app.get("/playlists/{playlist_id}", response_model=PlaylistOut)
@@ -682,6 +721,16 @@ def update_playlist(
         )
     # Allow name change for non-liked playlists
     if not playlist.is_liked and payload.name is not None:
+        # Check for duplicate name among user's playlists (excluding current)
+        existing = db.execute(
+            select(Playlist).where(
+                Playlist.user_hash == x_auth_hash,
+                Playlist.name == payload.name,
+                Playlist.id != playlist_id,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="Playlist name already exists")
         playlist.name = payload.name
     # Allow pinned changes for any playlist (including Liked Songs)
     if payload.pinned is not None:

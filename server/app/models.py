@@ -152,6 +152,10 @@ class Playlist(Base):
     pinned: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    __table_args__ = (
+        UniqueConstraint("user_hash", "name", name="uq_user_playlist_name"),
+    )
+
     user = relationship("User", back_populates="playlists")
     tracks = relationship(
         "PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan"

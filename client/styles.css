@@ -2608,12 +2608,22 @@ input:checked + .toggle-slider:before {
     text-align: center;
     color: #b3b3b3;
 }
+.context-menu-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: #b3b3b3;
+}
 .context-menu-item:hover {
-    background: #1db954;
-    color: #000;
+    background: #3e3e3e;
+    color: #fff;
+    border-radius: 4px;
 }
 .context-menu-item:hover i {
-    color: #000;
+    color: #b3b3b3;
+}
+.context-menu-item:hover .context-menu-icon {
+    color: #b3b3b3;
 }
 .context-menu-item.disabled {
     opacity: 0.5;
@@ -2624,9 +2634,12 @@ input:checked + .toggle-slider:before {
     background: transparent;
     color: #fff;
 }
-.context-menu-item.disabled:hover i {
+.context-menu-item.disabled:hover i,
+.context-menu-item.disabled:hover .context-menu-icon {
     color: #b3b3b3;
 }
+
+/* Add to Queue context menu item - inherits default .context-menu-item styling */
 
 /* Rename Modal */
 .rename-modal-overlay {
