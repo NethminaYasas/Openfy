@@ -2243,29 +2243,58 @@
                 var cover = document.createElement("div");
                 cover.className = "lib-item-cover";
                 cover.style.background = bg;
-                var iconEl = document.createElement("i");
-                iconEl.className = pl.is_liked ? "fa-solid fa-heart" : "fa-solid fa-list";
-                cover.appendChild(iconEl);
+                if (pl.is_liked) {
+                    var iconEl = document.createElement("i");
+                    iconEl.className = "fa-solid fa-heart";
+                    cover.appendChild(iconEl);
+                 } else {
+                     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                     svg.className = "lib-item-icon";
+                     svg.setAttribute("viewBox", "292 128 156 156");
+                     svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+                     svg.setAttribute("role", "img");
+                     svg.setAttribute("aria-label", "Playlist");
+                     svg.setAttribute("width", "20");
+                     svg.setAttribute("height", "20");
+                     var title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+                     title.textContent = "Playlist icon";
+                     var desc = document.createElementNS("http://www.w3.org/2000/svg", "desc");
+                     desc.textContent = "A music note/playlist icon";
+                     var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                     g.setAttribute("transform", "translate(297, 133) scale(6.667)");
+                     var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                     path.setAttribute("fill", "currentColor");
+                     path.setAttribute("d", "M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z");
+                     g.appendChild(path);
+                     svg.appendChild(title);
+                     svg.appendChild(desc);
+                     svg.appendChild(g);
+                     cover.appendChild(svg);
+                 }
 
                 var info = document.createElement("div");
                 info.className = "lib-item-info";
 
                 var nameEl = document.createElement("p");
                 nameEl.className = "lib-item-name";
-                if (pl.pinned) {
-                    var pinEl = document.createElement("i");
-                    pinEl.className = "fa-solid fa-thumbtack library-pin-icon";
-                    nameEl.appendChild(pinEl);
-                    nameEl.appendChild(document.createTextNode(" "));
-                }
                 nameEl.appendChild(document.createTextNode(pl.name || ""));
 
                 var typeEl = document.createElement("p");
                 typeEl.className = "lib-item-type";
                 if (pl.pinned) {
-                    var pinElType = document.createElement("i");
-                    pinElType.className = "fa-solid fa-thumbtack library-pin-icon";
-                    typeEl.appendChild(pinElType);
+                    var pinSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                    pinSvg.className = "library-pin-icon";
+                    pinSvg.setAttribute("viewBox", "290 120 160 160");
+                    pinSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+                    pinSvg.setAttribute("aria-hidden", "true");
+                    var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    g.setAttribute("transform", "translate(290, 120) scale(10)");
+                    var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    path.setAttribute("d", "M8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    path.setAttribute("fill", "#1ed760");
+                    g.appendChild(path);
+                    pinSvg.appendChild(g);
+                    typeEl.appendChild(pinSvg);
                     typeEl.appendChild(document.createTextNode(" "));
                 }
                 typeEl.appendChild(document.createTextNode("Playlist"));
@@ -2295,7 +2324,7 @@
                 document.getElementById("playlist-meta").textContent = tracks.length + " songs";
                 var cover = document.getElementById("playlist-cover");
                 cover.style.background = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
-                cover.innerHTML = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<i class="fa-solid fa-list"></i>';
+                cover.innerHTML = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<svg class="playlist-cover-icon" viewBox="292 128 156 156" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Playlist"><title>Playlist icon</title><desc>A music note/playlist icon</desc><g transform="translate(297, 133) scale(6.667)"><path fill="currentColor" d="M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z"/></g></svg>';
                 var container = document.getElementById("playlist-tracks");
                 container.innerHTML = "";
                 tracks.forEach(function(pt, i) {
@@ -2682,10 +2711,21 @@
             contextMenu.style.left = x + "px";
             contextMenu.style.top = y + "px";
 
-            // Update Pin menu item text and state
+            // Update Pin menu item: icon and text
             const pinSpan = ctxPin.querySelector("span");
             pinSpan.textContent = playlist.pinned ? "Unpin" : "Pin";
-            // Pin icon rotation or fill? We'll just toggle text.
+            const pinIcon = ctxPin.querySelector("svg .pin-path");
+            if (pinIcon) {
+                if (playlist.pinned) {
+                    // Filled pin (pinned.svg) - green
+                    pinIcon.setAttribute("d", "M8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    pinIcon.setAttribute("fill", "#1ed760");
+                } else {
+                    // Outline pin (pin.svg) - gray
+                    pinIcon.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    pinIcon.setAttribute("fill", "#b3b3b3");
+                }
+            }
 
             // Disable only Rename and Remove for Liked Songs; Pin remains enabled
             if (playlist.is_liked) {

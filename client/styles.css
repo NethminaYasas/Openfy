@@ -61,8 +61,26 @@ body {
 }
 
 #top-bar-home {
-    margin-right: 0.25rem;
-    margin-top: 10px;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    color: #fff;
+    cursor: pointer;
+    transition: color 0.2s ease, transform 0.1s ease;
+    flex-shrink: 0;
+    margin-left: 0;
+    margin-right: 0.35rem;
+    margin-top: 6px;
+    transform: translateY(0);
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    line-height: 1;
+}
+
+#top-bar-home:hover {
+    color: #b3b3b3;
+    transform: scale(1.06);
 }
 
 .main {
@@ -655,14 +673,23 @@ a {
     opacity: 1;
 }
 
-.nav-option i {
+.nav-option i,
+.nav-option svg {
     font-size: 1.25rem;
     vertical-align: middle;
+    width: 1.25em;
+    height: 1.25em;
+    flex-shrink: 0;
 }
 
 .nav-option a {
     font-size: 1rem;
     margin-left: 1rem;
+}
+
+/* Align "Your Library" text with playlist items (no icon) */
+.lib-option a {
+    margin-left: 0;
 }
 
 .library {
@@ -910,6 +937,12 @@ a {
     flex-shrink: 0;
 }
 
+.nav-icon-btn img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+}
+
 .nav-icon-btn:hover {
     color: #fff;
     transform: scale(1.06);
@@ -1000,6 +1033,12 @@ a {
     cursor: pointer;
     transition: color 0.2s ease, transform 0.1s ease;
     flex-shrink: 0;
+}
+
+.nav-icon-btn img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
 }
 
 .nav-icon-btn:hover {
@@ -1885,9 +1924,13 @@ a {
     background: #333;
 }
 
-.dropdown-item i {
+.dropdown-item i,
+.dropdown-item svg {
     font-size: 0.875rem;
     color: #b3b3b3;
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
 }
 
 .toggle-item {
@@ -1975,9 +2018,18 @@ input:checked + .toggle-slider:before {
     flex-shrink: 0;
 }
 
-.lib-item-cover i {
+.lib-item-cover i,
+.lib-item-cover .lib-item-icon {
     font-size: 1.25rem;
     color: #fff;
+    width: 20px;
+    height: 20px;
+}
+
+.lib-item-cover img.lib-item-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
 }
 
 .lib-item-info {
@@ -1995,6 +2047,9 @@ input:checked + .toggle-slider:before {
 .lib-item-type {
     font-size: 0.75rem;
     color: #b3b3b3;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .playlist-header {
@@ -2014,9 +2069,17 @@ input:checked + .toggle-slider:before {
     flex-shrink: 0;
 }
 
-.playlist-cover i {
+.playlist-cover i,
+.playlist-cover .playlist-cover-icon {
     font-size: 5rem;
     color: #fff;
+}
+
+.playlist-cover img.playlist-cover-icon,
+.playlist-cover .playlist-cover-icon {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
 }
 
 .playlist-info {
@@ -2573,10 +2636,12 @@ input:checked + .toggle-slider:before {
 }
 
 .library-pin-icon {
-    font-size: 0.75rem;
-    color: #1db954;
+    width: 14px;
+    height: 14px;
+    color: #1ed760;
     margin-right: 4px;
     vertical-align: middle;
+    flex-shrink: 0;
 }
 .context-menu {
     position: fixed;
