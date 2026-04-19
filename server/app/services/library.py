@@ -21,7 +21,7 @@ def _safe_int(value):
             value = value[0]
         if value is None:
             return None
-        text = str(value).split("/")[0]
+        text = str(value).split("/")[0].strip()
         return int(text)
     except (ValueError, TypeError):
         return None
@@ -114,7 +114,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     artist_names = []
     if isinstance(raw_artists, str):
         # Split on common delimiters: comma, semicolon, slash, &, "and"
-        parts = re.split(r'[,;/&]|\band\b', raw_artists, flags=re.IGNORECASE)
+        parts = re.split(r'[,;/&]|\s+and\s+', raw_artists, flags=re.IGNORECASE)
         artist_names = []
         for name in parts:
             name = name.strip()
@@ -310,7 +310,7 @@ def _read_metadata(path: Path) -> dict:
 
     split_artists = []
     for entry in artist_entries:
-        parts = re.split(r'[,;/&]|\band\b', entry, flags=re.IGNORECASE)
+        parts = re.split(r'[,;/&]|\s+and\s+', entry, flags=re.IGNORECASE)
         for p in parts:
             p = p.strip()
             if p:
