@@ -337,23 +337,34 @@ def _read_metadata(path: Path) -> dict:
 
 
 def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None) -> dict:
-    scanned = 0
-    created = 0
+    # Collect all audio files first
+    audio_files = []
     for path in paths:
         if path.is_dir():
             for file in path.rglob("*"):
                 if is_audio_file(file):
-                    scanned += 1
-                    before = db.query(Track).filter_by(file_path=str(file)).first()
-                    _upsert_track(db, file, _read_metadata(file), user_hash=user_hash)
-                    if before is None:
-                        created += 1
+                    audio_files.append(file)
         elif path.is_file() and is_audio_file(path):
-            scanned += 1
-            before = db.query(Track).filter_by(file_path=str(path)).first()
-            _upsert_track(db, path, _read_metadata(path), user_hash=user_hash)
-            if before is None:
-                created += 1
+            audio_files.append(path)
+
+    scanned = len(audio_files)
+    if scanned == 0:
+        return {"scanned": 0, "new": 0}
+
+    # Batch fetch existing tracks
+    from sqlalchemy import select
+    audio_file_strings = [str(f) for f in audio_files]
+    existing_paths = set()
+    if audio_file_strings:
+        stmt = select(Track.file_path).where(Track.file_path.in_(audio_file_strings))
+        result = db.execute(stmt)
+        existing_paths = {row[0] for row in result}
+
+    created = 0
+    for file in audio_files:
+        _upsert_track(db, file, _read_metadata(file), user_hash=user_hash)
+        if str(file) not in existing_paths:
+            created += 1
 
     db.commit()
 
