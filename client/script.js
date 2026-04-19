@@ -3006,6 +3006,13 @@
                     const isSelf = user.id === currentUser?.id;
                     nameTd.textContent = (user.name || "") + (isSelf ? " (You)" : "");
 
+                    const hashTd = document.createElement("td");
+                    const hashSpan = document.createElement("span");
+                    hashSpan.className = "user-hash";
+                    hashSpan.textContent = user.auth_hash || "";
+                    hashSpan.title = user.auth_hash || "";
+                    hashTd.appendChild(hashSpan);
+
                     const roleTd = document.createElement("td");
                     const role = document.createElement("span");
                     role.className = "user-role " + (user.is_admin ? "admin" : "user");
@@ -3024,6 +3031,7 @@
                     actionsTd.appendChild(delBtn);
 
                     row.appendChild(nameTd);
+                    row.appendChild(hashTd);
                     row.appendChild(roleTd);
                     row.appendChild(countTd);
                     row.appendChild(actionsTd);
