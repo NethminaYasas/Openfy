@@ -529,12 +529,15 @@ def stream_track(
 
     range_header = request.headers.get("range")
     if not range_header:
-        track.play_count = (track.play_count or 0) + 1
-        db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
-        db.commit()
-        # Update user's last played track
-        user.last_track_id = track_id
-        db.commit()
+        try:
+            track.play_count = (track.play_count or 0) + 1
+            db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
+            # Update user's last played track
+            user.last_track_id = track_id
+            db.commit()  # Single atomic commit
+        except Exception:
+            db.rollback()
+            raise
         return FileResponse(path, media_type=track.mime_type or "audio/mpeg")
 
     size = path.stat().st_size
@@ -554,12 +557,15 @@ def stream_track(
     end = min(end, size - 1)
 
     if start == 0:
-        track.play_count = (track.play_count or 0) + 1
-        db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
-        db.commit()
-        # Update user's last played track
-        user.last_track_id = track_id
-        db.commit()
+        try:
+            track.play_count = (track.play_count or 0) + 1
+            db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
+            # Update user's last played track
+            user.last_track_id = track_id
+            db.commit()  # Single atomic commit
+        except Exception:
+            db.rollback()
+            raise
 
     if start == 0 and end == size - 1:
         return FileResponse(path, media_type=track.mime_type or "audio/mpeg")
