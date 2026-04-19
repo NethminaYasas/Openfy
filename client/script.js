@@ -417,7 +417,8 @@
         let pendingActionPlaylistId = null; // stored ID for rename/delete modals
         let lastTrackUpdate = 0;
         let updateCheckInterval = null;
-        let existingTracks = new Set(); // Track existing track IDs
+        let existingLibraryTracks = new Set(); // Track existing track IDs for library
+        let existingMostPlayedTracks = new Set(); // Track existing track IDs for most played
         let lastSearchResults = [];
         let searchDebounceTimer = null;
 
@@ -719,12 +720,12 @@
                     card.classList.add('track-row-card');
 
                     // Check if this is a new track
-                    if (!existingTracks.has(track.id)) {
+                    if (!existingLibraryTracks.has(track.id)) {
                         card.classList.add('new-track');
                         // Add animation delay for sequential effect
                         card.style.animationDelay = `${index * 0.1}s`;
                         // Add to existing tracks
-                        existingTracks.add(track.id);
+                        existingLibraryTracks.add(track.id);
                     }
 
                     trackRow.appendChild(card);
@@ -1064,12 +1065,12 @@
                     card.classList.add('track-row-card');
 
                     // Check if this is a new track
-                    if (!existingTracks.has(track.id)) {
+                    if (!existingMostPlayedTracks.has(track.id)) {
                         card.classList.add('new-track');
                         // Add animation delay for sequential effect
                         card.style.animationDelay = `${index * 0.1}s`;
                         // Add to existing tracks
-                        existingTracks.add(track.id);
+                        existingMostPlayedTracks.add(track.id);
                     }
 
                     trackRow.appendChild(card);
