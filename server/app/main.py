@@ -1117,26 +1117,18 @@ def list_all_tracks(
     if not admin_user or not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    stmt = (
-        select(Track)
-        .options(selectinload(Track.artists))
-        .order_by(Track.created_at.desc())
-    )
+    stmt = select(Track, User).join(User, Track.user_hash == User.auth_hash, isouter=True).options(selectinload(Track.artists))
     if q:
-        stmt = (
-            stmt.where(
-                (Track.title.ilike(f"%{q}%"))
-                | (Track.artists.any(Artist.name.ilike(f"%{q}%")))
-                | (Album.title.ilike(f"%{q}%"))
-            ).join(Album, isouter=True)  # join Album for album title search
+        stmt = stmt.join(Album, isouter=True).where(
+            (Track.title.ilike(f"%{q}%"))
+            | (Track.artists.any(Artist.name.ilike(f"%{q}%")))
+            | (Album.title.ilike(f"%{q}%"))
         )
+    stmt = stmt.order_by(Track.created_at.desc())
 
-    tracks = db.execute(stmt).scalars().all()
+    results = db.execute(stmt).all()
     result = []
-    for track in tracks:
-        user = db.execute(
-            select(User).where(User.auth_hash == track.user_hash)
-        ).scalar_one_or_none()
+    for track, user in results:
         # Get primary artist name (first in artists list or fallback)
         artist_name = "Unknown"
         if track.artists and len(track.artists) > 0:
