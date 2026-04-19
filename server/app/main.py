@@ -987,7 +987,8 @@ def update_upload_preference(
 
     user.upload_enabled = 1 if payload.upload_enabled else 0
     db.commit()
-    return {"status": "updated", "upload_enabled": payload.upload_enabled}
+    db.refresh(user)
+    return {"status": "updated", "upload_enabled": bool(user.upload_enabled)}
 
 
 @app.get("/user/last-track", response_model=TrackOut | None)
