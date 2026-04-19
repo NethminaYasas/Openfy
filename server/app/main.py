@@ -123,23 +123,26 @@ app.add_middleware(
 @app.middleware("http")
 async def add_track_update_timestamp(request: Request, call_next):
     global last_track_update
+    try:
+        response = await call_next(request)
 
-    response = await call_next(request)
+        # Basic hardening headers for the UI/API responses.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        )
 
-    # Basic hardening headers for the UI/API responses.
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault(
-        "Permissions-Policy",
-        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
-    )
+        # Add track update timestamp to responses for tracks endpoint
+        if request.url.path.startswith("/tracks"):
+            response.headers["X-Track-Update-Timestamp"] = str(last_track_update)
 
-    # Add track update timestamp to responses for tracks endpoint
-    if request.url.path.startswith("/tracks"):
-        response.headers["X-Track-Update-Timestamp"] = str(last_track_update)
-
-    return response
+        return response
+    except Exception:
+        # If there was an exception in the endpoint, re-raise it without trying to set headers
+        raise
 
 
 @app.on_event("startup")

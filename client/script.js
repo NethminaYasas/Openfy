@@ -309,8 +309,21 @@
           }
         }
 
-        // Initialize gradient manager
+        // Gradient manager instance
         let gradientManager = null;
+
+        // Helper to emit track change event for gradient updates
+        function emitTrackChanged(track) {
+            if (!gradientManager) return;
+            const event = new CustomEvent('trackChanged', {
+                detail: {
+                    artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
+                    title: track.title,
+                    artist: getArtistDisplay(track)
+                }
+            });
+            document.dispatchEvent(event);
+        }
 
         function initGradient() {
           if (!gradientManager) {
@@ -421,6 +434,10 @@
         let existingMostPlayedTracks = new Set(); // Track existing track IDs for most played
         let lastSearchResults = [];
         let searchDebounceTimer = null;
+        let tracksInitTimeout = null;
+        let uploadsInitTimeout = null;
+        let mostPlayedInitTimeout = null;
+        let activeDownloadPoll = null; // Current download poll interval
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -467,7 +484,12 @@
         function formatDuration(seconds) {
             if (!seconds || Number.isNaN(seconds)) return "00:00";
             var mins = Math.floor(seconds / 60);
-            var secs = Math.floor(seconds % 60).toString().padStart(2, "0");
+            var secs = Math.round(seconds % 60).toString().padStart(2, "0");
+            // Handle rounding up to next minute
+            if (secs === "60") {
+                secs = "00";
+                mins += 1;
+            }
             return mins + ":" + secs;
         }
 
@@ -532,6 +554,9 @@
             if (currentTrackId) {
                 const idx = indexOfTrackId(currentQueue, currentTrackId);
                 if (idx !== -1) currentIndex = idx;
+                else currentIndex = -1; // track not found, reset
+            } else {
+                currentIndex = -1;
             }
 
             // Clear shuffle state since manual reorder overrides it
@@ -715,15 +740,17 @@
                 trackRow.id = `tracks-grid-${rowIndex}`;
 
                 // Add tracks to the row with animation for new tracks
-                rowTracks.forEach(function(track, index) {
-                    const card = buildTrackCard(track, tracks, tracks.indexOf(track));
+                const baseIndex = rowIndex * maxTracksPerRow;
+                rowTracks.forEach(function(track, idx) {
+                    const globalIndex = baseIndex + idx;
+                    const card = buildTrackCard(track, tracks, globalIndex);
                     card.classList.add('track-row-card');
 
                     // Check if this is a new track
                     if (!existingLibraryTracks.has(track.id)) {
                         card.classList.add('new-track');
                         // Add animation delay for sequential effect
-                        card.style.animationDelay = `${index * 0.1}s`;
+                        card.style.animationDelay = `${idx * 0.1}s`;
                         // Add to existing tracks
                         existingLibraryTracks.add(track.id);
                     }
@@ -748,17 +775,24 @@
             });
 
             // Initialize track row scrolling for each row
-            setTimeout(() => {
+            if (tracksInitTimeout) clearTimeout(tracksInitTimeout);
+            tracksInitTimeout = setTimeout(() => {
                 rows.forEach((_, rowIndex) => {
                     const prevBtn = document.getElementById(`track-row-prev-${rowIndex}`);
                     const nextBtn = document.getElementById(`track-row-next-${rowIndex}`);
+                    // Skip if elements were removed (DOM replaced by new render)
+                    if (!prevBtn || !nextBtn || !prevBtn.isConnected || !nextBtn.isConnected) return;
                     const trackRow = document.getElementById(`tracks-grid-${rowIndex}`);
                     const rowContainer = prevBtn.nextElementSibling;
 
-                    if (trackRow && rowContainer) {
+                    if (trackRow && rowContainer && rowContainer.isConnected && trackRow.isConnected) {
+                        // Compute card width dynamically
+                        const sampleCard = trackRow.querySelector('.track-row-card');
+                        const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
+                        const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
+
                         // Create a simple position tracker for this row
                         let currentPosition = 0;
-                        const cardWidth = 176; // 160px + 16px gap
 
                         // Button visibility variables
                         let showPrevBtn = false;
@@ -887,17 +921,19 @@
                 trackRow.id = `uploads-grid-${rowIndex}`;
 
                 // Add tracks to the row with animation for new tracks
-                rowTracks.forEach(function(track, index) {
-                    const card = buildTrackCard(track, tracks, tracks.indexOf(track));
+                const baseIndex = rowIndex * maxTracksPerRow;
+                rowTracks.forEach(function(track, idx) {
+                    const globalIndex = baseIndex + idx;
+                    const card = buildTrackCard(track, tracks, globalIndex);
                     card.classList.add('track-row-card');
 
                     // Check if this is a new track
-                    if (!existingTracks.has(track.id)) {
+                    if (!existingLibraryTracks.has(track.id)) {
                         card.classList.add('new-track');
                         // Add animation delay for sequential effect
-                        card.style.animationDelay = `${index * 0.1}s`;
+                        card.style.animationDelay = `${idx * 0.1}s`;
                         // Add to existing tracks
-                        existingTracks.add(track.id);
+                        existingLibraryTracks.add(track.id);
                     }
 
                     trackRow.appendChild(card);
@@ -920,17 +956,23 @@
             });
 
             // Initialize track row scrolling for each row
-            setTimeout(() => {
+            if (uploadsInitTimeout) clearTimeout(uploadsInitTimeout);
+            uploadsInitTimeout = setTimeout(() => {
                 rows.forEach((_, rowIndex) => {
                     const prevBtn = document.getElementById(`uploads-row-prev-${rowIndex}`);
                     const nextBtn = document.getElementById(`uploads-row-next-${rowIndex}`);
+                    if (!prevBtn || !nextBtn || !prevBtn.isConnected || !nextBtn.isConnected) return;
                     const trackRow = document.getElementById(`uploads-grid-${rowIndex}`);
                     const rowContainer = prevBtn.nextElementSibling;
 
-                    if (trackRow && rowContainer) {
+                    if (trackRow && rowContainer && rowContainer.isConnected && trackRow.isConnected) {
+                        // Compute card width dynamically
+                        const sampleCard = trackRow.querySelector('.track-row-card');
+                        const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
+                        const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
+
                         // Create a simple position tracker for this row
                         let currentPosition = 0;
-                        const cardWidth = 176; // 160px + 16px gap
 
                         // Button visibility variables
                         let showPrevBtn = false;
@@ -1060,15 +1102,17 @@
                 trackRow.id = `most-played-grid-${rowIndex}`;
 
                 // Add tracks to the row with animation for new tracks
-                rowTracks.forEach(function(track, index) {
-                    const card = buildTrackCard(track, tracks, tracks.indexOf(track));
+                const baseIndex = rowIndex * maxTracksPerRow;
+                rowTracks.forEach(function(track, idx) {
+                    const globalIndex = baseIndex + idx;
+                    const card = buildTrackCard(track, tracks, globalIndex);
                     card.classList.add('track-row-card');
 
                     // Check if this is a new track
                     if (!existingMostPlayedTracks.has(track.id)) {
                         card.classList.add('new-track');
                         // Add animation delay for sequential effect
-                        card.style.animationDelay = `${index * 0.1}s`;
+                        card.style.animationDelay = `${idx * 0.1}s`;
                         // Add to existing tracks
                         existingMostPlayedTracks.add(track.id);
                     }
@@ -1093,17 +1137,23 @@
             });
 
             // Initialize track row scrolling for each row
-            setTimeout(() => {
+            if (mostPlayedInitTimeout) clearTimeout(mostPlayedInitTimeout);
+            mostPlayedInitTimeout = setTimeout(() => {
                 rows.forEach((_, rowIndex) => {
                     const prevBtn = document.getElementById(`most-played-row-prev-${rowIndex}`);
                     const nextBtn = document.getElementById(`most-played-row-next-${rowIndex}`);
+                    if (!prevBtn || !nextBtn || !prevBtn.isConnected || !nextBtn.isConnected) return;
                     const trackRow = document.getElementById(`most-played-grid-${rowIndex}`);
                     const rowContainer = prevBtn.nextElementSibling;
 
-                    if (trackRow && rowContainer) {
+                    if (trackRow && rowContainer && rowContainer.isConnected && trackRow.isConnected) {
+                        // Compute card width dynamically
+                        const sampleCard = trackRow.querySelector('.track-row-card');
+                        const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
+                        const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
+
                         // Create a simple position tracker for this row
                         let currentPosition = 0;
-                        const cardWidth = 176; // 160px + 16px gap
 
                         // Button visibility variables
                         let showPrevBtn = false;
@@ -1227,8 +1277,6 @@
             } catch (err) { console.error("Failed to load last track:", err); }
         }
 
-        var activeDownloadPolls = [];
-
         async function downloadFromLink() {
             // Check if upload is enabled for current user (admins can always upload)
             if (!currentUser || (!currentUser.is_admin && !currentUser.upload_enabled)) {
@@ -1257,16 +1305,18 @@
             var statusText = document.getElementById("download-status-text");
             var progressBar = document.getElementById("download-progress-bar");
             progressDiv.style.display = "block";
-            
-            // Clear any existing polls to prevent overlaps
-            activeDownloadPolls.forEach(function(p) { clearInterval(p); });
-            activeDownloadPolls = [];
+
+            // Clear any existing poll to prevent overlaps
+            if (activeDownloadPoll) {
+                clearInterval(activeDownloadPoll);
+                activeDownloadPoll = null;
+            }
 
             var poll = setInterval(function() {
                 api("/downloads/" + jobId).then(function(job) {
                     if (job.status === "completed") {
                         clearInterval(poll);
-                        activeDownloadPolls = [];
+                        activeDownloadPoll = null;
                         statusText.textContent = "Download completed.";
                         progressBar.classList.remove("progress-indeterminate", "progress-error");
                         progressBar.style.width = "100%";
@@ -1280,7 +1330,7 @@
                         }, 3000);
                     } else if (job.status === "failed") {
                         clearInterval(poll);
-                        activeDownloadPolls = [];
+                        activeDownloadPoll = null;
                         statusText.textContent = "Download failed.";
                         progressBar.classList.remove("progress-indeterminate");
                         progressBar.style.width = "100%";
@@ -1338,14 +1388,14 @@
                     }
                 }).catch(function(err) { 
                     clearInterval(poll);
-                    activeDownloadPolls = [];
+                    activeDownloadPoll = null;
                     statusText.textContent = "Poll error: " + err.message; 
                     progressBar.classList.remove("progress-indeterminate");
                     progressBar.classList.add("progress-error");
                 });
             }, 2000);
             
-            activeDownloadPolls.push(poll);
+            activeDownloadPoll = poll;
         }
 
         async function runSearch() {
@@ -1503,16 +1553,7 @@
             nowCover.classList.remove("visible");
 
             // Emit trackChanged event for gradient manager
-            if (gradientManager) {
-                const event = new CustomEvent('trackChanged', {
-                    detail: {
-                        artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
-                        title: track.title,
-                        artist: getArtistDisplay(track)
-                    }
-                });
-                document.dispatchEvent(event);
-            }
+            emitTrackChanged(track);
 
             var img = new Image();
             img.onload = function() {
@@ -1559,16 +1600,7 @@
             nowCover.classList.remove("visible");
 
             // Emit trackChanged event for gradient manager
-            if (gradientManager) {
-                const event = new CustomEvent('trackChanged', {
-                    detail: {
-                        artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
-                        title: track.title,
-                        artist: getArtistDisplay(track)
-                    }
-                });
-                document.dispatchEvent(event);
-            }
+            emitTrackChanged(track);
 
             var img = new Image();
             img.onload = function() {
