@@ -712,7 +712,10 @@ def update_playlist(
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    if playlist.user_hash != x_auth_hash:
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    if playlist.user_hash != user.auth_hash and not user.is_admin:
         raise HTTPException(status_code=403, detail="Not your playlist")
     # Disallow renaming the Liked Songs playlist
     if playlist.is_liked and payload.name is not None:
@@ -724,7 +727,7 @@ def update_playlist(
         # Check for duplicate name among user's playlists (excluding current)
         existing = db.execute(
             select(Playlist).where(
-                Playlist.user_hash == x_auth_hash,
+                Playlist.user_hash == user.auth_hash,
                 Playlist.name == payload.name,
                 Playlist.id != playlist_id,
             )
