@@ -8,6 +8,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import ID3
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete, func
+from sqlalchemy.exc import IntegrityError
 
 from ..models import Artist, Album, Track, track_artist
 from ..settings import settings
@@ -107,8 +108,6 @@ def _store_artwork(album: Album, file_path: Path) -> None:
 
 
 def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None) -> Track:
-    existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
-
     # Get artist names from metadata (can be string or list)
     raw_artists = metadata.get("artist") or []
     artist_names = []
@@ -139,41 +138,8 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     title = _normalize(metadata.get("title"), fallback=file_path.stem)
     duration = metadata.get("duration")
 
-    if existing is None:
-        # Check for duplicates based on title + primary artist + duration
-        if primary_artist_name and duration:
-            duplicate = db.execute(
-                select(Track)
-                .join(track_artist)
-                .join(Artist)
-                .where(
-                    Track.title == title,
-                    Artist.name == primary_artist_name,
-                    func.abs(Track.duration - duration) < 2
-                )
-            ).scalar_one_or_none()
-            if duplicate:
-                if user_hash and not duplicate.user_hash:
-                    duplicate.user_hash = user_hash
-                # Update artist associations to include all artists from current metadata
-                if duplicate.id:
-                    # Clear old associations
-                    db.execute(delete(track_artist).where(track_artist.c.track_id == duplicate.id))
-                    # Insert new associations from current metadata with position order
-                    for idx, name in enumerate(artist_names):
-                        artist_obj = _get_or_create_artist(db, name)
-                        db.execute(
-                            track_artist.insert().values(
-                                track_id=duplicate.id,
-                                artist_id=artist_obj.id,
-                                position=idx,
-                            )
-                        )
-                    # Update primary artist to first in list
-                    if primary_artist:
-                        duplicate.artist_id = primary_artist.id
-                    db.add(duplicate)
-                return duplicate
+    # Check if track already exists
+    existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
 
     if existing:
         # Update existing track
@@ -213,7 +179,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         db.add(existing)
         return existing
 
-    # Create new track
+    # Track doesn't exist, try to create it
     if not album_title:
         album_title = title
     album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"))
@@ -236,7 +202,46 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         user_hash=user_hash,
     )
     db.add(track)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # Another process inserted the same track concurrently
+        db.rollback()
+        # Re-check if the track now exists
+        existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
+        if existing:
+            # Update the existing track with current metadata
+            existing.title = title
+            existing.artist_id = primary_artist.id if primary_artist else None
+            existing.album_id = album.id if album else None
+            existing.duration = duration
+            existing.bitrate = metadata.get("bitrate")
+            existing.sample_rate = metadata.get("sample_rate")
+            existing.channels = metadata.get("channels")
+            existing.track_no = metadata.get("track_no")
+            existing.disc_no = metadata.get("disc_no")
+            existing.file_size = metadata.get("file_size")
+            existing.mime_type = metadata.get("mime_type")
+            if user_hash and not existing.user_hash:
+                existing.user_hash = user_hash
+
+            # Sync artist associations: delete old, insert new with position
+            if existing.id:
+                db.execute(delete(track_artist).where(track_artist.c.track_id == existing.id))
+                for idx, name in enumerate(artist_names):
+                    artist_obj = _get_or_create_artist(db, name)
+                    db.execute(
+                        track_artist.insert().values(
+                            track_id=existing.id,
+                            artist_id=artist_obj.id,
+                            position=idx,
+                        )
+                    )
+            db.add(existing)
+            return existing
+        else:
+            # This was a different integrity error, re-raise
+            raise
 
     # Insert artist associations with position order
     for idx, name in enumerate(artist_names):
