@@ -107,14 +107,12 @@ def _store_artwork(album: Album, file_path: Path) -> None:
     album.artwork_path = str(target)
 
 
-def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None) -> Track:
-    # Get artist names from metadata (can be string or list)
-    raw_artists = metadata.get("artist") or []
+def _parse_artist_names(raw_artists) -> list[str]:
+    """Parse raw artist metadata (string or list) into a clean list of artist names."""
     artist_names = []
     if isinstance(raw_artists, str):
         # Split on common delimiters: comma, semicolon, slash, &, "and"
         parts = re.split(r'[,;/&]|\s+and\s+', raw_artists, flags=re.IGNORECASE)
-        artist_names = []
         for name in parts:
             name = name.strip()
             if name:
@@ -129,10 +127,69 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     else:
         # Handle None or other types
         artist_names = []
+    return artist_names
 
-    # Primary artist is first in list (for backward compatibility)
+
+def _get_primary_artist(db: Session, artist_name: str | None) -> Artist | None:
+    """Get or create primary artist from artist name."""
+    if not artist_name:
+        return None
+    return _get_or_create_artist(db, artist_name)
+
+
+def _associate_track_artists(db: Session, track_id: int, artist_names: list[str]) -> None:
+    """Clear old artist associations and insert new ones with position order."""
+    if not track_id:
+        return
+    # Delete existing associations
+    db.execute(delete(track_artist).where(track_artist.c.track_id == track_id))
+    # Insert new associations with position
+    for idx, name in enumerate(artist_names):
+        artist_obj = _get_or_create_artist(db, name)
+        db.execute(
+            track_artist.insert().values(
+                track_id=track_id,
+                artist_id=artist_obj.id,
+                position=idx,
+            )
+        )
+
+
+def _build_track_from_metadata(
+    metadata: dict,
+    file_path: Path,
+    title: str,
+    duration: float | None,
+    artist_id: str | None,
+    album_id: str | None,
+    user_hash: str | None,
+) -> Track:
+    """Create a new Track instance from metadata (without adding to session)."""
+    return Track(
+        title=title,
+        file_path=str(file_path),
+        file_size=metadata.get("file_size"),
+        duration=duration,
+        mime_type=metadata.get("mime_type"),
+        bitrate=metadata.get("bitrate"),
+        sample_rate=metadata.get("sample_rate"),
+        channels=metadata.get("channels"),
+        track_no=metadata.get("track_no"),
+        disc_no=metadata.get("disc_no"),
+        artist_id=artist_id,
+        album_id=album_id,
+        user_hash=user_hash,
+    )
+
+
+def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None) -> Track:
+    # 1. Parse artist names
+    raw_artists = metadata.get("artist") or []
+    artist_names = _parse_artist_names(raw_artists)
+
+    # 2. Get primary artist
     primary_artist_name = artist_names[0] if artist_names else None
-    primary_artist = _get_or_create_artist(db, primary_artist_name) if primary_artist_name else None
+    primary_artist = _get_primary_artist(db, primary_artist_name)
 
     album_title = _normalize(metadata.get("album"), fallback=None) if metadata.get("album") else None
     title = _normalize(metadata.get("title"), fallback=file_path.stem)
@@ -163,18 +220,8 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         if user_hash and not existing.user_hash:
             existing.user_hash = user_hash
 
-        # Sync artist associations: delete old, insert new with position
-        if existing.id:
-            db.execute(delete(track_artist).where(track_artist.c.track_id == existing.id))
-            for idx, name in enumerate(artist_names):
-                artist_obj = _get_or_create_artist(db, name)
-                db.execute(
-                    track_artist.insert().values(
-                        track_id=existing.id,
-                        artist_id=artist_obj.id,
-                        position=idx,
-                    )
-                )
+        # Sync artist associations
+        _associate_track_artists(db, existing.id, artist_names)
 
         db.add(existing)
         return existing
@@ -186,17 +233,11 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     if album:
         _store_artwork(album, file_path)
 
-    track = Track(
+    track = _build_track_from_metadata(
+        metadata=metadata,
+        file_path=file_path,
         title=title,
-        file_path=str(file_path),
-        file_size=metadata.get("file_size"),
         duration=duration,
-        mime_type=metadata.get("mime_type"),
-        bitrate=metadata.get("bitrate"),
-        sample_rate=metadata.get("sample_rate"),
-        channels=metadata.get("channels"),
-        track_no=metadata.get("track_no"),
-        disc_no=metadata.get("disc_no"),
         artist_id=primary_artist.id if primary_artist else None,
         album_id=album.id if album else None,
         user_hash=user_hash,
@@ -225,18 +266,9 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
             if user_hash and not existing.user_hash:
                 existing.user_hash = user_hash
 
-            # Sync artist associations: delete old, insert new with position
-            if existing.id:
-                db.execute(delete(track_artist).where(track_artist.c.track_id == existing.id))
-                for idx, name in enumerate(artist_names):
-                    artist_obj = _get_or_create_artist(db, name)
-                    db.execute(
-                        track_artist.insert().values(
-                            track_id=existing.id,
-                            artist_id=artist_obj.id,
-                            position=idx,
-                        )
-                    )
+            # Sync artist associations
+            _associate_track_artists(db, existing.id, artist_names)
+
             db.add(existing)
             return existing
         else:
@@ -244,15 +276,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
             raise
 
     # Insert artist associations with position order
-    for idx, name in enumerate(artist_names):
-        artist_obj = _get_or_create_artist(db, name)
-        db.execute(
-            track_artist.insert().values(
-                track_id=track.id,
-                artist_id=artist_obj.id,
-                position=idx,
-            )
-        )
+    _associate_track_artists(db, track.id, artist_names)
 
     return track
 
