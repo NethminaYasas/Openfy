@@ -219,7 +219,7 @@ def _startup():
             try:
                 conn.execute(
                     text(
-                        "CREATE TABLE IF NOT EXISTS track_plays (id VARCHAR(36) PRIMARY KEY, track_id VARCHAR(36), played_at DATETIME, user_hash VARCHAR(64), FOREIGN KEY(track_id) REFERENCES tracks(id))"
+                        "CREATE TABLE IF NOT EXISTS track_plays (id VARCHAR(36) PRIMARY KEY, track_id VARCHAR(36), played_at DATETIME, user_hash VARCHAR(64) NULL, FOREIGN KEY(track_id) REFERENCES tracks(id))"
                     )
                 )
                 conn.execute(
@@ -1044,25 +1044,35 @@ def list_all_users(
     if not admin_user or not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    stmt = select(User).order_by(User.created_at.desc())
+    # Subquery to get track counts per user
+    track_counts_subq = (
+        select(Track.user_hash, func.count(Track.id).label("track_count"))
+        .group_by(Track.user_hash)
+        .subquery()
+    )
+
+    # Main query with join to track counts subquery
+    stmt = (
+        select(
+            User,
+            func.coalesce(track_counts_subq.c.track_count, 0).label("uploaded_tracks_count")
+        )
+        .outerjoin(track_counts_subq, User.auth_hash == track_counts_subq.c.user_hash)
+        .order_by(User.created_at.desc())
+    )
     if q:
         stmt = stmt.where(User.name.ilike(f"%{q}%"))
 
-    users = db.execute(stmt).scalars().all()
+    results = db.execute(stmt).all()
     result = []
-    for user in users:
-        track_count = (
-            db.execute(select(Track).where(Track.user_hash == user.auth_hash))
-            .scalars()
-            .all()
-        )
+    for user, uploaded_tracks_count in results:
         user_data = {
             "id": user.id,
             "name": user.name,
             "is_admin": user.is_admin,
             "upload_enabled": bool(user.upload_enabled),
             "created_at": user.created_at,
-            "uploaded_tracks_count": len(track_count),
+            "uploaded_tracks_count": uploaded_tracks_count,
         }
         result.append(user_data)
     return result
