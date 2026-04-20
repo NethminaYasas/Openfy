@@ -605,6 +605,36 @@ body {
     display: none;
 }
 
+/* Track is in a regular playlist — green circle with black checkmark */
+.player-like-btn.in-playlist {
+    border: none;
+    background: #1db954;
+    color: transparent;
+    position: relative;
+}
+.player-like-btn.in-playlist::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(45deg);
+    width: 3px;
+    height: 6px;
+    border: solid #000;
+    border-width: 0 2px 2px 0;
+    margin-bottom: 2px;
+}
+.player-like-btn.in-playlist:hover {
+    background: #1ed760;
+}
+.player-like-btn.in-playlist:hover::after {
+    border-color: #000;
+}
+/* Hide inner plus icon when in in-playlist state */
+.player-like-btn.in-playlist i {
+    display: none;
+}
+
 @keyframes pulse {
     0% { transform: scale(1); }
     50% { transform: scale(1.2); }
@@ -2754,6 +2784,16 @@ input:checked + .toggle-slider:before {
 
 .submenu-item:active {
     background: rgba(255,255,255,0.12);
+}
+
+/* Gray out submenu items that already have this track */
+.submenu-item.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: #727272;
+}
+.submenu-item.disabled:hover {
+    background: transparent;
 }
 
 .submenu-item i {

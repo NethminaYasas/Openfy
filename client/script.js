@@ -441,6 +441,8 @@
         let uploadsInitTimeout = null;
         let mostPlayedInitTimeout = null;
         let activeDownloadPoll = null; // Current download poll interval
+        let trackIdsInRegularPlaylists = new Set(); // Track IDs in any non-Liked playlist
+        let likedTrackIds = new Set(); // Track IDs in Liked Songs
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -1680,16 +1682,34 @@
             };
             npImgEl.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
 
-            // Reset like button to default state for new track
-            npLikeBtn.disabled = false;
-            npLikeBtn.classList.remove("liked", "adding");
-            npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-            npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
-            npLikeBtn.setAttribute("title", "Add to Liked Songs");
+            // Update like button state based on playlist membership
+            syncLikeButtonState(track);
         }
 
         function queueArtworkUrl(track) {
             return withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+        }
+
+        // Sync like button appearance to track's playlist membership
+        function syncLikeButtonState(track) {
+            npLikeBtn.disabled = false;
+            npLikeBtn.classList.remove("liked", "adding", "in-playlist");
+
+            if (likedTrackIds.has(track.id)) {
+                npLikeBtn.classList.add("liked");
+                npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
+                npLikeBtn.setAttribute("title", "Remove from Liked Songs");
+            } else if (trackIdsInRegularPlaylists.has(track.id)) {
+                npLikeBtn.classList.add("in-playlist");
+                npLikeBtn.innerHTML = '';
+                npLikeBtn.setAttribute("aria-label", "Added to playlist");
+                npLikeBtn.setAttribute("title", "Added to playlist");
+            } else {
+                npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
+                npLikeBtn.setAttribute("title", "Add to Liked Songs");
+            }
         }
 
         function buildQueueItem(track, index, opts) {
@@ -2241,14 +2261,24 @@
                 await api("/liked/" + currentTrackId, { method: "POST" });
                 npLikeBtn.classList.remove("adding");
                 if (wasLiked) {
-                    // Unliked: now show plus
+                    // Unliked: remove from cache, fall back to regular-playlist state or plus
+                    likedTrackIds.delete(currentTrackId);
                     npLikeBtn.classList.remove("liked");
-                    npLikeBtn.innerHTML = "";
-                    npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
-                    npLikeBtn.setAttribute("title", "Add to Liked Songs");
+                    if (trackIdsInRegularPlaylists.has(currentTrackId)) {
+                        npLikeBtn.classList.add("in-playlist");
+                        npLikeBtn.innerHTML = "";
+                        npLikeBtn.setAttribute("aria-label", "Added to playlist");
+                        npLikeBtn.setAttribute("title", "Added to playlist");
+                    } else {
+                        npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                        npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
+                        npLikeBtn.setAttribute("title", "Add to Liked Songs");
+                    }
                 } else {
-                    // Liked: show heart
+                    // Liked: add to cache, show heart
+                    likedTrackIds.add(currentTrackId);
                     npLikeBtn.classList.add("liked");
+                    npLikeBtn.classList.remove("in-playlist");
                     npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
                     npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
                     npLikeBtn.setAttribute("title", "Remove from Liked Songs");
@@ -2286,16 +2316,70 @@
             else { var prev = parseFloat(audioPlayer.dataset.prevVolume) || 1; audioPlayer.volume = prev; volumeSlider.value = Math.round(prev * 100); volumeIcon.className = prev < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high"; }
         });
 
+        // Build/refresh cache of track IDs present in regular playlists and liked songs
+        async function updateRegularPlaylistTrackCache() {
+            trackIdsInRegularPlaylists.clear();
+            likedTrackIds.clear();
+
+            const regularPlaylists = userPlaylists.filter(pl => !pl.is_liked);
+            const likedPlaylist = userPlaylists.find(pl => pl.is_liked);
+
+            const results = await Promise.all(
+                regularPlaylists.map(async (pl) => {
+                    try {
+                        const tracks = await api("/playlists/" + pl.id + "/tracks");
+                        return tracks.map(pt => pt.track.id);
+                    } catch (e) {
+                        console.error("Failed to load tracks for playlist:", pl.name, e);
+                        return [];
+                    }
+                })
+            );
+            results.forEach(ids => { for (const id of ids) trackIdsInRegularPlaylists.add(id); });
+
+            if (likedPlaylist) {
+                try {
+                    const tracks = await api("/playlists/" + likedPlaylist.id + "/tracks");
+                    for (const pt of tracks) likedTrackIds.add(pt.track.id);
+                } catch (e) {
+                    console.error("Failed to load liked tracks", e);
+                }
+            }
+
+            // Update player button if a track is currently playing
+            if (currentTrackId) {
+                const track = currentQueue[currentIndex];
+                if (track) syncLikeButtonState(track);
+            }
+        }
+
+        // Check if a track ID is in any regular playlist (uses cache, falls back to fetch if cache empty)
+        async function isTrackInAnyRegularPlaylist(trackId) {
+            if (trackIdsInRegularPlaylists.size > 0) {
+                return trackIdsInRegularPlaylists.has(trackId);
+            }
+            // Fallback: check by scanning playlists (rare, for edge cases)
+            const regularPlaylists = userPlaylists.filter(pl => !pl.is_liked);
+            for (const pl of regularPlaylists) {
+                try {
+                    const tracks = await api("/playlists/" + pl.id + "/tracks");
+                    if (tracks.some(pt => pt.track.id === trackId)) return true;
+                } catch (e) { /* ignore */ }
+            }
+            return false;
+        }
+
         async function loadPlaylists() {
-            try { 
+            try {
                 // Cache bust: add timestamp
                 var url = "/playlists";
                 if (apiBase) url = apiBase + url;
                 url += (url.includes('?') ? '&' : '?') + '_=' + Date.now();
-                userPlaylists = await api(url); 
-                renderLibrary(); 
-            } catch (err) { 
-                console.error(err); 
+                userPlaylists = await api(url);
+                await updateRegularPlaylistTrackCache();
+                renderLibrary();
+            } catch (err) {
+                console.error(err);
             }
         }
 
@@ -2906,8 +2990,8 @@
             }, 200);
         }
 
-        // Populate submenu with user's playlists (uses cached userPlaylists, ordered same as library)
-        function loadPlaylistSubmenuItems() {
+        // Populate submenu with user's playlists (names only, gray out if track already in playlist)
+        async function loadPlaylistSubmenuItems() {
             if (!currentUser) {
                 ctxSubmenuItems.innerHTML = '<div class="submenu-error">Not logged in</div>';
                 return;
@@ -2925,39 +3009,37 @@
                 ctxSubmenuItems.innerHTML = '<div class="submenu-empty">No playlists yet.<br>Create one from the sidebar.</div>';
                 return;
             }
-            sortedPlaylists.forEach(pl => {
+
+            // Fetch tracks for all playlists concurrently to check membership
+            const results = await Promise.all(
+                sortedPlaylists.map(async (pl) => {
+                    const trackIds = new Set();
+                    try {
+                        const tracks = await api("/playlists/" + pl.id + "/tracks");
+                        for (const pt of tracks) trackIds.add(pt.track.id);
+                    } catch (e) {
+                        console.error("Failed to load tracks for playlist:", pl.name, e);
+                    }
+                    return { pl, trackIds };
+                })
+            );
+
+            ctxSubmenuItems.innerHTML = '';
+
+            // Build menu items (names only), disabling if track already in that playlist
+            results.forEach(({ pl, trackIds }) => {
                 const item = document.createElement('button');
                 item.className = 'submenu-item';
-
-                // Build icon div with same styling as library sidebar
-                const iconDiv = document.createElement('div');
-                iconDiv.className = 'playlist-icon';
-                if (pl.is_liked) {
-                    // Liked Songs: purple-to-teal gradient + white heart (exactly like library)
-                    iconDiv.style.background = 'linear-gradient(135deg,#450af5,#c4efd9)';
-                    const heart = document.createElement('i');
-                    heart.className = 'fa-solid fa-heart';
-                    heart.style.color = '#fff';
-                    iconDiv.appendChild(heart);
-                } else {
-                    // Regular playlist: dark gray + music icon (matches library)
-                    iconDiv.style.background = '#3e3e3e';
-                    const music = document.createElement('i');
-                    music.className = 'fa-solid fa-music';
-                    iconDiv.appendChild(music);
+                if (trackIds.has(currentContextTrack.id)) {
+                    item.classList.add('disabled');
+                    item.disabled = true;
                 }
 
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'submenu-playlist-name';
                 nameSpan.textContent = pl.name;
 
-                const typeSpan = document.createElement('span');
-                typeSpan.className = 'submenu-playlist-type';
-                typeSpan.textContent = pl.is_liked ? 'Liked' : 'Playlist';
-
-                item.appendChild(iconDiv);
                 item.appendChild(nameSpan);
-                item.appendChild(typeSpan);
 
                 item.addEventListener("click", (e) => {
                     e.stopPropagation();
@@ -2971,12 +3053,21 @@
             });
         }
 
+
         // Add current track to selected playlist
         async function addTrackToPlaylist(playlistId, track) {
             try {
                 await api("/playlists/" + playlistId + "/tracks?track_id=" + track.id, { method: "POST" });
+                // Update cache and UI immediately
+                trackIdsInRegularPlaylists.add(track.id);
+                if (currentTrackId === track.id) {
+                    npLikeBtn.classList.remove("liked", "adding");
+                    npLikeBtn.classList.add("in-playlist");
+                    npLikeBtn.innerHTML = '';
+                    npLikeBtn.setAttribute("aria-label", "Added to playlist");
+                    npLikeBtn.setAttribute("title", "Added to playlist");
+                }
                 hideContextMenu();
-                // Optionally show feedback
                 // Reload playlists to update counts, etc.
                 loadPlaylists();
             } catch (err) {
