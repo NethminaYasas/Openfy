@@ -2759,6 +2759,9 @@
         const ctxPin = document.getElementById("ctx-pin");
         const ctxRename = document.getElementById("ctx-rename");
         const ctxRemove = document.getElementById("ctx-remove");
+        const ctxTrackAddPlaylist = document.getElementById("ctx-track-add-playlist");
+        const ctxPlaylistSubmenu = document.getElementById("ctx-playlist-submenu");
+        const ctxSubmenuItems = document.getElementById("submenu-playlist-items");
         const ctxTrackAddQueue = document.getElementById("ctx-track-add-queue");
 
         const renameModalOverlay = document.getElementById("rename-modal-overlay");
@@ -2817,13 +2820,22 @@
             ctxPin.style.display = '';
             ctxRename.style.display = '';
             ctxRemove.style.display = '';
+            ctxTrackAddPlaylist.style.display = 'none';
             ctxTrackAddQueue.style.display = 'none';
+            // Ensure submenu is hidden
+            ctxPlaylistSubmenu.classList.remove('visible');
+            ctxSubmenuItems.innerHTML = '';
 
             contextMenuOverlay.style.display = "block";
         }
 
         function hideContextMenu() {
             contextMenuOverlay.style.display = "none";
+            ctxPlaylistSubmenu.classList.remove('visible');
+            if (currentTimeout) {
+                clearTimeout(currentTimeout);
+                currentTimeout = null;
+            }
             currentContextPlaylist = null;
             currentContextTrack = null;
         }
@@ -2849,8 +2861,12 @@
             ctxPin.style.display = 'none';
             ctxRename.style.display = 'none';
             ctxRemove.style.display = 'none';
-            // Show Add to Queue
+            // Show Add to Playlist and Add to Queue
+            ctxTrackAddPlaylist.style.display = '';
             ctxTrackAddQueue.style.display = '';
+            // Reset submenu
+            ctxPlaylistSubmenu.classList.remove('visible');
+            ctxSubmenuItems.innerHTML = '';
             // Disable (gray out) if track already in queue
             if (indexOfTrackId(currentQueue, track.id) !== -1) {
                 ctxTrackAddQueue.classList.add('disabled');
@@ -2861,6 +2877,147 @@
             // Show the menu
             contextMenuOverlay.style.display = "block";
         }
+
+        let currentTimeout = null;
+
+        // Show submenu and load playlists
+        function showPlaylistSubmenu() {
+            // Cancel any pending timeout
+            if (currentTimeout) {
+                clearTimeout(currentTimeout);
+                currentTimeout = null;
+            }
+            // Position submenu next to parent item
+            ctxPlaylistSubmenu.style.top = ctxTrackAddPlaylist.offsetTop + "px";
+            // Show submenu
+            ctxPlaylistSubmenu.classList.add('visible');
+            // Load playlists if not already
+            if (!ctxSubmenuItems.hasChildNodes()) {
+                ctxSubmenuItems.innerHTML = '<div class="submenu-loading">Loading...</div>';
+                loadPlaylistSubmenuItems();
+            }
+        }
+
+        // Hide submenu with a small delay (allows moving mouse to submenu)
+        function scheduleHideSubmenu() {
+            currentTimeout = setTimeout(() => {
+                ctxPlaylistSubmenu.classList.remove('visible');
+                currentTimeout = null;
+            }, 200);
+        }
+
+        // Populate submenu with user's playlists (uses cached userPlaylists, ordered same as library)
+        function loadPlaylistSubmenuItems() {
+            if (!currentUser) {
+                ctxSubmenuItems.innerHTML = '<div class="submenu-error">Not logged in</div>';
+                return;
+            }
+            // Sort playlists the same way as the library: Liked first, then pinned, then newest
+            const sortedPlaylists = [...userPlaylists].sort(function(a, b) {
+                if (a.is_liked && !b.is_liked) return -1;
+                if (!a.is_liked && b.is_liked) return 1;
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            });
+            ctxSubmenuItems.innerHTML = '';
+            if (sortedPlaylists.length === 0) {
+                ctxSubmenuItems.innerHTML = '<div class="submenu-empty">No playlists yet.<br>Create one from the sidebar.</div>';
+                return;
+            }
+            sortedPlaylists.forEach(pl => {
+                const item = document.createElement('button');
+                item.className = 'submenu-item';
+
+                // Build icon div with same styling as library sidebar
+                const iconDiv = document.createElement('div');
+                iconDiv.className = 'playlist-icon';
+                if (pl.is_liked) {
+                    // Liked Songs: purple-to-teal gradient + white heart (exactly like library)
+                    iconDiv.style.background = 'linear-gradient(135deg,#450af5,#c4efd9)';
+                    const heart = document.createElement('i');
+                    heart.className = 'fa-solid fa-heart';
+                    heart.style.color = '#fff';
+                    iconDiv.appendChild(heart);
+                } else {
+                    // Regular playlist: dark gray + music icon (matches library)
+                    iconDiv.style.background = '#3e3e3e';
+                    const music = document.createElement('i');
+                    music.className = 'fa-solid fa-music';
+                    iconDiv.appendChild(music);
+                }
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'submenu-playlist-name';
+                nameSpan.textContent = pl.name;
+
+                const typeSpan = document.createElement('span');
+                typeSpan.className = 'submenu-playlist-type';
+                typeSpan.textContent = pl.is_liked ? 'Liked' : 'Playlist';
+
+                item.appendChild(iconDiv);
+                item.appendChild(nameSpan);
+                item.appendChild(typeSpan);
+
+                item.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (pl.is_liked) {
+                        alert("Liked Songs is managed automatically. Use the heart button on tracks to add/remove.");
+                        return;
+                    }
+                    addTrackToPlaylist(pl.id, currentContextTrack);
+                });
+                ctxSubmenuItems.appendChild(item);
+            });
+        }
+
+        // Add current track to selected playlist
+        async function addTrackToPlaylist(playlistId, track) {
+            try {
+                await api("/playlists/" + playlistId + "/tracks?track_id=" + track.id, { method: "POST" });
+                hideContextMenu();
+                // Optionally show feedback
+                // Reload playlists to update counts, etc.
+                loadPlaylists();
+            } catch (err) {
+                alert("Failed to add track to playlist: " + err.message);
+            }
+        }
+
+        // Add to Playlist submenu hover handlers
+        ctxTrackAddPlaylist.addEventListener("mouseenter", function() {
+            // Show submenu immediately on hover
+            showPlaylistSubmenu();
+        });
+
+        ctxTrackAddPlaylist.addEventListener("mouseleave", function() {
+            // Schedule hide — allows mouse to move into submenu
+            scheduleHideSubmenu();
+        });
+
+        ctxPlaylistSubmenu.addEventListener("mouseenter", function() {
+            // Cancel hide when entering submenu
+            if (currentTimeout) {
+                clearTimeout(currentTimeout);
+                currentTimeout = null;
+            }
+        });
+
+        ctxPlaylistSubmenu.addEventListener("mouseleave", function() {
+            // Hide submenu when mouse leaves
+            scheduleHideSubmenu();
+        });
+
+        // Also close submenu when main context menu is closed
+        const originalHideContextMenu = hideContextMenu;
+        hideContextMenu = function() {
+            ctxPlaylistSubmenu.classList.remove('visible');
+            if (currentTimeout) {
+                clearTimeout(currentTimeout);
+                currentTimeout = null;
+            }
+            originalHideContextMenu();
+        };
 
 
         // Context menu item clicks

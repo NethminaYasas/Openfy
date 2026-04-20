@@ -378,6 +378,18 @@
             <div class="context-menu-item" id="ctx-remove">
                 <i class="fa-solid fa-trash"></i> <span>Remove</span>
             </div>
+            <div class="context-menu-item has-submenu" id="ctx-track-add-playlist">
+                <i class="fa-solid fa-plus"></i>
+                <span>Add to Playlist</span>
+                <svg class="submenu-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </div>
+            <div class="context-menu-submenu" id="ctx-playlist-submenu">
+                <div class="submenu-items" id="submenu-playlist-items">
+                    <!-- Playlist items injected via JS -->
+                </div>
+            </div>
             <div class="context-menu-item" id="ctx-track-add-queue">
                 <svg class="context-menu-icon" viewBox="290 120 160 160" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
                   <g transform="translate(290, 120) scale(10)">
