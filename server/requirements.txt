@@ -13,3 +13,4 @@ requests
 ytmusicapi
 beautifulsoup4
 yt-dlp
+Pillow==10.4.0
