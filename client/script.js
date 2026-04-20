@@ -395,7 +395,10 @@
         let showFullQueue = false; // tracks whether to show full queue (true) or just next track (false)
         let collapseTimeout = null; // tracks pending collapse render timeout
         npLikeBtn.classList.add("hidden");
-        const progressBar = document.getElementById("progress-bar");
+        // Custom progress bar elements
+        const progressContainer = document.getElementById("progress-container");
+        const progressTrack = document.getElementById("progress-track");
+        const progressFill = document.getElementById("progress-fill");
         const currTime = document.getElementById("curr-time");
         const totTime = document.getElementById("tot-time");
         const libBox = document.getElementById("lib-box");
@@ -1271,7 +1274,7 @@
                     audioPlayer.pause();
                     audioPlayer.src = "";
                     btnPlay.classList.remove("playing");
-                    progressBar.classList.remove("active");
+                    progressContainer.classList.remove("active");
                     loadTrackPaused(data);
                 }
             } catch (err) { console.error("Failed to load last track:", err); }
@@ -1628,7 +1631,7 @@
             }
             // Ensure play button shows paused state
             btnPlay.classList.remove("playing");
-            progressBar.classList.remove("active");
+            progressContainer.classList.remove("active");
         }
 
         async function checkIfLiked(trackId) {
@@ -2063,35 +2066,25 @@
         }
 
         audioPlayer.addEventListener("loadedmetadata", function() { totTime.textContent = formatDuration(audioPlayer.duration); });
-        audioPlayer.addEventListener("play", function() { btnPlay.classList.add("playing"); progressBar.classList.add("active"); });
+        audioPlayer.addEventListener("play", function() { btnPlay.classList.add("playing"); progressContainer.classList.add("active"); });
         audioPlayer.addEventListener("pause", function() {
             btnPlay.classList.remove("playing");
-            progressBar.classList.remove("active");
+            progressContainer.classList.remove("active");
         });
 
         function updateProgressFill() {
             var pct = audioPlayer.duration ? (audioPlayer.currentTime / audioPlayer.duration) * 100 : 0;
-            progressBar.style.setProperty("--progress", pct + "%");
-            progressBar.value = pct;
+            progressFill.style.width = pct + "%";
         }
 
-        var lastSmoothTime = 0;
-        function smoothProgress(timestamp) {
+        function smoothProgress() {
             if (!audioPlayer.paused && audioPlayer.duration) {
-                if (!lastSmoothTime || timestamp - lastSmoothTime >= 100) {
-                    currTime.textContent = formatDuration(audioPlayer.currentTime);
-                    updateProgressFill();
-                    lastSmoothTime = timestamp;
-                }
+                currTime.textContent = formatDuration(audioPlayer.currentTime);
+                updateProgressFill();
             }
             requestAnimationFrame(smoothProgress);
         }
         requestAnimationFrame(smoothProgress);
-
-        audioPlayer.addEventListener("timeupdate", function() {
-            currTime.textContent = formatDuration(audioPlayer.currentTime);
-            updateProgressFill();
-        });
 
         audioPlayer.addEventListener("ended", function() {
             if (repeatState === "loop-once") {
@@ -2122,8 +2115,56 @@
         });
 
         
-        progressBar.addEventListener("input", function() {
-            if (audioPlayer.duration) { audioPlayer.currentTime = (progressBar.value / 100) * audioPlayer.duration; updateProgressFill(); }
+        // Custom progress bar interaction
+        let isDragging = false;
+
+        function seekFromEvent(e) {
+            var rect = progressTrack.getBoundingClientRect();
+            var x = e.clientX - rect.left;
+            var pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+            if (audioPlayer.duration) {
+                audioPlayer.currentTime = (pct / 100) * audioPlayer.duration;
+                updateProgressFill();
+            }
+        }
+
+        progressContainer.addEventListener("mousedown", function(e) {
+            isDragging = true;
+            progressContainer.classList.add("dragging");
+            seekFromEvent(e);
+        });
+
+        progressContainer.addEventListener("touchstart", function(e) {
+            isDragging = true;
+            progressContainer.classList.add("dragging");
+            seekFromEvent(e.touches[0]);
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener("mousemove", function(e) {
+            if (isDragging) {
+                seekFromEvent(e);
+            }
+        });
+
+        document.addEventListener("touchmove", function(e) {
+            if (isDragging) {
+                seekFromEvent(e.touches[0]);
+            }
+        });
+
+        document.addEventListener("mouseup", function() {
+            if (isDragging) {
+                isDragging = false;
+                progressContainer.classList.remove("dragging");
+            }
+        });
+
+        document.addEventListener("touchend", function() {
+            if (isDragging) {
+                isDragging = false;
+                progressContainer.classList.remove("dragging");
+            }
         });
 
         topBarHome.addEventListener("click", function(event) {

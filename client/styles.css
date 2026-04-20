@@ -1444,108 +1444,38 @@ a {
     font-variant-numeric: tabular-nums;
 }
 
-.progress-bar {
+.progress-container {
     flex: 1;
-    appearance: none;
-    background: transparent;
-    cursor: pointer;
     height: 16px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.progress-track {
+    position: relative;
     width: 100%;
-}
-
-.progress-bar::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #fff 0%, #fff var(--progress, 0%), #4d4d4d var(--progress, 0%), #4d4d4d 100%);
-    border-radius: 2px;
-    height: 4px;
-}
-
-.progress-bar::-webkit-slider-thumb {
-    appearance: none;
-    height: 12px;
-    width: 12px;
-    background: #fff;
-    border-radius: 50%;
-    margin-top: -4px;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-}
-
-.progress-bar.active::-webkit-slider-thumb {
-    opacity: 0;
-}
-
-.progress-bar.active:hover::-webkit-slider-thumb {
-    opacity: 1;
-}
-
-.progress-bar::-moz-range-track {
+    height: 6px;
     background: #4d4d4d;
-    border-radius: 2px;
-    height: 4px;
-    border: none;
+    border-radius: 999px;
+    overflow: hidden;
 }
 
-.progress-bar::-moz-range-progress {
+.progress-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0%;
     background: #fff;
-    border-radius: 2px;
-    height: 4px;
+    border-radius: 999px;
+    pointer-events: none;
+    transition: width 0.08s linear;
 }
 
-.progress-bar::-moz-range-thumb {
-    height: 12px;
-    width: 12px;
-    background: #fff;
-    border-radius: 50%;
-    border: none;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-}
-
-.progress-bar.active::-moz-range-thumb {
-    opacity: 0;
-}
-
-.progress-bar.active:hover::-moz-range-thumb {
-    opacity: 1;
-}
-
-.progress-bar.active::-webkit-slider-thumb {
-    opacity: 0;
-}
-
-.progress-bar.active:hover::-webkit-slider-thumb {
-    opacity: 1;
-}
-
-.progress-bar::-moz-range-track {
-    background: #4d4d4d;
-    border-radius: 2px;
-    height: 4px;
-    border: none;
-}
-
-.progress-bar::-moz-range-progress {
-    background: #fff;
-    border-radius: 2px;
-    height: 4px;
-}
-
-.progress-bar::-moz-range-thumb {
-    height: 12px;
-    width: 12px;
-    background: #fff;
-    border-radius: 50%;
-    border: none;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-}
-
-.progress-bar.active::-moz-range-thumb {
-    opacity: 0;
-}
-
-.progress-bar.active:hover::-moz-range-thumb {
-    opacity: 1;
+.progress-container.dragging .progress-fill {
+    transition: none;
 }
 
 .controls {
