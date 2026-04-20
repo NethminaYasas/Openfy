@@ -304,7 +304,8 @@ body {
 }
 
 .queue-toggle-icon {
-    font-size: 1rem;
+    width: 1.5rem;
+    height: 1.5rem;
     color: #727272;
     opacity: 0;
     transition: opacity 0.2s ease, color 0.2s ease, transform 0.3s ease;
@@ -319,9 +320,28 @@ body {
     color: #fff;
 }
 
-/* Smooth rotation when expanded */
+/* Spin when expanded */
 .np-queue-panel.expanded .queue-toggle-icon {
-    transform: rotate(180deg);
+    transform: rotate(90deg);
+}
+
+/* Icon crossfade */
+.state-queue {
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.state-cross {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.np-queue-panel.expanded .state-queue {
+    opacity: 0;
+}
+
+.np-queue-panel.expanded .state-cross {
+    opacity: 1;
 }
 
 .np-queue-next {

@@ -520,8 +520,7 @@
                 const h3 = queueHeader && queueHeader.querySelector('h3');
                 if (h3) h3.textContent = 'QUEUE';
                 if (queueToggle) {
-                    queueToggle.classList.remove('fa-list-ul');
-                    queueToggle.classList.add('fa-chevron-up');
+                    // Icon transition handled via CSS .expanded class
                 }
             }
 
@@ -1992,8 +1991,7 @@
                 // Collapse to "NEXT IN QUEUE"
                 showFullQueue = false;
                 h3.textContent = "NEXT IN QUEUE";
-                queueToggle.classList.remove("fa-chevron-up");
-                queueToggle.classList.add("fa-list-ul");
+                // Icon transition handled via CSS .expanded class
                 npNextPanel.classList.remove("expanded");
 
                 if (collapseTimeout) {
@@ -2009,8 +2007,7 @@
                 // Expand to "QUEUE"
                 showFullQueue = true;
                 h3.textContent = "QUEUE";
-                queueToggle.classList.remove("fa-list-ul");
-                queueToggle.classList.add("fa-chevron-up");
+                // Icon transition handled via CSS .expanded class
                 npNextPanel.classList.add("expanded");
                 if (collapseTimeout) {
                     clearTimeout(collapseTimeout);
