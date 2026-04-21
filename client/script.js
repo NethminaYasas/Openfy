@@ -3046,6 +3046,79 @@
             }, 200);
         }
 
+        // ========== Removal menu functions ==========
+
+        // Toggle removal menu for current track (unlike from playlists)
+        async function toggleRemovalMenu(forceShow) {
+            const menu = document.getElementById("np-playlist-removal-menu");
+            if (!menu) return;
+
+            const isVisible = menu.classList.contains("visible");
+
+            if (isVisible && forceShow !== true) {
+                // Toggle off
+                menu.classList.remove("visible");
+                currentTrackPlaylistsCache = [];
+                return;
+            }
+
+            // Close other popovers
+            hideContextMenu();
+
+            // Fetch playlists containing the current track
+            let playlists;
+            try {
+                playlists = await loadTrackPlaylists(currentTrackId);
+            } catch (e) {
+                console.error("Failed to load playlists for removal menu:", e);
+                return;
+            }
+
+            if (playlists.length === 0) {
+                // No playlists contain this track — shouldn't happen if tick shows
+                return;
+            }
+
+            currentTrackPlaylistsCache = playlists;
+            buildRemovalMenu(playlists);
+            positionRemovalMenu(menu, npLikeBtn);
+            menu.classList.add("visible");
+        }
+
+        // Fetch playlists that contain given track (regular playlists only)
+        async function loadTrackPlaylists(trackId) {
+            try {
+                return await api("/tracks/" + trackId + "/playlists");
+            } catch (e) {
+                console.error("Failed to load track's playlists:", e);
+                throw e;
+            }
+        }
+
+        // Build menu DOM from playlists array
+        function buildRemovalMenu(playlists) {
+            const menu = document.getElementById("np-playlist-removal-menu");
+            if (!menu) return;
+            menu.innerHTML = '';
+
+            playlists.forEach(pl => {
+                const item = document.createElement('div');
+                item.className = 'removal-menu-item';
+                item.dataset.playlistId = pl.id;
+                item.innerHTML = `
+                    <span class="removal-playlist-name">${escapeHtml(pl.name)}</span>
+                    <i class="fa-solid fa-xmark removal-icon"></i>
+                `;
+                item.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await confirmAndRemoveFromPlaylist(pl.id, pl.name);
+                });
+                menu.appendChild(item);
+            });
+        }
+
+        // ========== End removal menu functions ==========
+
         // Populate submenu with user's playlists (names only, gray out if track already in playlist)
         async function loadPlaylistSubmenuItems() {
             if (!currentUser) {
