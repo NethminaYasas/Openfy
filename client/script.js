@@ -3619,8 +3619,7 @@
             addPlaylistModalOverlay.style.display = "none";
             addPlaylistSearchInput.value = '';
             allPlaylistsCache = [];
-            currentTrackInPlaylistIds.clear();
-            // Reset confirm state
+            // Reset confirm state (clears modalOriginalInPlaylist & modalPendingInPlaylist)
             resetConfirmState();
         }
 
