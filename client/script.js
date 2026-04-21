@@ -458,6 +458,32 @@
             return div.innerHTML;
         }
 
+        // Create default playlist icon SVG (music note)
+        function createPlaylistIconSvg() {
+            var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.className = "lib-item-icon";
+            svg.setAttribute("viewBox", "292 128 156 156");
+            svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svg.setAttribute("role", "img");
+            svg.setAttribute("aria-label", "Playlist");
+            svg.setAttribute("width", "20");
+            svg.setAttribute("height", "20");
+            var title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            title.textContent = "Playlist icon";
+            var desc = document.createElementNS("http://www.w3.org/2000/svg", "desc");
+            desc.textContent = "A music note/playlist icon";
+            var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            g.setAttribute("transform", "translate(297, 133) scale(6.667)");
+            var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("fill", "currentColor");
+            path.setAttribute("d", "M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z");
+            g.appendChild(path);
+            svg.appendChild(title);
+            svg.appendChild(desc);
+            svg.appendChild(g);
+            return svg;
+        }
+
         // Position the removal menu anchored to the like button (right-aligned, entirely above container)
         function positionRemovalMenu(menu, anchorBtn) {
             const rect = anchorBtn.getBoundingClientRect();
@@ -2389,34 +2415,40 @@
                 var cover = document.createElement("div");
                 cover.className = "lib-item-cover";
                 cover.style.background = bg;
-                if (pl.is_liked) {
-                    var iconEl = document.createElement("i");
-                    iconEl.className = "fa-solid fa-heart";
-                    cover.appendChild(iconEl);
-                 } else {
-                     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                     svg.className = "lib-item-icon";
-                     svg.setAttribute("viewBox", "292 128 156 156");
-                     svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-                     svg.setAttribute("role", "img");
-                     svg.setAttribute("aria-label", "Playlist");
-                     svg.setAttribute("width", "20");
-                     svg.setAttribute("height", "20");
-                     var title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-                     title.textContent = "Playlist icon";
-                     var desc = document.createElementNS("http://www.w3.org/2000/svg", "desc");
-                     desc.textContent = "A music note/playlist icon";
-                     var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                     g.setAttribute("transform", "translate(297, 133) scale(6.667)");
-                     var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                     path.setAttribute("fill", "currentColor");
-                     path.setAttribute("d", "M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z");
-                     g.appendChild(path);
-                     svg.appendChild(title);
-                     svg.appendChild(desc);
-                     svg.appendChild(g);
-                     cover.appendChild(svg);
-                 }
+
+                // If playlist has a cover image, show it; otherwise show default icon
+                if (pl.cover_path) {
+                    var img = document.createElement("img");
+                    img.src = pl.cover_path;
+                    img.alt = escapeHtml(pl.name || "Playlist");
+                    img.style.width = "100%";
+                    img.style.height = "100%";
+                    img.style.objectFit = "cover";
+                    img.onerror = function() {
+                        img.style.display = "none";
+                        // Fallback to icon will be shown below if we also render it; for now we hide img
+                        // and show appropriate icon based on is_liked
+                        if (pl.is_liked) {
+                            var heart = document.createElement("i");
+                            heart.className = "fa-solid fa-heart";
+                            cover.appendChild(heart);
+                        } else {
+                            var svg = createPlaylistIconSvg();
+                            cover.appendChild(svg);
+                        }
+                    };
+                    cover.appendChild(img);
+                } else {
+                    // Show default icon
+                    if (pl.is_liked) {
+                        var iconEl = document.createElement("i");
+                        iconEl.className = "fa-solid fa-heart";
+                        cover.appendChild(iconEl);
+                    } else {
+                        var svg = createPlaylistIconSvg();
+                        cover.appendChild(svg);
+                    }
+                }
 
                 var info = document.createElement("div");
                 info.className = "lib-item-info";
@@ -3717,10 +3749,16 @@
             likedItem.className = 'add-playlist-item';
             likedItem.dataset.playlistId = 'liked';
             if (!filterLower) { // Only show when not filtering, or could include in filter
-                // Thumbnail for Liked Songs
+                // Thumbnail for Liked Songs — match library's gradient heart styling
                 const thumb = document.createElement('div');
                 thumb.className = 'add-playlist-thumb';
-                thumb.innerHTML = '<i class="fa-solid fa-heart" style="color: #1DB954; font-size: 1.1rem;"></i>';
+                // Use same gradient as library Liked Songs cover
+                thumb.style.background = 'linear-gradient(135deg,#450af5,#c4efd9)';
+                const heart = document.createElement('i');
+                heart.className = 'fa-solid fa-heart';
+                heart.style.color = '#1DB954';
+                heart.style.fontSize = '1.1rem';
+                thumb.appendChild(heart);
                 likedItem.appendChild(thumb);
 
                 // Name
@@ -3787,9 +3825,25 @@
                     const img = document.createElement('img');
                     img.src = pl.cover_path;
                     img.alt = escapeHtml(pl.name);
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.objectFit = 'cover';
+                    img.onerror = function() {
+                        img.style.display = 'none';
+                        // Fallback to default playlist icon SVG
+                        const fallback = createPlaylistIconSvg();
+                        // Scale fallback icon to thumbnail size (20px original -> adapt)
+                        fallback.style.width = '20px';
+                        fallback.style.height = '20px';
+                        thumb.appendChild(fallback);
+                    };
                     thumb.appendChild(img);
                 } else {
-                    thumb.innerHTML = '<i class="fa-solid fa-music"></i>';
+                    // Default playlist icon (music note SVG)
+                    const svg = createPlaylistIconSvg();
+                    svg.style.width = '20px';
+                    svg.style.height = '20px';
+                    thumb.appendChild(svg);
                 }
                 item.appendChild(thumb);
 
