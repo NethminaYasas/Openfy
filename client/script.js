@@ -2288,14 +2288,14 @@
             }
 
             const wasLiked = npLikeBtn.classList.contains("liked");
+            const wasInPlaylist = npLikeBtn.classList.contains("in-playlist");
+
             npLikeBtn.disabled = true;
-            npLikeBtn.classList.add("adding");
 
             try {
-                await api("/liked/" + currentTrackId, { method: "POST" });
-                npLikeBtn.classList.remove("adding");
                 if (wasLiked) {
-                    // Unliked: remove from cache, fall back to regular-playlist state or plus
+                    // Unlike from Liked Songs
+                    await api("/liked/" + currentTrackId, { method: "POST" });
                     likedTrackIds.delete(currentTrackId);
                     npLikeBtn.classList.remove("liked");
                     if (trackIdsInRegularPlaylists.has(currentTrackId)) {
@@ -2308,18 +2308,20 @@
                         npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
                         npLikeBtn.setAttribute("title", "Add to Liked Songs");
                     }
+                    npLikeBtn.disabled = false;
+
+                } else if (wasInPlaylist) {
+                    // Track is in regular playlist(s) — show removal menu
+                    event.stopPropagation();
+                    await toggleRemovalMenu(true);
+                    npLikeBtn.disabled = false;
+
                 } else {
-                    // Liked: add to cache, show heart
-                    likedTrackIds.add(currentTrackId);
-                    npLikeBtn.classList.add("liked");
-                    npLikeBtn.classList.remove("in-playlist");
-                    npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
-                    npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
-                    npLikeBtn.setAttribute("title", "Remove from Liked Songs");
+                    // Not in any playlist — show add-to-playlist submenu
+                    showAddToPlaylistSubmenu();
+                    npLikeBtn.disabled = false;
                 }
-                npLikeBtn.disabled = false;
             } catch (err) {
-                npLikeBtn.classList.remove("adding");
                 npLikeBtn.disabled = false;
                 const msg = err.message || "";
                 if (msg.includes("Not authenticated") || msg.includes("401") || msg.includes("403")) {
