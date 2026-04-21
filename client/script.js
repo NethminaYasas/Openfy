@@ -3117,6 +3117,58 @@
             });
         }
 
+        // Confirm and execute removal from a specific playlist
+        async function confirmAndRemoveFromPlaylist(playlistId, playlistName) {
+            const confirmed = confirm(`Remove this track from "${playlistName}"?`);
+            if (!confirmed) return;
+
+            try {
+                await api(`/playlists/${playlistId}/tracks/${currentTrackId}`, { method: "DELETE" });
+
+                // Update cache: remove this playlist from currentTrackPlaylistsCache
+                currentTrackPlaylistsCache = currentTrackPlaylistsCache.filter(pl => pl.id !== playlistId);
+
+                // Update global trackIdsInRegularPlaylists
+                if (currentTrackPlaylistsCache.length > 0) {
+                    trackIdsInRegularPlaylists.add(currentTrackId);
+                } else {
+                    trackIdsInRegularPlaylists.delete(currentTrackId);
+                }
+
+                // Hide the menu
+                const menu = document.getElementById("np-playlist-removal-menu");
+                if (menu) menu.classList.remove("visible");
+
+                // Update like button state based on new membership
+                syncLikeButtonState({ id: currentTrackId });
+
+            } catch (err) {
+                const msg = err.message || "";
+                if (msg.includes("401") || msg.includes("403") || msg.toLowerCase().includes("not authenticated")) {
+                    // Session expired — logout
+                    localStorage.removeItem("openfy_auth");
+                    authHash = "";
+                    npLikeBtn.classList.add("hidden");
+                    alert("Session expired. Please log in again.");
+                    authOverlay.style.display = "flex";
+                    appMain.style.display = "none";
+                    topBar.style.display = "none";
+                } else if (msg.includes("404")) {
+                    // Already removed — treat as success, sync state
+                    console.warn("Track already removed, syncing state");
+                    currentTrackPlaylistsCache = currentTrackPlaylistsCache.filter(pl => pl.id !== playlistId);
+                    if (currentTrackPlaylistsCache.length === 0) {
+                        trackIdsInRegularPlaylists.delete(currentTrackId);
+                    }
+                    syncLikeButtonState({ id: currentTrackId });
+                    const menu = document.getElementById("np-playlist-removal-menu");
+                    if (menu) menu.classList.remove("visible");
+                } else {
+                    alert("Failed to remove from playlist: " + msg);
+                }
+            }
+        }
+
         // ========== End removal menu functions ==========
 
         // Populate submenu with user's playlists (names only, gray out if track already in playlist)
