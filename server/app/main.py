@@ -22,6 +22,7 @@ from fastapi.responses import (
     Response,
     JSONResponse,
 )
+from PIL import Image
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
@@ -720,6 +721,75 @@ def get_playlist(
     return playlist
 
 
+@app.get("/playlists/{playlist_id}/cover")
+def get_playlist_cover(
+    playlist_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Return a 500x500 JPEG collage of the first 4 tracks' album artwork.
+    No authentication required — playlist ID is a UUID (unguessable).
+    Liked Songs, playlists with <4 tracks, or missing artwork return 404.
+    """
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.is_liked:
+        raise HTTPException(status_code=404, detail="Liked Songs has no collage")
+
+    # Get first 4 tracks (ordered by position)
+    tracks_stmt = (
+        select(PlaylistTrack)
+        .options(
+            selectinload(PlaylistTrack.track).selectinload(Track.album),
+        )
+        .where(PlaylistTrack.playlist_id == playlist_id)
+        .order_by(PlaylistTrack.position.asc())
+        .limit(4)
+    )
+    playlist_tracks = db.execute(tracks_stmt).scalars().all()
+
+    if len(playlist_tracks) < 4:
+        raise HTTPException(status_code=404, detail="Playlist has fewer than 4 tracks")
+
+    # Collage dimensions: 2x2 grid of 250px tiles = 500x500 total
+    tile_size = 250
+    collage_size = tile_size * 2
+    collage = Image.new("RGB", (collage_size, collage_size), (40, 40, 40))  # #282828 fallback
+
+    positions = [(0, 0), (tile_size, 0), (0, tile_size), (tile_size, tile_size)]
+
+    for pt, pos in zip(playlist_tracks, positions):
+        track = pt.track
+        album = track.album if track else None
+        artwork_path = getattr(album, "artwork_path", None) if album else None
+
+        if artwork_path:
+            path = Path(artwork_path)
+            if path.exists():
+                try:
+                    img = Image.open(path).convert("RGB")
+                    img = img.resize((tile_size, tile_size), Image.Resampling.LANCZOS)
+                    collage.paste(img, pos)
+                    continue
+                except Exception:
+                    pass  # fall through to gray block
+        # Missing artwork — leave gray (already the background)
+
+    # Save collage
+    collages_dir = settings.artwork_dir / "collages"
+    collages_dir.mkdir(parents=True, exist_ok=True)
+    out_path = collages_dir / f"{playlist_id}.jpg"
+    collage.save(out_path, format="JPEG", quality=85)
+
+    # Return image bytes
+    import io
+    buf = io.BytesIO()
+    collage.save(buf, format="JPEG", quality=85)
+    buf.seek(0)
+    return Response(content=buf.read(), media_type="image/jpeg")
+
+
 @app.put("/playlists/{playlist_id}", response_model=PlaylistOut)
 def update_playlist(
     playlist_id: str,
@@ -867,6 +937,8 @@ def add_track_to_playlist(
 
         try:
             db.commit()
+            # Invalidate collage cache since track order/artwork may affect it
+            _delete_playlist_collage(playlist_id)
             # Re-query the link with full eager loading to guarantee serializable state
             result = db.execute(
                 select(PlaylistTrack)
@@ -972,6 +1044,8 @@ def remove_track_from_playlist(
     )
     if result.rowcount > 0:
         db.commit()
+        # Invalidate collage cache since track removal may drop below 4 tracks
+        _delete_playlist_collage(playlist_id)
         return {
             "status": "removed",
             "playlist_id": playlist_id,
@@ -1006,6 +1080,8 @@ def delete_playlist(
     if playlist.user_hash != x_auth_hash:
         raise HTTPException(status_code=403, detail="Not your playlist")
 
+    # Delete collage file before removing playlist
+    _delete_playlist_collage(playlist_id)
     db.delete(playlist)
     db.commit()
     return {"status": "deleted"}

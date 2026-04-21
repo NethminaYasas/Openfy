@@ -2047,6 +2047,7 @@ input:checked + .toggle-slider:before {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .lib-item-cover i,
@@ -2098,6 +2099,7 @@ input:checked + .toggle-slider:before {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .playlist-cover i,

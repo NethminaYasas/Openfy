@@ -2414,40 +2414,27 @@
 
                 var cover = document.createElement("div");
                 cover.className = "lib-item-cover";
-                cover.style.background = bg;
 
-                // If playlist has a cover image, show it; otherwise show default icon
-                if (pl.cover_path) {
+                if (pl.is_liked) {
+                    // Liked Songs: gradient + heart icon
+                    cover.style.background = "linear-gradient(135deg,#450af5,#c4efd9)";
+                    cover.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                } else {
+                    // Regular playlist: try loading collage thumbnail
+                    cover.style.background = "transparent";
                     var img = document.createElement("img");
-                    img.src = pl.cover_path;
+                    img.src = withBase("/playlists/" + pl.id + "/cover?v=" + Date.now());
                     img.alt = escapeHtml(pl.name || "Playlist");
                     img.style.width = "100%";
                     img.style.height = "100%";
                     img.style.objectFit = "cover";
                     img.onerror = function() {
                         img.style.display = "none";
-                        // Fallback to icon will be shown below if we also render it; for now we hide img
-                        // and show appropriate icon based on is_liked
-                        if (pl.is_liked) {
-                            var heart = document.createElement("i");
-                            heart.className = "fa-solid fa-heart";
-                            cover.appendChild(heart);
-                        } else {
-                            var svg = createPlaylistIconSvg();
-                            cover.appendChild(svg);
-                        }
+                        // Fallback to default playlist icon
+                        cover.style.background = "#282828";
+                        cover.appendChild(createPlaylistIconSvg());
                     };
                     cover.appendChild(img);
-                } else {
-                    // Show default icon
-                    if (pl.is_liked) {
-                        var iconEl = document.createElement("i");
-                        iconEl.className = "fa-solid fa-heart";
-                        cover.appendChild(iconEl);
-                    } else {
-                        var svg = createPlaylistIconSvg();
-                        cover.appendChild(svg);
-                    }
                 }
 
                 var info = document.createElement("div");
@@ -2501,8 +2488,27 @@
                 document.getElementById("playlist-type").textContent = pl.is_liked ? "Playlist" : "Playlist";
                 document.getElementById("playlist-meta").textContent = tracks.length + " songs";
                 var cover = document.getElementById("playlist-cover");
-                cover.style.background = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
-                cover.innerHTML = pl.is_liked ? '<i class="fa-solid fa-heart"></i>' : '<svg class="playlist-cover-icon" viewBox="292 128 156 156" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Playlist"><title>Playlist icon</title><desc>A music note/playlist icon</desc><g transform="translate(297, 133) scale(6.667)"><path fill="currentColor" d="M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z"/></g></svg>';
+
+                if (pl.is_liked) {
+                    // Liked Songs: gradient + heart
+                    cover.style.background = "linear-gradient(135deg,#450af5,#c4efd9)";
+                    cover.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                } else {
+                    // Regular playlist: try loading collage image
+                    var img = document.createElement("img");
+                    img.src = withBase("/playlists/" + playlistId + "/cover?v=" + Date.now());
+                    img.style.width = "100%";
+                    img.style.height = "100%";
+                    img.style.objectFit = "cover";
+                    img.onerror = function() {
+                        // Collage not available (<4 tracks, no artwork, etc.)
+                        cover.style.background = "#282828";
+                        cover.innerHTML = '<svg class="playlist-cover-icon" viewBox="292 128 156 156" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Playlist"><title>Playlist icon</title><desc>A music note/playlist icon</desc><g transform="translate(297, 133) scale(6.667)"><path fill="currentColor" d="M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z"/></g></svg>';
+                    };
+                    cover.style.background = "transparent";
+                    cover.innerHTML = "";
+                    cover.appendChild(img);
+                }
                 var container = document.getElementById("playlist-tracks");
                 container.innerHTML = "";
                 tracks.forEach(function(pt, i) {
@@ -3821,9 +3827,18 @@
                 // Thumbnail
                 const thumb = document.createElement('div');
                 thumb.className = 'add-playlist-thumb';
-                if (pl.cover_path) {
+                // Liked Songs: gradient + heart
+                if (pl.is_liked) {
+                    thumb.style.background = 'linear-gradient(135deg,#450af5,#c4efd9)';
+                    const heart = document.createElement('i');
+                    heart.className = 'fa-solid fa-heart';
+                    heart.style.color = '#fff';
+                    heart.style.fontSize = '1.25rem';
+                    thumb.appendChild(heart);
+                } else {
+                    // Regular playlist: try loading collage thumbnail
                     const img = document.createElement('img');
-                    img.src = pl.cover_path;
+                    img.src = withBase("/playlists/" + pl.id + "/cover?v=" + Date.now());
                     img.alt = escapeHtml(pl.name);
                     img.style.width = '100%';
                     img.style.height = '100%';
@@ -3832,18 +3847,11 @@
                         img.style.display = 'none';
                         // Fallback to default playlist icon SVG
                         const fallback = createPlaylistIconSvg();
-                        // Scale fallback icon to thumbnail size (20px original -> adapt)
                         fallback.style.width = '20px';
                         fallback.style.height = '20px';
                         thumb.appendChild(fallback);
                     };
                     thumb.appendChild(img);
-                } else {
-                    // Default playlist icon (music note SVG)
-                    const svg = createPlaylistIconSvg();
-                    svg.style.width = '20px';
-                    svg.style.height = '20px';
-                    thumb.appendChild(svg);
                 }
                 item.appendChild(thumb);
 
