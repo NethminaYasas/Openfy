@@ -72,6 +72,14 @@ def update_track_timestamp():
     last_track_update = int(time.time() * 1000)  # Milliseconds since epoch
 
 
+def _delete_playlist_collage(playlist_id: str):
+    """Delete cached collage for given playlist if it exists."""
+    collages_dir = settings.artwork_dir / "collages"
+    path = collages_dir / f"{playlist_id}.jpg"
+    if path.exists():
+        path.unlink()
+
+
 app = FastAPI(title=settings.app_name)
 
 static_dir = Path("/app/client")
@@ -148,6 +156,9 @@ async def add_track_update_timestamp(request: Request, call_next):
 @app.on_event("startup")
 def _startup():
     ensure_dirs()
+    # Ensure collages directory exists
+    collages_dir = settings.artwork_dir / "collages"
+    collages_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     if settings.database_url.startswith("sqlite"):
         with engine.connect() as conn:
@@ -787,45 +798,143 @@ def add_track_to_playlist(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    import sys
+    import traceback
+
+    def log_error(msg: str):
+        print(f"[add_track_to_playlist ERROR] {msg}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
+    try:
+        if not x_auth_hash:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        user = _get_user(db, x_auth_hash)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid auth hash")
+        playlist = db.get(Playlist, playlist_id)
+        if not playlist:
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        if playlist.user_hash != x_auth_hash and not user.is_admin:
+            raise HTTPException(status_code=403, detail="Not your playlist")
+        if playlist.is_liked:
+            raise HTTPException(
+                status_code=403, detail="Cannot manually add to Liked Songs"
+            )
+
+        # Check if track already in playlist
+        existing = db.execute(
+            select(PlaylistTrack)
+            .options(
+                selectinload(PlaylistTrack.track).selectinload(Track.artists),
+                selectinload(PlaylistTrack.track).selectinload(Track.album),
+            )
+            .where(
+                PlaylistTrack.playlist_id == playlist_id,
+                PlaylistTrack.track_id == track_id,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            log_error(f"Track {track_id} already in playlist {playlist_id}, returning existing")
+            return existing
+
+        # Load track with needed relationships
+        track = db.execute(
+            select(Track).options(
+                selectinload(Track.artists),
+                selectinload(Track.album),
+            ).where(Track.id == track_id)
+        ).scalar_one_or_none()
+        if not track:
+            raise HTTPException(status_code=404, detail=f"Track {track_id} not found")
+
+        # Calculate next position
+        max_position = db.execute(
+            select(func.max(PlaylistTrack.position))
+            .where(PlaylistTrack.playlist_id == playlist_id)
+        ).scalar_one_or_none()
+        next_position = (max_position or 0) + 1
+
+        # Create the association using the loaded track
+        link = PlaylistTrack(
+            playlist_id=playlist_id,
+            track_id=track_id,
+            position=next_position
+        )
+        # Attach the track to the link before adding to session
+        # This ensures relationship is available for serialization
+        link.track = track
+        db.add(link)
+
+        try:
+            db.commit()
+            # Re-query the link with full eager loading to guarantee serializable state
+            result = db.execute(
+                select(PlaylistTrack)
+                .options(
+                    selectinload(PlaylistTrack.track).selectinload(Track.artists),
+                    selectinload(PlaylistTrack.track).selectinload(Track.album),
+                )
+                .where(
+                    PlaylistTrack.playlist_id == playlist_id,
+                    PlaylistTrack.track_id == track_id,
+                )
+            ).scalar_one_or_none()
+            if result is None:
+                raise HTTPException(status_code=500, detail="Failed to retrieve created playlist track")
+            return result
+        except IntegrityError as ie:
+            db.rollback()
+            log_error(f"IntegrityError on add: {ie}")
+            existing = db.execute(
+                select(PlaylistTrack)
+                .options(
+                    selectinload(PlaylistTrack.track).selectinload(Track.artists),
+                    selectinload(PlaylistTrack.track).selectinload(Track.album),
+                )
+                .where(
+                    PlaylistTrack.playlist_id == playlist_id,
+                    PlaylistTrack.track_id == track_id,
+                )
+            ).scalar_one_or_none()
+            if existing:
+                log_error(f"Race condition: track already exists, returning it")
+                return existing
+            raise HTTPException(status_code=409, detail="Database conflict when adding track")
+        except Exception as e:
+            db.rollback()
+            log_error(f"Commit/refresh failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Database error: {type(e).__name__}: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Unexpected error in add_track_to_playlist: {e}")
+        raise HTTPException(status_code=500, detail=f"Server error: {type(e).__name__}: {e}")
+
+
+@app.get("/tracks/{track_id}/playlists", response_model=List[PlaylistOut])
+def list_track_playlists(
+    track_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """List all regular (non-Liked) playlists owned by the user that contain the given track."""
     if not x_auth_hash:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
-    playlist = db.get(Playlist, playlist_id)
-    track = db.get(Track, track_id)
-    if not playlist or not track:
-        raise HTTPException(status_code=404, detail="Playlist or track not found")
-    if playlist.user_hash != x_auth_hash and not user.is_admin:
-        raise HTTPException(status_code=403, detail="Not your playlist")
-    if playlist.is_liked:
-        raise HTTPException(
-            status_code=403, detail="Cannot manually add to Liked Songs"
-        )
 
-    existing = db.execute(
-        select(PlaylistTrack).where(
-            PlaylistTrack.playlist_id == playlist_id,
+    stmt = (
+        select(Playlist)
+        .join(PlaylistTrack, Playlist.id == PlaylistTrack.playlist_id)
+        .where(
+            Playlist.user_hash == user.auth_hash,
+            Playlist.is_liked == 0,
             PlaylistTrack.track_id == track_id,
         )
-    ).scalar_one_or_none()
-    if existing:
-        return existing
-
-    position = db.execute(
-        select(PlaylistTrack.position)
-        .where(PlaylistTrack.playlist_id == playlist_id)
-        .order_by(PlaylistTrack.position.desc())
-    ).scalar_one_or_none()
-    next_position = (position or 0) + 1
-
-    link = PlaylistTrack(
-        playlist_id=playlist_id, track_id=track_id, position=next_position
+        .order_by(Playlist.created_at.desc())
     )
-    db.add(link)
-    db.commit()
-    db.refresh(link)
-    return link
+    return db.execute(stmt).scalars().all()
 
 
 @app.delete("/playlists/{playlist_id}")
