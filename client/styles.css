@@ -632,6 +632,9 @@ body {
     color: transparent;
     position: relative;
 }
+.player-like-btn.in-playlist::before {
+    display: none;
+}
 .player-like-btn.in-playlist::after {
     content: '';
     position: absolute;
@@ -649,6 +652,7 @@ body {
 }
 .player-like-btn.in-playlist:hover::after {
     border-color: #000;
+    background-color: transparent;
 }
 /* Hide inner plus icon when in in-playlist state */
 .player-like-btn.in-playlist i {
@@ -1336,6 +1340,7 @@ a {
     display: flex;
     align-items: center;
     gap: 14px;
+    position: relative;
 }
 
 .album .art-canvas {
@@ -3252,60 +3257,141 @@ input:checked + .toggle-slider:before {
     margin-bottom: 0.5rem;
 }
 
-/* Removal menu: dropdown from tick button showing playlists containing track */
-.np-removal-menu {
-    position: absolute;
-    bottom: calc(100% + 4px);  /* Position above button with gap */
-    right: 0;
-    background: var(--panel-bg, #282828);
-    border: 1px solid var(--border-color, #444);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    min-width: 180px;
-    max-height: 240px;
-    overflow-y: auto;
-    z-index: 1000;
-    display: none;
+/* Removal menu: anchored above tick button via JS (bottom/right) */
+.np-removal-menu.context-menu-submenu {
+    left: auto !important;
+    top: auto !important;
+    /* right set by JS; bottom set by JS */
+    transform: translateY(8px);
+    margin-left: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+}
+.np-removal-menu.context-menu-submenu.visible {
+    transform: translateY(0);
 }
 
-.np-removal-menu.visible {
-    display: block;
+/* Removal menu items container — no padding/margin, items touch edges */
+.np-removal-menu .submenu-items {
+    padding: 0;
+    margin: 0;
 }
 
-.removal-menu-item {
+/* Removal menu search bar */
+.np-removal-menu .submenu-search-wrapper {
+    padding: 0.5rem 0.75rem 0.25rem 0.75rem;
+    border-bottom: 1px solid #282828;
+}
+.np-removal-menu .submenu-search-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    cursor: pointer;
-    color: var(--text-primary, #eee);
-    font-size: 13px;
-    border-bottom: 1px solid var(--border-color, #333);
+    background-color: #242424;
+    border-radius: 999px;
+    padding: 0 0.75rem;
+    height: 32px;
+    position: relative;
 }
-
-.removal-menu-item:last-child {
-    border-bottom: none;
+.np-removal-menu .submenu-search-icon {
+    color: #b3b3b3;
+    font-size: 0.75rem;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
 }
-
-.removal-menu-item:hover {
-    background: var(--hover-bg, #3a3a3a);
-}
-
-.removal-playlist-name {
+.np-removal-menu .submenu-search-bar input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-size: 0.8rem;
+    font-family: inherit;
     flex: 1;
-    white-space: nowrap;
+    min-width: 0;
+    height: 100%;
+}
+.np-removal-menu .submenu-search-bar input::placeholder {
+    color: #727272;
+}
+/* Removal menu items — name on left, icon on right touching border */
+.np-removal-menu .submenu-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0.6rem 0 0.6rem 0.75rem !important;
+    margin: 0 !important;
+    cursor: default !important;
+    width: 100% !important;
+    min-width: unset !important;
+    overflow: visible !important;
+    white-space: normal !important;
+}
+.np-removal-menu .submenu-item .submenu-playlist-name {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
-
-.removal-icon {
+.np-removal-menu .submenu-item .removal-icon {
+    margin-left: 2px;
+    margin-right: 0;
+    color: #fff !important;
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+    font-size: 14px !important;
+    width: 18px;
+    height: 18px;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.15s ease, color 0.15s ease;
+    cursor: pointer;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.08);
+}
+.np-removal-menu .submenu-item:hover .removal-icon {
+    background: rgba(255,255,255,0.2);
+}
+.np-removal-menu .submenu-search-bar input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-size: 0.8rem;
+    font-family: inherit;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+}
+.np-removal-menu .submenu-search-bar input::placeholder {
+    color: #727272;
+}
+.np-removal-menu .submenu-close {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
     color: var(--text-muted, #888);
     font-size: 12px;
-    margin-left: 8px;
-    transition: color 0.15s ease;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+.np-removal-menu .submenu-close:hover {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
 }
 
-.removal-menu-item:hover .removal-icon {
-    color: var(--text-primary, #eee);
+.np-removal-menu .submenu-search-empty,
+.np-removal-menu .submenu-error {
+    padding: 0.75rem 1rem;
+    color: #727272;
+    font-size: 0.85rem;
+    text-align: center;
 }
 

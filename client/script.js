@@ -458,28 +458,25 @@
             return div.innerHTML;
         }
 
-        // Position the removal menu anchored to the like button
+        // Position the removal menu anchored to the like button (right-aligned, entirely above container)
         function positionRemovalMenu(menu, anchorBtn) {
             const rect = anchorBtn.getBoundingClientRect();
             const container = anchorBtn.parentElement;
             const containerRect = container.getBoundingClientRect();
 
-            // Position above button, right-aligned
             menu.style.position = 'absolute';
-            const bottomOffset = containerRect.height - rect.top + containerRect.top + 4;
-            menu.style.bottom = bottomOffset + 'px';
-            menu.style.left = (rect.left - containerRect.left) + 'px';
+            // Position menu completely above the now playing bar: bottom = container height + gap
+            const GAP_ABOVE = 8;
+            menu.style.bottom = (containerRect.height + GAP_ABOVE) + 'px';
+            // Right-align menu's right edge with container's right edge (button is near right)
+            menu.style.right = '0';
+            menu.style.left = 'auto';
             menu.style.top = 'auto';
-            menu.style.right = 'auto';
         }
 
         // Hide removal menu if visible, and clear cache
         function hideRemovalMenuIfVisible() {
-            const menu = document.getElementById("np-playlist-removal-menu");
-            if (menu && menu.classList.contains("visible")) {
-                menu.classList.remove("visible");
-                currentTrackPlaylistsCache = [];
-            }
+            hideRemovalMenu();
         }
 
         async function api(url, opts) {
@@ -2311,14 +2308,19 @@
                     npLikeBtn.disabled = false;
 
                 } else if (wasInPlaylist) {
-                    // Track is in regular playlist(s) — show removal menu
+                    // Track is in regular playlist(s) — toggle removal menu
                     event.stopPropagation();
-                    await toggleRemovalMenu(true);
+                    await toggleRemovalMenu();
                     npLikeBtn.disabled = false;
 
                 } else {
-                    // Not in any playlist — show add-to-playlist submenu
-                    showAddToPlaylistSubmenu();
+                    // Not liked and not in any playlist — add to Liked Songs
+                    await api("/liked/" + currentTrackId, { method: "POST" });
+                    likedTrackIds.add(currentTrackId);
+                    npLikeBtn.classList.add("liked");
+                    npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                    npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
+                    npLikeBtn.setAttribute("title", "Remove from Liked Songs");
                     npLikeBtn.disabled = false;
                 }
             } catch (err) {
@@ -2886,6 +2888,12 @@
         const submenuSearchWrapper = document.getElementById("submenu-search-wrapper");
         const submenuSearchInput = document.getElementById("submenu-search-input");
 
+        // Removal menu
+        const npRemovalMenu = document.getElementById("np-playlist-removal-menu");
+        const npRemovalItems = document.getElementById("np-playlist-removal-items");
+        const npRemovalSearchWrapper = document.getElementById("np-removal-search-wrapper");
+        const npRemovalSearchInput = document.getElementById("np-removal-search-input");
+
         const renameModalOverlay = document.getElementById("rename-modal-overlay");
         const renameInput = document.getElementById("rename-input");
         const renameCancelBtn = document.getElementById("rename-cancel-btn");
@@ -2903,6 +2911,16 @@
                 filterSubmenuItems(this.value);
             }, 150);
         });
+
+        // Search input for removal menu
+        if (npRemovalSearchInput) {
+            npRemovalSearchInput.addEventListener("input", function() {
+                clearTimeout(submenuSearchTimeout);
+                submenuSearchTimeout = setTimeout(() => {
+                    filterRemovalMenuItems(this.value);
+                }, 150);
+            });
+        }
 
         function showContextMenu(e, playlist) {
             currentContextPlaylist = playlist;
@@ -3051,16 +3069,15 @@
         // ========== Removal menu functions ==========
 
         // Toggle removal menu for current track (unlike from playlists)
-        async function toggleRemovalMenu(forceShow) {
-            const menu = document.getElementById("np-playlist-removal-menu");
+        async function toggleRemovalMenu() {
+            const menu = npRemovalMenu;
             if (!menu) return;
 
             const isVisible = menu.classList.contains("visible");
 
-            if (isVisible && forceShow !== true) {
+            if (isVisible) {
                 // Toggle off
-                menu.classList.remove("visible");
-                currentTrackPlaylistsCache = [];
+                hideRemovalMenu();
                 return;
             }
 
@@ -3083,8 +3100,26 @@
 
             currentTrackPlaylistsCache = playlists;
             buildRemovalMenu(playlists);
+
+            // Show search bar and clear any previous search
+            if (npRemovalSearchWrapper) npRemovalSearchWrapper.style.display = 'block';
+            if (npRemovalSearchInput) {
+                npRemovalSearchInput.value = '';
+                // Apply any current search filter (empty = show all)
+                const items = npRemovalItems.querySelectorAll('.submenu-item');
+                items.forEach(item => item.style.display = '');
+            }
+
             positionRemovalMenu(menu, npLikeBtn);
             menu.classList.add("visible");
+        }
+
+        // Hide removal menu and clear cache
+        function hideRemovalMenu() {
+            if (npRemovalMenu) npRemovalMenu.classList.remove("visible");
+            currentTrackPlaylistsCache = [];
+            if (npRemovalSearchWrapper) npRemovalSearchWrapper.style.display = 'none';
+            if (npRemovalSearchInput) npRemovalSearchInput.value = '';
         }
 
         // Fetch playlists that contain given track (regular playlists only)
@@ -3099,31 +3134,36 @@
 
         // Build menu DOM from playlists array
         function buildRemovalMenu(playlists) {
-            const menu = document.getElementById("np-playlist-removal-menu");
-            if (!menu) return;
-            menu.innerHTML = '';
+            const itemsContainer = document.getElementById("np-playlist-removal-items");
+            if (!itemsContainer) return;
+            itemsContainer.innerHTML = '';
 
             playlists.forEach(pl => {
                 const item = document.createElement('div');
-                item.className = 'removal-menu-item';
+                item.className = 'submenu-item';
                 item.dataset.playlistId = pl.id;
-                item.innerHTML = `
-                    <span class="removal-playlist-name">${escapeHtml(pl.name)}</span>
-                    <i class="fa-solid fa-xmark removal-icon"></i>
-                `;
-                item.addEventListener('click', async (e) => {
+                item.dataset.playlistName = pl.name.toLowerCase();
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'submenu-playlist-name';
+                nameSpan.textContent = pl.name;
+                item.appendChild(nameSpan);
+
+                const xIcon = document.createElement('i');
+                xIcon.className = 'fa-solid fa-xmark removal-icon';
+                xIcon.setAttribute('aria-label', 'Remove from playlist');
+                xIcon.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    await confirmAndRemoveFromPlaylist(pl.id, pl.name);
+                    await removeFromPlaylist(pl.id);
                 });
-                menu.appendChild(item);
+                item.appendChild(xIcon);
+
+                itemsContainer.appendChild(item);
             });
         }
 
-        // Confirm and execute removal from a specific playlist
-        async function confirmAndRemoveFromPlaylist(playlistId, playlistName) {
-            const confirmed = confirm(`Remove this track from "${playlistName}"?`);
-            if (!confirmed) return;
-
+        // Execute removal from a specific playlist
+        async function removeFromPlaylist(playlistId) {
             try {
                 await api(`/playlists/${playlistId}/tracks/${currentTrackId}`, { method: "DELETE" });
 
@@ -3275,6 +3315,34 @@
             }
         }
 
+        // Filter removal menu items based on search query
+        function filterRemovalMenuItems(query) {
+            const normalizedQuery = query.toLowerCase().trim();
+            const items = npRemovalItems.querySelectorAll('.submenu-item');
+            let visibleCount = 0;
+            items.forEach(item => {
+                const name = item.dataset.playlistName || '';
+                if (name.includes(normalizedQuery)) {
+                    item.style.display = '';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            // Show empty state if no matches
+            const existingEmpty = npRemovalItems.querySelector('.submenu-search-empty');
+            if (visibleCount === 0 && !existingEmpty) {
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'submenu-search-empty';
+                emptyMsg.textContent = 'No playlists match';
+                emptyMsg.style.cssText = 'padding:0.6rem 1rem;color:#727272;font-size:0.85rem;text-align:center;';
+                npRemovalItems.appendChild(emptyMsg);
+            } else if (existingEmpty) {
+                existingEmpty.remove();
+            }
+        }
+
 
         // Add current track to selected playlist
         async function addTrackToPlaylist(playlistId, track) {
@@ -3321,12 +3389,20 @@
             scheduleHideSubmenu();
         });
 
-        // Also close submenu when main context menu is closed
+        // Keep removal menu anchored to tick on window resize
+        window.addEventListener("resize", function() {
+            if (npRemovalMenu && npRemovalMenu.classList.contains("visible")) {
+                positionRemovalMenu(npRemovalMenu, npLikeBtn);
+            }
+        });
+
+        // Also close removal menu when main context menu is closed
         const originalHideContextMenu = hideContextMenu;
         hideContextMenu = function() {
             ctxPlaylistSubmenu.classList.remove('visible');
             submenuSearchInput.value = '';
             submenuSearchWrapper.style.display = 'none';
+            hideRemovalMenu();
             if (currentTimeout) {
                 clearTimeout(currentTimeout);
                 currentTimeout = null;
