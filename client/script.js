@@ -2280,64 +2280,14 @@
             event.preventDefault();
             if (!currentTrackId) return;
             if (!authHash) {
-                alert("Please log in to like songs.");
+                alert("Please log in to manage playlists.");
                 return;
             }
 
-            const wasLiked = npLikeBtn.classList.contains("liked");
-            const wasInPlaylist = npLikeBtn.classList.contains("in-playlist");
-
-            npLikeBtn.disabled = true;
-
-            try {
-                if (wasLiked) {
-                    // Unlike from Liked Songs
-                    await api("/liked/" + currentTrackId, { method: "POST" });
-                    likedTrackIds.delete(currentTrackId);
-                    npLikeBtn.classList.remove("liked");
-                    if (trackIdsInRegularPlaylists.has(currentTrackId)) {
-                        npLikeBtn.classList.add("in-playlist");
-                        npLikeBtn.innerHTML = "";
-                        npLikeBtn.setAttribute("aria-label", "Added to playlist");
-                        npLikeBtn.setAttribute("title", "Added to playlist");
-                    } else {
-                        npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-                        npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
-                        npLikeBtn.setAttribute("title", "Add to Liked Songs");
-                    }
-                    npLikeBtn.disabled = false;
-
-                } else if (wasInPlaylist) {
-                    // Track is in regular playlist(s) — toggle removal menu
-                    event.stopPropagation();
-                    await toggleRemovalMenu();
-                    npLikeBtn.disabled = false;
-
-                } else {
-                    // Not liked and not in any playlist — add to Liked Songs
-                    await api("/liked/" + currentTrackId, { method: "POST" });
-                    likedTrackIds.add(currentTrackId);
-                    npLikeBtn.classList.add("liked");
-                    npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
-                    npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
-                    npLikeBtn.setAttribute("title", "Remove from Liked Songs");
-                    npLikeBtn.disabled = false;
-                }
-            } catch (err) {
-                npLikeBtn.disabled = false;
-                const msg = err.message || "";
-                if (msg.includes("Not authenticated") || msg.includes("401") || msg.includes("403")) {
-                    localStorage.removeItem("openfy_auth");
-                    authHash = "";
-                    npLikeBtn.classList.add("hidden");
-                    alert("Session expired. Please log in again.");
-                    authOverlay.style.display = "flex";
-                    appMain.style.display = "none";
-                    topBar.style.display = "none";
-                } else {
-                    alert("Failed: " + msg);
-                }
-            }
+            // Show Add to Playlist modal instead of old menu behavior
+            event.stopPropagation();
+            await showAddToPlaylistModal();
+            npLikeBtn.disabled = false;
         });
 
         var volumeSlider = document.getElementById("volume-slider");
@@ -2904,6 +2854,142 @@
         const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
         const confirmDeleteBtn = document.getElementById("confirm-delete-btn");
 
+        // Add to Playlist Modal elements
+        const addPlaylistModalOverlay = document.getElementById("add-playlist-modal-overlay");
+        const addPlaylistModalWrapper = document.getElementById("add-playlist-modal-wrapper");
+        const addPlaylistModal = document.querySelector(".add-playlist-modal"); // modal content box
+        const addPlaylistNewRow = document.getElementById("add-playlist-new-row");
+        const addPlaylistItems = document.getElementById("add-playlist-items");
+        const addPlaylistSearchInput = document.getElementById("add-playlist-search-input");
+        const addPlaylistCancelBtn = document.getElementById("add-playlist-cancel-btn");
+        const addPlaylistConfirmBtn = document.getElementById("add-playlist-confirm-btn");
+
+        // Debounce timer for modal search
+        let addPlaylistSearchTimeout = null;
+        // Cached playlists for the modal
+        let allPlaylistsCache = [];
+        // Original state when modal opened (server state)
+        let modalOriginalInPlaylist = new Set(); // Set of playlist IDs + 'liked' for Liked Songs
+        // Pending state (changes as user toggles)
+        let modalPendingInPlaylist = new Set(); // Set of playlist IDs + 'liked'
+
+        // Modal event listeners
+        addPlaylistSearchInput.addEventListener("input", function() {
+            clearTimeout(addPlaylistSearchTimeout);
+            addPlaylistSearchTimeout = setTimeout(filterAddToPlaylistItems, 150);
+        });
+
+        addPlaylistCancelBtn.addEventListener("click", hideAddToPlaylistModal);
+        addPlaylistNewRow.addEventListener("click", handleNewPlaylistClick);
+
+        // Close when clicking overlay (outside modal)
+        addPlaylistModalOverlay.addEventListener("click", function(e) {
+            if (e.target === addPlaylistModalOverlay || e.target === addPlaylistModalWrapper) {
+                hideAddToPlaylistModal();
+            }
+        });
+
+        // Stop propagation on modal content clicks
+        addPlaylistModal.addEventListener("click", function(e) {
+            e.stopPropagation();
+        });
+
+        // Confirm button — apply all staged changes to server
+        addPlaylistConfirmBtn.addEventListener("click", async function() {
+            await applyPendingChanges();
+        });
+
+        // Show confirm button when changes are made
+        function showConfirmButton() {
+            // Compare pending vs original to determine if there are changes
+            const hasChanges = setsDiffer(modalPendingInPlaylist, modalOriginalInPlaylist);
+            addPlaylistConfirmBtn.style.display = hasChanges ? 'inline-block' : 'none';
+        }
+
+        // Helper: compare two Sets
+        function setsDiffer(a, b) {
+            if (a.size !== b.size) return true;
+            for (const v of a) if (!b.has(v)) return true;
+            for (const v of b) if (!a.has(v)) return true;
+            return false;
+        }
+
+        // Reset confirm state (call when modal opens/closes)
+        function resetConfirmState() {
+            modalOriginalInPlaylist.clear();
+            modalPendingInPlaylist.clear();
+            addPlaylistConfirmBtn.style.display = 'none';
+        }
+
+        // Update like button UI to reflect current PENDING state
+        function updateLikeButtonPreview() {
+            const inLiked = modalPendingInPlaylist.has('liked');
+            const regularCount = modalPendingInPlaylist.size - (inLiked ? 1 : 0);
+            if (inLiked) {
+                npLikeBtn.classList.remove('in-playlist', 'adding');
+                npLikeBtn.classList.add('liked');
+                npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                npLikeBtn.setAttribute('aria-label', 'Remove from Liked Songs');
+                npLikeBtn.setAttribute('title', 'Remove from Liked Songs');
+            } else if (regularCount > 0) {
+                npLikeBtn.classList.remove('liked', 'adding');
+                npLikeBtn.classList.add('in-playlist');
+                npLikeBtn.innerHTML = '';
+                npLikeBtn.setAttribute('aria-label', 'Added to playlist');
+                npLikeBtn.setAttribute('title', 'Added to playlist');
+            } else {
+                npLikeBtn.classList.remove('liked', 'in-playlist');
+                npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                npLikeBtn.setAttribute('aria-label', 'Add to Liked Songs');
+                npLikeBtn.setAttribute('title', 'Add to Liked Songs');
+            }
+        }
+
+        // Apply all staged changes to the server
+        async function applyPendingChanges() {
+            const toRemove = [...modalOriginalInPlaylist].filter(id => !modalPendingInPlaylist.has(id));
+            const toAdd = [...modalPendingInPlaylist].filter(id => !modalOriginalInPlaylist.has(id));
+
+            try {
+                // Removals first
+                for (const id of toRemove) {
+                    if (id === 'liked') {
+                        await api(`/liked/${currentTrackId}`, { method: "POST" });
+                    } else {
+                        await api(`/playlists/${id}/tracks/${currentTrackId}`, { method: "DELETE" });
+                    }
+                }
+                // Additions
+                for (const id of toAdd) {
+                    if (id === 'liked') {
+                        await api(`/liked/${currentTrackId}`, { method: "POST" });
+                    } else {
+                        const pl = allPlaylistsCache.find(p => p.id === id);
+                        if (pl && pl._isNew) {
+                            // Create playlist first
+                            const newPl = await api("/playlists", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ name: pl.name })
+                            });
+                            // Replace placeholder in cache
+                            const idx = allPlaylistsCache.findIndex(p => p.id === id);
+                            if (idx !== -1) allPlaylistsCache[idx] = { ...newPl, _isNew: false };
+                            // Add track to new playlist
+                            await api(`/playlists/${newPl.id}/tracks?track_id=${currentTrackId}`, { method: "POST" });
+                        } else {
+                            await api(`/playlists/${id}/tracks?track_id=${currentTrackId}`, { method: "POST" });
+                        }
+                    }
+                }
+                // Refresh and close
+                loadPlaylists();
+                hideAddToPlaylistModal();
+            } catch (err) {
+                alert("Failed to save changes: " + err.message);
+            }
+        }
+
         // Search input for submenu - debounced handler
         submenuSearchInput.addEventListener("input", function() {
             clearTimeout(submenuSearchTimeout);
@@ -3154,7 +3240,10 @@
                 xIcon.setAttribute('aria-label', 'Remove from playlist');
                 xIcon.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    await removeFromPlaylist(pl.id);
+                    const confirmed = confirm(`Remove this track from "${pl.name}"?`);
+                    if (confirmed) {
+                        await removeFromPlaylist(pl.id);
+                    }
                 });
                 item.appendChild(xIcon);
 
@@ -3274,7 +3363,10 @@
                         alert("Liked Songs is managed automatically. Use the heart button on tracks to add/remove.");
                         return;
                     }
-                    addTrackToPlaylist(pl.id, currentContextTrack);
+                    const confirmed = confirm(`Add this track to "${pl.name}"?`);
+                    if (confirmed) {
+                        addTrackToPlaylist(pl.id, currentContextTrack);
+                    }
                 });
                 ctxSubmenuItems.appendChild(item);
                 lastPlaylistResults.push(item);
@@ -3393,6 +3485,9 @@
         window.addEventListener("resize", function() {
             if (npRemovalMenu && npRemovalMenu.classList.contains("visible")) {
                 positionRemovalMenu(npRemovalMenu, npLikeBtn);
+            }
+            if (addPlaylistModalOverlay && addPlaylistModalOverlay.style.display === "flex") {
+                positionAddToPlaylistModal(npLikeBtn);
             }
         });
 
@@ -3519,19 +3614,308 @@
             }
         });
 
+        // Add to Playlist Modal functions
+        function hideAddToPlaylistModal() {
+            addPlaylistModalOverlay.style.display = "none";
+            addPlaylistSearchInput.value = '';
+            allPlaylistsCache = [];
+            currentTrackInPlaylistIds.clear();
+            // Reset confirm state
+            resetConfirmState();
+        }
+
+        // Position the modal wrapper centered above the like button
+        function positionAddToPlaylistModal(anchorBtn) {
+            const rect = anchorBtn.getBoundingClientRect();
+            const wrapper = addPlaylistModalWrapper;
+
+            // Center horizontally: left edge = button center X - half modal width
+            const centerX = rect.left + rect.width / 2;
+            wrapper.style.left = (centerX - wrapper.offsetWidth / 2) + 'px';
+
+            // Position bottom: modal bottom should be at (button top - GAP)
+            // bottom CSS property = distance from viewport bottom to element's bottom
+            const GAP = 8;
+            wrapper.style.bottom = (window.innerHeight - rect.top + GAP) + 'px';
+            wrapper.style.top = 'auto';
+            wrapper.style.right = 'auto';
+        }
+
+        async function showAddToPlaylistModal() {
+            // If modal already visible, do nothing
+            if (addPlaylistModalOverlay.style.display === "flex") return;
+
+            // Reset confirm state on fresh open
+            resetConfirmState();
+
+            // Close other popovers
+            hideContextMenu();
+            hideRemovalMenuIfVisible();
+
+            // Position the modal above the like button
+            positionAddToPlaylistModal(npLikeBtn);
+
+            // Fetch all user playlists and which contain current track
+            try {
+                const playlists = await loadPlaylistsInternal();
+                allPlaylistsCache = playlists;
+
+                // Capture server state for this track
+                modalOriginalInPlaylist.clear();
+                modalPendingInPlaylist.clear();
+
+                if (currentTrackId) {
+                    try {
+                        const trackPlaylists = await loadTrackPlaylists(currentTrackId);
+                        for (const pl of trackPlaylists) {
+                            modalOriginalInPlaylist.add(pl.id);
+                            modalPendingInPlaylist.add(pl.id);
+                        }
+                    } catch (e) {
+                        console.warn("Could not fetch track playlists:", e);
+                    }
+                }
+
+                // Liked Songs
+                if (likedTrackIds.has(currentTrackId)) {
+                    modalOriginalInPlaylist.add('liked');
+                    modalPendingInPlaylist.add('liked');
+                }
+
+                buildAddToPlaylistItems(playlists);
+                showConfirmButton(); // show if any pending vs original diff
+                addPlaylistModalOverlay.style.display = "flex";
+                setTimeout(() => addPlaylistSearchInput.focus(), 100);
+            } catch (err) {
+                console.error("Failed to load playlists for modal:", err);
+                alert("Failed to load playlists: " + err.message);
+            }
+        }
+
+        // Internal loadPlaylists that returns the array (not DOM update)
+        async function loadPlaylistsInternal() {
+            // api() already throws on error and returns parsed JSON
+            return await api("/playlists");
+        }
+
+        // Check if a playlist contains a specific track
+        async function playlistContainsTrack(playlistId, trackId) {
+            try {
+                const tracks = await api(`/playlists/${playlistId}/tracks`);
+                return tracks.some(t => t.id === trackId);
+            } catch {
+                return false;
+            }
+        }
+
+        function buildAddToPlaylistItems(playlists, filter = '') {
+            addPlaylistItems.innerHTML = '';
+
+            const filterLower = filter.toLowerCase();
+
+            // Build Liked Songs special item (always show, not searchable)
+            const likedItem = document.createElement('div');
+            likedItem.className = 'add-playlist-item';
+            likedItem.dataset.playlistId = 'liked';
+            if (!filterLower) { // Only show when not filtering, or could include in filter
+                // Thumbnail for Liked Songs
+                const thumb = document.createElement('div');
+                thumb.className = 'add-playlist-thumb';
+                thumb.innerHTML = '<i class="fa-solid fa-heart" style="color: #1DB954; font-size: 1.1rem;"></i>';
+                likedItem.appendChild(thumb);
+
+                // Name
+                const name = document.createElement('span');
+                name.className = 'add-playlist-name';
+                name.textContent = 'Liked Songs';
+                likedItem.appendChild(name);
+
+                // Actions container
+                const actions = document.createElement('div');
+                actions.className = 'add-playlist-actions';
+
+                // Checkbox — reflects PENDING state
+                const checkbox = document.createElement('div');
+                checkbox.className = 'add-playlist-checkbox';
+                if (modalPendingInPlaylist.has('liked')) {
+                    checkbox.classList.add('checked');
+                }
+                checkbox.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleLikedSongsToggle(checkbox);
+                });
+                actions.appendChild(checkbox);
+
+                likedItem.appendChild(actions);
+                if (!filterLower) {
+                    addPlaylistItems.appendChild(likedItem);
+                }
+            }
+
+            // Filter regular playlists
+            const filtered = playlists.filter(pl => {
+                if (pl.is_liked) return false; // Skip Liked Songs (handled separately)
+                return pl.name.toLowerCase().includes(filterLower);
+            });
+
+            if (filtered.length === 0 && !filterLower) {
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'add-playlist-empty';
+                emptyMsg.style.cssText = 'padding: 1rem; color: #727272; font-size: 0.875rem; text-align: center;';
+                emptyMsg.textContent = 'No playlists yet';
+                addPlaylistItems.appendChild(emptyMsg);
+                return;
+            }
+
+            if (filtered.length === 0 && filterLower) {
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'add-playlist-empty';
+                emptyMsg.style.cssText = 'padding: 1rem; color: #727272; font-size: 0.875rem; text-align: center;';
+                emptyMsg.textContent = 'No playlists match your search';
+                addPlaylistItems.appendChild(emptyMsg);
+                return;
+            }
+
+            filtered.forEach(pl => {
+                const item = document.createElement('div');
+                item.className = 'add-playlist-item';
+                item.dataset.playlistId = pl.id;
+
+                // Thumbnail
+                const thumb = document.createElement('div');
+                thumb.className = 'add-playlist-thumb';
+                if (pl.cover_path) {
+                    const img = document.createElement('img');
+                    img.src = pl.cover_path;
+                    img.alt = escapeHtml(pl.name);
+                    thumb.appendChild(img);
+                } else {
+                    thumb.innerHTML = '<i class="fa-solid fa-music"></i>';
+                }
+                item.appendChild(thumb);
+
+                // Name
+                const name = document.createElement('span');
+                name.className = 'add-playlist-name';
+                name.textContent = pl.name;
+                item.appendChild(name);
+
+                // Actions container
+                const actions = document.createElement('div');
+                actions.className = 'add-playlist-actions';
+
+                // Pin icon (inline SVG) - always visible if pinned, shown on hover otherwise
+                const pinSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                pinSvg.className = 'add-playlist-pin';
+                pinSvg.setAttribute("viewBox", "290 120 160 160");
+                pinSvg.setAttribute("width", "14");
+                pinSvg.setAttribute("height", "14");
+                pinSvg.setAttribute("fill", pl.pinned ? "#1DB954" : "#b3b3b3");
+                pinSvg.setAttribute("aria-hidden", "true");
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                g.setAttribute("transform", "translate(290, 120) scale(10)");
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                if (pl.pinned) {
+                    // Filled pin (pinned) - green
+                    path.setAttribute("d", "M8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                } else {
+                    // Outline pin (unpinned) - gray
+                    path.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                }
+                g.appendChild(path);
+                pinSvg.appendChild(g);
+                actions.appendChild(pinSvg);
+
+                // Checkbox — reflects PENDING state
+                const checkbox = document.createElement('div');
+                checkbox.className = 'add-playlist-checkbox';
+                if (modalPendingInPlaylist.has(pl.id)) {
+                    checkbox.classList.add('checked');
+                }
+                checkbox.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleAddToPlaylistToggle(pl.id, checkbox);
+                });
+                actions.appendChild(checkbox);
+
+                item.appendChild(actions);
+                addPlaylistItems.appendChild(item);
+            });
+        }
+
+        function filterAddToPlaylistItems() {
+            buildAddToPlaylistItems(allPlaylistsCache, addPlaylistSearchInput.value);
+        }
+
+        function handleAddToPlaylistToggle(playlistId, checkboxEl) {
+            const currentlyChecked = checkboxEl.classList.contains('checked');
+            const newChecked = !currentlyChecked;
+
+            if (newChecked) {
+                modalPendingInPlaylist.add(playlistId);
+                checkboxEl.classList.add('checked');
+            } else {
+                modalPendingInPlaylist.delete(playlistId);
+                checkboxEl.classList.remove('checked');
+            }
+            showConfirmButton();
+        }
+
+        function handleLikedSongsToggle(checkboxEl) {
+            const currentlyChecked = checkboxEl.classList.contains('checked');
+
+            if (currentlyChecked) {
+                // Uncheck Liked — remove from pending (keep regular playlist pending state intact)
+                modalPendingInPlaylist.delete('liked');
+                checkboxEl.classList.remove('checked');
+                // Rebuild all items to reflect regular checkboxes unchanged
+                buildAddToPlaylistItems(allPlaylistsCache, addPlaylistSearchInput.value);
+            } else {
+                // Check Liked — add liked but keep other pending adds (multi-select)
+                modalPendingInPlaylist.add('liked');
+                // Rebuild to reflect new liked state while preserving other selections
+                buildAddToPlaylistItems(allPlaylistsCache, addPlaylistSearchInput.value);
+                checkboxEl.classList.add('checked');
+            }
+
+            showConfirmButton();
+        }
+
+        function handleNewPlaylistClick() {
+            // Create a pending new playlist entry (temporary ID)
+            const count = allPlaylistsCache.filter(p => !p.is_liked && !p._isNew).length;
+            const newName = `My Playlist #${count + 1}`;
+            const tempId = 'new-' + Date.now();
+
+            // Add to cache as a placeholder (won't persist until Confirm)
+            const placeholder = {
+                id: tempId,
+                name: newName,
+                is_liked: false,
+                pinned: false,
+                _isNew: true  // marker
+            };
+            allPlaylistsCache.push(placeholder);
+
+            // Mark this playlist as pending addition in the modal
+            modalPendingInPlaylist.add(tempId);
+
+            // Remove Liked from pending (new playlist implies not Liked)
+            modalPendingInPlaylist.delete('liked');
+
+            // Rebuild items to show new playlist with checked box
+            buildAddToPlaylistItems(allPlaylistsCache, addPlaylistSearchInput.value);
+            showConfirmButton();
+        }
+
         // Close modals on overlay click and Escape key
-        renameModalOverlay.addEventListener("click", function(e) {
-            if (e.target === renameModalOverlay) hideRenameModal();
-        });
-        confirmModalOverlay.addEventListener("click", function(e) {
-            if (e.target === confirmModalOverlay) hideConfirmModal();
-        });
         document.addEventListener("keydown", function(e) {
             if (e.key === "Escape") {
                 hideContextMenu();
                 hideRenameModal();
                 hideConfirmModal();
                 hideRemovalMenuIfVisible();
+                hideAddToPlaylistModal();
             }
         });
 

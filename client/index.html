@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="icon" href="/static/images/logo.png">
     <title>Openfy - Web Player</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6">
+    <link rel="stylesheet" href="/static/styles.css?v=11">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
@@ -444,6 +444,37 @@
         </div>
     </div>
 
+    <!-- Add to Playlist Modal -->
+    <div class="add-playlist-modal-overlay" id="add-playlist-modal-overlay" style="display:none;">
+        <div class="add-playlist-modal-wrapper" id="add-playlist-modal-wrapper">
+            <div class="add-playlist-modal">
+                <div class="add-playlist-search-wrapper">
+                    <div class="add-playlist-search-bar">
+                        <i class="fa-solid fa-magnifying-glass add-playlist-search-icon"></i>
+                        <input type="text" id="add-playlist-search-input" placeholder="Find a playlist" autocomplete="off" />
+                    </div>
+                </div>
+                <div class="add-playlist-content">
+                    <!-- + New Playlist row -->
+                    <div class="add-playlist-new-row" id="add-playlist-new-row">
+                        <div class="add-playlist-new-icon">
+                            <i class="fa-solid fa-plus"></i>
+                        </div>
+                        <span class="add-playlist-new-text">New playlist</span>
+                    </div>
+                    <!-- Playlist items -->
+                    <div class="add-playlist-items" id="add-playlist-items">
+                        <!-- Playlist items injected via JS -->
+                    </div>
+                </div>
+                <div class="add-playlist-footer">
+                    <button class="add-playlist-cancel" id="add-playlist-cancel-btn">Cancel</button>
+                    <button class="add-playlist-confirm" id="add-playlist-confirm-btn" style="display: none;">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Confirm Delete Modal -->
     <div class="confirm-modal-overlay" id="confirm-modal-overlay" style="display:none;">
         <div class="confirm-modal">
@@ -460,6 +491,6 @@
         </div>
     </div>
 
-    <script src="/static/script.js?v=2"></script>
+    <script src="/static/script.js?v=11"></script>
 </body>
 </html>
