@@ -280,6 +280,8 @@
                     </div>
                     <button class="player-like-btn" id="np-like-btn" aria-label="Add to Liked Songs" title="Add to Liked Songs">
                     </button>
+                    <!-- Removal menu: shows playlists containing current track for removal -->
+                    <div id="np-playlist-removal-menu" class="np-removal-menu"></div>
                 </div>
                 <div class="player">
                     <div class="player-controls">
@@ -395,6 +397,12 @@
                 </svg>
             </div>
             <div class="context-menu-submenu" id="ctx-playlist-submenu">
+                <div class="submenu-search-wrapper" id="submenu-search-wrapper" style="display:none;">
+                    <div class="submenu-search-bar">
+                        <i class="fa-solid fa-magnifying-glass submenu-search-icon"></i>
+                        <input type="text" id="submenu-search-input" placeholder="Search playlists..." autocomplete="off" />
+                    </div>
+                </div>
                 <div class="submenu-items" id="submenu-playlist-items">
                     <!-- Playlist items injected via JS -->
                 </div>
