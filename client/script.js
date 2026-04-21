@@ -3756,8 +3756,8 @@
                 thumb.style.background = 'linear-gradient(135deg,#450af5,#c4efd9)';
                 const heart = document.createElement('i');
                 heart.className = 'fa-solid fa-heart';
-                heart.style.color = '#1DB954';
-                heart.style.fontSize = '1.1rem';
+                // Library shows white heart on gradient; override default grey CSS
+                heart.style.color = '#fff';
                 thumb.appendChild(heart);
                 likedItem.appendChild(thumb);
 
