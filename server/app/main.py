@@ -937,6 +937,57 @@ def list_track_playlists(
     return db.execute(stmt).scalars().all()
 
 
+@app.delete("/playlists/{playlist_id}/tracks/{track_id}")
+def remove_track_from_playlist(
+    playlist_id: str,
+    track_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Remove a track from a regular playlist. Idempotent: returns success even if track was not present."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    if playlist.user_hash != user.auth_hash and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Not your playlist")
+
+    if playlist.is_liked:
+        raise HTTPException(
+            status_code=403, detail="Use /liked/{track_id} endpoint for Liked Songs"
+        )
+
+    # Delete the association
+    result = db.execute(
+        delete(PlaylistTrack).where(
+            PlaylistTrack.playlist_id == playlist_id,
+            PlaylistTrack.track_id == track_id,
+        )
+    )
+    if result.rowcount > 0:
+        db.commit()
+        return {
+            "status": "removed",
+            "playlist_id": playlist_id,
+            "track_id": track_id,
+            "was_present": True,
+        }
+    else:
+        # Idempotent: no row existed, still success
+        return {
+            "status": "removed",
+            "playlist_id": playlist_id,
+            "track_id": track_id,
+            "was_present": False,
+        }
+
+
 @app.delete("/playlists/{playlist_id}")
 def delete_playlist(
     playlist_id: str,
