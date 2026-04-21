@@ -443,11 +443,44 @@
         let activeDownloadPoll = null; // Current download poll interval
         let trackIdsInRegularPlaylists = new Set(); // Track IDs in any non-Liked playlist
         let likedTrackIds = new Set(); // Track IDs in Liked Songs
+        let trackPlaylistRemovalMenu = null; // DOM reference to removal menu
+        let currentTrackPlaylistsCache = []; // Playlists containing current track
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
 
         const QUEUE_LOOKAHEAD = 6; // store current + next 6
+
+        // Escape HTML to prevent XSS when inserting playlist names into DOM
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Position the removal menu anchored to the like button
+        function positionRemovalMenu(menu, anchorBtn) {
+            const rect = anchorBtn.getBoundingClientRect();
+            const container = anchorBtn.parentElement;
+            const containerRect = container.getBoundingClientRect();
+
+            // Position above button, right-aligned
+            menu.style.position = 'absolute';
+            const bottomOffset = containerRect.height - rect.top + containerRect.top + 4;
+            menu.style.bottom = bottomOffset + 'px';
+            menu.style.left = (rect.left - containerRect.left) + 'px';
+            menu.style.top = 'auto';
+            menu.style.right = 'auto';
+        }
+
+        // Hide removal menu if visible, and clear cache
+        function hideRemovalMenuIfVisible() {
+            const menu = document.getElementById("np-playlist-removal-menu");
+            if (menu && menu.classList.contains("visible")) {
+                menu.classList.remove("visible");
+                currentTrackPlaylistsCache = [];
+            }
+        }
 
         async function api(url, opts) {
             opts = opts || {};
@@ -1584,6 +1617,8 @@
             } else {
                 npLikeBtn.classList.add("hidden");
             }
+            // Close any open removal menu when track changes
+            hideRemovalMenuIfVisible();
         }
 
         function loadTrackPaused(track) {
@@ -1633,6 +1668,8 @@
             // Ensure play button shows paused state
             btnPlay.classList.remove("playing");
             progressContainer.classList.remove("active");
+            // Close any open removal menu when track changes
+            hideRemovalMenuIfVisible();
         }
 
         async function checkIfLiked(trackId) {
@@ -2844,6 +2881,8 @@
         const ctxPlaylistSubmenu = document.getElementById("ctx-playlist-submenu");
         const ctxSubmenuItems = document.getElementById("submenu-playlist-items");
         const ctxTrackAddQueue = document.getElementById("ctx-track-add-queue");
+        const submenuSearchWrapper = document.getElementById("submenu-search-wrapper");
+        const submenuSearchInput = document.getElementById("submenu-search-input");
 
         const renameModalOverlay = document.getElementById("rename-modal-overlay");
         const renameInput = document.getElementById("rename-input");
@@ -2854,6 +2893,14 @@
         const confirmMessage = document.getElementById("confirm-message");
         const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
         const confirmDeleteBtn = document.getElementById("confirm-delete-btn");
+
+        // Search input for submenu - debounced handler
+        submenuSearchInput.addEventListener("input", function() {
+            clearTimeout(submenuSearchTimeout);
+            submenuSearchTimeout = setTimeout(() => {
+                filterSubmenuItems(this.value);
+            }, 150);
+        });
 
         function showContextMenu(e, playlist) {
             currentContextPlaylist = playlist;
@@ -2960,6 +3007,8 @@
         }
 
         let currentTimeout = null;
+        let lastPlaylistResults = []; // Store item elements for filtering
+        let submenuSearchTimeout = null;
 
         // Show submenu and load playlists
         function showPlaylistSubmenu() {
@@ -2972,6 +3021,16 @@
             ctxPlaylistSubmenu.style.top = ctxTrackAddPlaylist.offsetTop + "px";
             // Show submenu
             ctxPlaylistSubmenu.classList.add('visible');
+            // Show and clear search, reset all items visible
+            submenuSearchWrapper.style.display = 'block';
+            submenuSearchInput.value = '';
+            submenuSearchInput.focus();
+            // Reset any filtered items to visible
+            const items = ctxSubmenuItems.querySelectorAll('.submenu-item');
+            items.forEach(item => item.style.display = '');
+            // Remove any empty message
+            const emptyMsg = ctxSubmenuItems.querySelector('.submenu-search-empty');
+            if (emptyMsg) emptyMsg.remove();
             // Load playlists if not already
             if (!ctxSubmenuItems.hasChildNodes()) {
                 ctxSubmenuItems.innerHTML = '<div class="submenu-loading">Loading...</div>';
@@ -3004,6 +3063,7 @@
             ctxSubmenuItems.innerHTML = '';
             if (sortedPlaylists.length === 0) {
                 ctxSubmenuItems.innerHTML = '<div class="submenu-empty">No playlists yet.<br>Create one from the sidebar.</div>';
+                lastPlaylistResults = [];
                 return;
             }
 
@@ -3022,6 +3082,7 @@
             );
 
             ctxSubmenuItems.innerHTML = '';
+            lastPlaylistResults = [];
 
             // Build menu items (names only), disabling if track already in that playlist
             results.forEach(({ pl, trackIds }) => {
@@ -3035,6 +3096,8 @@
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'submenu-playlist-name';
                 nameSpan.textContent = pl.name;
+                // Store playlist name for search filtering
+                item.dataset.playlistName = pl.name.toLowerCase();
 
                 item.appendChild(nameSpan);
 
@@ -3047,7 +3110,42 @@
                     addTrackToPlaylist(pl.id, currentContextTrack);
                 });
                 ctxSubmenuItems.appendChild(item);
+                lastPlaylistResults.push(item);
             });
+
+            // Apply any current search filter
+            const currentSearch = submenuSearchInput.value.trim();
+            if (currentSearch) {
+                filterSubmenuItems(currentSearch);
+            }
+        }
+
+        // Filter submenu items based on search query
+        function filterSubmenuItems(query) {
+            const normalizedQuery = query.toLowerCase().trim();
+            const items = ctxSubmenuItems.querySelectorAll('.submenu-item');
+            let visibleCount = 0;
+            items.forEach(item => {
+                const name = item.dataset.playlistName || '';
+                if (name.includes(normalizedQuery)) {
+                    item.style.display = '';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            // Show empty state if no matches
+            const existingEmpty = ctxSubmenuItems.querySelector('.submenu-search-empty');
+            if (visibleCount === 0 && !existingEmpty) {
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'submenu-search-empty';
+                emptyMsg.textContent = 'No playlists match';
+                emptyMsg.style.cssText = 'padding:0.6rem 1rem;color:#727272;font-size:0.85rem;text-align:center;';
+                ctxSubmenuItems.appendChild(emptyMsg);
+            } else if (existingEmpty) {
+                existingEmpty.remove();
+            }
         }
 
 
@@ -3100,6 +3198,8 @@
         const originalHideContextMenu = hideContextMenu;
         hideContextMenu = function() {
             ctxPlaylistSubmenu.classList.remove('visible');
+            submenuSearchInput.value = '';
+            submenuSearchWrapper.style.display = 'none';
             if (currentTimeout) {
                 clearTimeout(currentTimeout);
                 currentTimeout = null;
@@ -3228,6 +3328,16 @@
                 hideContextMenu();
                 hideRenameModal();
                 hideConfirmModal();
+                hideRemovalMenuIfVisible();
+            }
+        });
+
+        // Also close removal menu when clicking outside of it
+        document.addEventListener("click", function(e) {
+            const menu = document.getElementById("np-playlist-removal-menu");
+            if (menu && menu.classList.contains("visible") &&
+                !menu.contains(e.target) && !npLikeBtn.contains(e.target)) {
+                hideRemovalMenuIfVisible();
             }
         });
 
