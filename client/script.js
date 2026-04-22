@@ -458,6 +458,34 @@
             return div.innerHTML;
         }
 
+        // Media Session API integration for OS/browser media overlays
+        function updateMediaSession(track) {
+            if (!('mediaSession' in navigator)) return;
+
+            const artworkUrl = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+            const artistName = (track.artists && track.artists.length > 0 && track.artists[0].name) ||
+                               (track.artist && track.artist.name) || "Unknown";
+            const albumTitle = track.album?.title || "";
+
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title || "",
+                    artist: artistName,
+                    album: albumTitle,
+                    artwork: [
+                        {
+                            src: artworkUrl,
+                            sizes: '512x512',
+                            type: 'image/jpeg'
+                        }
+                    ]
+                });
+            } catch (e) {
+                // Silently ignore - Media Session is best-effort
+                console.warn('MediaSession metadata error:', e.message);
+            }
+        }
+
         // Create default playlist icon SVG (music note)
         function createPlaylistIconSvg() {
             var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1603,6 +1631,7 @@
         function playTrack(track) {
             console.log('Playing track:', track.title);
             currentTrackId = track.id;
+            updateMediaSession(track);
             var streamUrl = "/tracks/" + track.id + "/stream";
             if (authHash) streamUrl += "?auth=" + encodeURIComponent(authHash);
             audioPlayer.src = withBase(streamUrl);
@@ -1650,6 +1679,7 @@
         function loadTrackPaused(track) {
             console.log('Loading track (paused):', track.title);
             currentTrackId = track.id;
+            updateMediaSession(track);
             // Set track to current queue (single track)
             setQueueFromList([track], 0);
             // Set audio source so it's ready to play, but keep paused
@@ -2149,6 +2179,10 @@
         audioPlayer.addEventListener("play", function() {
             btnPlay.classList.add("playing");
             progressContainer.classList.add("active");
+            // Update media session playback state
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing';
+            }
             // Update tab title when playback starts (including resume from pause)
             if (currentQueue.length && currentIndex >= 0 && currentIndex < currentQueue.length) {
                 var track = currentQueue[currentIndex];
@@ -2159,6 +2193,10 @@
         audioPlayer.addEventListener("pause", function() {
             btnPlay.classList.remove("playing");
             progressContainer.classList.remove("active");
+            // Update media session playback state
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'paused';
+            }
         });
 
         function updateProgressFill() {
@@ -2174,6 +2212,44 @@
             requestAnimationFrame(smoothProgress);
         }
         requestAnimationFrame(smoothProgress);
+
+        // Media Session position state synchronization (throttled via timeupdate)
+        let lastMediaSessionUpdate = 0;
+        audioPlayer.addEventListener("timeupdate", function() {
+            if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+
+            const now = Date.now();
+            if (now - lastMediaSessionUpdate < 100) return; // Throttle to ~10Hz
+            lastMediaSessionUpdate = now;
+
+            if (audioPlayer.duration) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: audioPlayer.duration,
+                        playbackRate: audioPlayer.playbackRate,
+                        position: audioPlayer.currentTime
+                    });
+                } catch (e) {
+                    // Silently ignore
+                }
+            }
+        });
+
+        // Update position state when duration becomes available (some files report late)
+        audioPlayer.addEventListener("durationchange", function() {
+            if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+            if (audioPlayer.duration) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: audioPlayer.duration,
+                        playbackRate: audioPlayer.playbackRate,
+                        position: audioPlayer.currentTime
+                    });
+                } catch (e) {
+                    // Silently ignore
+                }
+            }
+        });
 
         audioPlayer.addEventListener("ended", function() {
             if (repeatState === "loop-once") {
@@ -2215,6 +2291,18 @@
             if (audioPlayer.duration) {
                 audioPlayer.currentTime = (pct / 100) * audioPlayer.duration;
                 updateProgressFill();
+                // Immediately notify Media Session of seek to keep OS overlay in sync
+                if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+                    try {
+                        navigator.mediaSession.setPositionState({
+                            duration: audioPlayer.duration,
+                            playbackRate: audioPlayer.playbackRate,
+                            position: audioPlayer.currentTime
+                        });
+                    } catch (e) {
+                        // Silently ignore
+                    }
+                }
             }
         }
 
@@ -2257,6 +2345,65 @@
             }
         });
 
+        // Register Media Session API action handlers
+        if ('mediaSession' in navigator) {
+            // Play handler
+            navigator.mediaSession.setActionHandler('play', function() {
+                if (audioPlayer.paused && audioPlayer.src && audioPlayer.src !== window.location.href) {
+                    audioPlayer.play().catch(function(err) { console.error(err); });
+                }
+            });
+
+            // Pause handler
+            navigator.mediaSession.setActionHandler('pause', function() {
+                if (!audioPlayer.paused) {
+                    audioPlayer.pause();
+                }
+            });
+
+            // Previous track handler
+            navigator.mediaSession.setActionHandler('previoustrack', function() {
+                if (currentQueue.length && currentIndex > 0) {
+                    playByIndex(currentIndex - 1, false);
+                }
+            });
+
+            // Next track handler
+            navigator.mediaSession.setActionHandler('nexttrack', function() {
+                if (currentQueue.length && currentIndex < currentQueue.length - 1) {
+                    playByIndex(currentIndex + 1, false);
+                }
+            });
+
+            // Seek backward handler (-10 seconds)
+            navigator.mediaSession.setActionHandler('seekbackward', function() {
+                if (audioPlayer.duration) {
+                    audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+                    // Immediately update position state for responsive OS UI
+                    if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+                        navigator.mediaSession.setPositionState({
+                            duration: audioPlayer.duration,
+                            playbackRate: audioPlayer.playbackRate,
+                            position: audioPlayer.currentTime
+                        });
+                    }
+                }
+            });
+
+            // Seek forward handler (+10 seconds)
+            navigator.mediaSession.setActionHandler('seekforward', function() {
+                if (audioPlayer.duration) {
+                    audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
+                    if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+                        navigator.mediaSession.setPositionState({
+                            duration: audioPlayer.duration,
+                            playbackRate: audioPlayer.playbackRate,
+                            position: audioPlayer.currentTime
+                        });
+                    }
+                }
+            });
+        }
         topBarHome.addEventListener("click", function(event) {
             event.preventDefault();
             setActivePage("home");
