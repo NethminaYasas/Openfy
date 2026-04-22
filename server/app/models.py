@@ -201,6 +201,12 @@ class DownloadJob(Base):
     status: Mapped[str] = mapped_column(String(32), default="queued")
     output_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embed_lyrics: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="")  # Legacy field, kept for schema compatibility
+    lyrics: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="")  # Legacy field
+    artist: Mapped[str | None] = mapped_column(String(255), nullable=True, server_default="")  # Legacy field
+    album: Mapped[str | None] = mapped_column(String(255), nullable=True, server_default="")  # Legacy field
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True, server_default="")  # Legacy field
+    duration: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default="0")  # Legacy field
     user_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
