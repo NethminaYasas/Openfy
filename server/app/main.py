@@ -2,8 +2,11 @@ import secrets
 from pathlib import Path
 import json
 import time
+import re
 from datetime import datetime, timedelta
 from typing import List
+from collections import defaultdict
+from time import monotonic
 
 from fastapi import (
     FastAPI,
@@ -27,6 +30,18 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
+
+import logging
+
+# Configure logging for security events
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# In-memory rate limiting store: {identifier: [(timestamp, count), ...]}
+_rate_limit_store: dict[str, list] = defaultdict(list)
 
 from .db import Base, engine, get_db, SessionLocal
 from .models import (
@@ -73,6 +88,34 @@ def update_track_timestamp():
     last_track_update = int(time.time() * 1000)  # Milliseconds since epoch
 
 
+def rate_limit(max_requests: int, window_seconds: int = 60):
+    """
+    Simple in-memory rate limiter.
+    Limits requests based on client IP address.
+    """
+    def limiter(request: Request):
+        # Get client IP (consider X-Forwarded-For if behind proxy)
+        client_ip = request.client.host if request.client else "unknown"
+        key = f"auth:{client_ip}"
+        now = monotonic()
+        window_start = now - window_seconds
+
+        # Clean old entries
+        store = _rate_limit_store[key]
+        store[:] = [t for t in store if t > window_start]
+
+        if len(store) >= max_requests:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please try again later."
+            )
+
+        store.append(now)
+        return True
+
+    return limiter
+
+
 def _delete_playlist_collage(playlist_id: str):
     """Delete cached collage for given playlist if it exists."""
     collages_dir = settings.artwork_dir / "collages"
@@ -111,21 +154,37 @@ def _require_user(db: Session, x_auth_hash: str | None) -> User:
     return user
 
 
-allowed_origins = [
-    origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()
+# Configure CORS with secure defaults
+_allowed_origins_raw = getattr(settings, 'allowed_origins', 'http://localhost:8000')
+_allowed_origins = [origin.strip() for origin in _allowed_origins_raw.split(",") if origin.strip()]
+
+# If no specific origins configured, default to localhost development server
+if not _allowed_origins:
+    _allowed_origins = ["http://localhost:8000"]
+
+# Reject wildcard origins for security - explicit origins only
+if "*" in _allowed_origins:
+    logger.warning("Wildcard CORS origin detected in settings; using restrictive defaults instead")
+    _allowed_origins = ["http://localhost:8000"]
+
+# Define explicit allowed headers instead of wildcard
+_allowed_headers = [
+    "Content-Type",
+    "Authorization",
+    "x-auth-hash",
+    "Origin",
+    "Accept",
 ]
-cors_allow_credentials = True
-if "*" in allowed_origins:
-    # Wildcard + credentials is unsafe and rejected by browsers anyway.
-    allowed_origins = ["*"]
-    cors_allow_credentials = False
+
+# Define explicit allowed methods
+_allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=cors_allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=_allowed_methods,
+    allow_headers=_allowed_headers,
 )
 
 
@@ -407,7 +466,12 @@ def scan_library(
     if not user or not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     if path:
-        target = Path(path).resolve()
+        target = Path(path)
+        # Check BEFORE resolution to prevent symlink attacks
+        if not _is_within_dir(target, settings.music_dir):
+            raise HTTPException(status_code=403, detail="Path outside music directory")
+        target = target.resolve()
+        # Double-check after resolution
         if not _is_within_dir(target, settings.music_dir):
             raise HTTPException(status_code=403, detail="Path outside music directory")
         if not target.exists():
@@ -447,6 +511,9 @@ def list_tracks(
 
     # If user_hash is provided, require auth and check authorization
     if user_hash:
+        # Validate auth hash format (64 hex characters) to prevent injection
+        if not re.match(r'^[0-9a-f]{64}$', user_hash):
+            raise HTTPException(status_code=400, detail="Invalid user hash format")
         # Admin can query any user's tracks; regular users can only query their own
         if not user.is_admin and user.auth_hash != user_hash:
             raise HTTPException(
@@ -481,7 +548,12 @@ def most_played(
 
 
 @app.get("/tracks/{track_id}", response_model=TrackOut)
-def get_track(track_id: str, db: Session = Depends(get_db)):
+def get_track(
+    track_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    user = _require_user(db, x_auth_hash)
     stmt = (
         select(Track)
         .options(selectinload(Track.artists), selectinload(Track.album))
@@ -507,11 +579,16 @@ def track_artwork(track_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Artwork not found")
     if not track.album.artwork_path:
         raise HTTPException(status_code=404, detail="Artwork not found")
-    path = Path(track.album.artwork_path).resolve()
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Artwork not found")
+    # Double-check path is within artwork directory BEFORE and AFTER resolution
+    # to prevent symlink-based attacks
+    path = Path(track.album.artwork_path)
     if not _is_within_dir(path, settings.artwork_dir):
         raise HTTPException(status_code=403, detail="Access denied")
+    path = path.resolve()
+    if not _is_within_dir(path, settings.artwork_dir):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Artwork not found")
     return FileResponse(path)
 
 
@@ -536,11 +613,16 @@ def stream_track(
     auth = request.query_params.get("auth")
     user = _require_user(db, x_auth_hash or auth)
 
-    path = Path(track.file_path).resolve()
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+    # Double-check path is within music directory BEFORE and AFTER resolution
+    # to prevent symlink-based path traversal attacks
+    path = Path(track.file_path)
     if not _is_within_dir(path, settings.music_dir):
         raise HTTPException(status_code=403, detail="Access denied")
+    path = path.resolve()
+    if not _is_within_dir(path, settings.music_dir):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
 
     range_header = request.headers.get("range")
     if not range_header:
@@ -766,6 +848,12 @@ def get_playlist_cover(
 
         if artwork_path:
             path = Path(artwork_path)
+            # Validate path is within artwork directory both before and after resolution
+            if not _is_within_dir(path, settings.artwork_dir):
+                continue  # Skip invalid/outside paths
+            path = path.resolve()
+            if not _is_within_dir(path, settings.artwork_dir):
+                continue  # Skip invalid/outside paths
             if path.exists():
                 try:
                     img = Image.open(path).convert("RGB")
@@ -975,12 +1063,14 @@ def add_track_to_playlist(
         except Exception as e:
             db.rollback()
             log_error(f"Commit/refresh failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Database error: {type(e).__name__}: {e}")
+            logger.error(f"add_track_to_playlist error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
     except HTTPException:
         raise
     except Exception as e:
         log_error(f"Unexpected error in add_track_to_playlist: {e}")
-        raise HTTPException(status_code=500, detail=f"Server error: {type(e).__name__}: {e}")
+        logger.error(f"add_track_to_playlist unexpected error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/tracks/{track_id}/playlists", response_model=List[PlaylistOut])
@@ -1071,13 +1161,16 @@ def delete_playlist(
     """Delete a playlist (owner only, admins cannot delete others' playlists)"""
     if not x_auth_hash:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
 
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
     if playlist.is_liked:
         raise HTTPException(status_code=403, detail="Cannot delete Liked Songs")
-    if playlist.user_hash != x_auth_hash:
+    if playlist.user_hash != user.auth_hash and not user.is_admin:
         raise HTTPException(status_code=403, detail="Not your playlist")
 
     # Delete collage file before removing playlist
@@ -1184,7 +1277,11 @@ def is_track_liked(
 
 
 @app.post("/auth/signup", response_model=UserOut)
-def signup(payload: UserSignup, db: Session = Depends(get_db)):
+def signup(
+    payload: UserSignup,
+    db: Session = Depends(get_db),
+    _: bool = Depends(rate_limit(max_requests=10, window_seconds=300)),  # 10 per 5 minutes per IP
+):
     existing = db.execute(
         select(User).where(User.name == payload.name)
     ).scalar_one_or_none()
@@ -1200,7 +1297,11 @@ def signup(payload: UserSignup, db: Session = Depends(get_db)):
 
 
 @app.post("/auth/signin", response_model=UserOut)
-def signin(payload: UserSignin, db: Session = Depends(get_db)):
+def signin(
+    payload: UserSignin,
+    db: Session = Depends(get_db),
+    _: bool = Depends(rate_limit(max_requests=15, window_seconds=300)),  # 15 per 5 minutes per IP
+):
     user = _get_user(db, payload.auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
@@ -1423,9 +1524,17 @@ def delete_track(
 
     # Delete file from disk
     try:
-        p = Path(file_path).resolve()
-        if p.exists() and _is_within_dir(p, settings.music_dir):
+        p = Path(file_path)
+        # Validate BEFORE resolution to catch malicious paths
+        if not _is_within_dir(p, settings.music_dir):
+            raise HTTPException(status_code=403, detail="Cannot delete file outside music directory")
+        p = p.resolve()
+        if not _is_within_dir(p, settings.music_dir):
+            raise HTTPException(status_code=403, detail="Cannot delete file outside music directory")
+        if p.exists():
             p.unlink()
+    except HTTPException:
+        raise
     except Exception as e:
         pass  # File deletion failure shouldn't break the response
 
