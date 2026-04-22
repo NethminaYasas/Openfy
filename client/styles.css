@@ -95,11 +95,12 @@ body {
 
 .sidebar {
     background-color: #000;
-    width: 340px;
+    width: clamp(280px, 22vw, 340px);
     border-radius: 0.5rem;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 .main-content {
@@ -151,7 +152,7 @@ body {
 #home-gradient-left, #home-gradient-right {
     position: absolute;
     top: 0;
-    width: 50px;
+    width: clamp(30px, 3vw, 50px);
     height: 100vh;
     pointer-events: none;
     z-index: -1;
@@ -183,15 +184,15 @@ body {
     margin-right: 0;
 }
 .main.home-page .section-header h2 {
-    margin-left: 3rem;
-    margin-right: 3rem;
+    margin-left: clamp(1.5rem, 4vw, 3rem);
+    margin-right: clamp(1.5rem, 4vw, 3rem);
     width: fit-content;
 }
 
 
 .now-playing-panel {
     background-color: #121212;
-    width: 340px;
+    width: clamp(280px, 22vw, 340px);
     flex-shrink: 0;
     border-radius: 0.5rem;
     display: flex;
@@ -1725,14 +1726,6 @@ a {
     }
 }
 
-@media (max-width: 1000px) {
-    .sidebar {
-        width: 300px;
-    }
-    .now-playing-panel {
-        width: 280px;
-    }
-}
 
 @media (max-width: 800px) {
     .sidebar { display: none; }
@@ -2092,8 +2085,8 @@ input:checked + .toggle-slider:before {
 }
 
 .playlist-cover {
-    width: 232px;
-    height: 232px;
+    width: clamp(160px, 30vw, 232px);
+    aspect-ratio: 1;
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -3492,7 +3485,7 @@ input:checked + .toggle-slider:before {
 /* Card styles for track row */
 .track-row-wrapper .card {
     background-color: #181818;
-    width: 160px;
+    width: clamp(140px, 16vw, 160px);
     flex-shrink: 0;
     border-radius: 0.5rem;
     padding: 0.75rem;

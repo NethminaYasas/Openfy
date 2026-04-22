@@ -1609,6 +1609,9 @@
             audioPlayer.play().catch(function(err) { console.error(err); });
             nowTitle.textContent = track.title || "";
             nowArtist.textContent = getArtistDisplay(track) || "";
+            // Set tab title: "Track Name - First Artist"
+            var artistTitle = (track.artists && track.artists.length > 0 && track.artists[0].name) || (track.artist && track.artist.name) || "Unknown";
+            document.title = (track.title || "Openfy") + " - " + artistTitle;
             clearCanvas(nowCover);
             nowCover.classList.remove("visible");
 
@@ -2143,7 +2146,16 @@
         }
 
         audioPlayer.addEventListener("loadedmetadata", function() { totTime.textContent = formatDuration(audioPlayer.duration); });
-        audioPlayer.addEventListener("play", function() { btnPlay.classList.add("playing"); progressContainer.classList.add("active"); });
+        audioPlayer.addEventListener("play", function() {
+            btnPlay.classList.add("playing");
+            progressContainer.classList.add("active");
+            // Update tab title when playback starts (including resume from pause)
+            if (currentQueue.length && currentIndex >= 0 && currentIndex < currentQueue.length) {
+                var track = currentQueue[currentIndex];
+                var artistTitle = (track.artists && track.artists.length > 0 && track.artists[0].name) || (track.artist && track.artist.name) || "Unknown";
+                document.title = (track.title || "Openfy") + " - " + artistTitle;
+            }
+        });
         audioPlayer.addEventListener("pause", function() {
             btnPlay.classList.remove("playing");
             progressContainer.classList.remove("active");
@@ -2184,7 +2196,8 @@
                 // Check if there's a next track
                 var nextIndex = (currentIndex + 1) % currentQueue.length;
                 if (nextIndex === 0) {
-                    // No next track
+                    // No next track - reset title
+                    document.title = "Openfy - Web Player";
                 } else {
                     playByIndex(currentIndex + 1, false);
                 }
@@ -2593,6 +2606,9 @@
 
             // Stop the update checker
             stopUpdateChecker();
+
+            // Reset tab title to default
+            document.title = "Openfy - Web Player";
 
             authOverlay.style.display = "flex";
             userDropdown.classList.remove("visible");
@@ -3318,6 +3334,8 @@
                     localStorage.removeItem("openfy_auth");
                     authHash = "";
                     npLikeBtn.classList.add("hidden");
+                    // Reset tab title to default
+                    document.title = "Openfy - Web Player";
                     alert("Session expired. Please log in again.");
                     authOverlay.style.display = "flex";
                     appMain.style.display = "none";
