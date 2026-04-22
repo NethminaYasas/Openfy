@@ -2287,6 +2287,65 @@
             }
         });
 
+        // Register Media Session API action handlers
+        if ('mediaSession' in navigator) {
+            // Play handler
+            navigator.mediaSession.setActionHandler('play', function() {
+                if (audioPlayer.paused && audioPlayer.src && audioPlayer.src !== window.location.href) {
+                    audioPlayer.play().catch(function(err) { console.error(err); });
+                }
+            });
+
+            // Pause handler
+            navigator.mediaSession.setActionHandler('pause', function() {
+                if (!audioPlayer.paused) {
+                    audioPlayer.pause();
+                }
+            });
+
+            // Previous track handler
+            navigator.mediaSession.setActionHandler('previoustrack', function() {
+                if (currentQueue.length && currentIndex > 0) {
+                    playByIndex(currentIndex - 1, false);
+                }
+            });
+
+            // Next track handler
+            navigator.mediaSession.setActionHandler('nexttrack', function() {
+                if (currentQueue.length && currentIndex < currentQueue.length - 1) {
+                    playByIndex(currentIndex + 1, false);
+                }
+            });
+
+            // Seek backward handler (-10 seconds)
+            navigator.mediaSession.setActionHandler('seekbackward', function() {
+                if (audioPlayer.duration) {
+                    audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+                    // Immediately update position state for responsive OS UI
+                    if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+                        navigator.mediaSession.setPositionState({
+                            duration: audioPlayer.duration,
+                            playbackRate: audioPlayer.playbackRate,
+                            position: audioPlayer.currentTime
+                        });
+                    }
+                }
+            });
+
+            // Seek forward handler (+10 seconds)
+            navigator.mediaSession.setActionHandler('seekforward', function() {
+                if (audioPlayer.duration) {
+                    audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
+                    if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+                        navigator.mediaSession.setPositionState({
+                            duration: audioPlayer.duration,
+                            playbackRate: audioPlayer.playbackRate,
+                            position: audioPlayer.currentTime
+                        });
+                    }
+                }
+            });
+        }
         topBarHome.addEventListener("click", function(event) {
             event.preventDefault();
             setActivePage("home");
