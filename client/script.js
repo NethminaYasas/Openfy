@@ -2291,6 +2291,18 @@
             if (audioPlayer.duration) {
                 audioPlayer.currentTime = (pct / 100) * audioPlayer.duration;
                 updateProgressFill();
+                // Immediately notify Media Session of seek to keep OS overlay in sync
+                if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+                    try {
+                        navigator.mediaSession.setPositionState({
+                            duration: audioPlayer.duration,
+                            playbackRate: audioPlayer.playbackRate,
+                            position: audioPlayer.currentTime
+                        });
+                    } catch (e) {
+                        // Silently ignore
+                    }
+                }
             }
         }
 
