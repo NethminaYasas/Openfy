@@ -1631,6 +1631,7 @@
         function playTrack(track) {
             console.log('Playing track:', track.title);
             currentTrackId = track.id;
+            updateMediaSession(track);
             var streamUrl = "/tracks/" + track.id + "/stream";
             if (authHash) streamUrl += "?auth=" + encodeURIComponent(authHash);
             audioPlayer.src = withBase(streamUrl);
@@ -1678,6 +1679,7 @@
         function loadTrackPaused(track) {
             console.log('Loading track (paused):', track.title);
             currentTrackId = track.id;
+            updateMediaSession(track);
             // Set track to current queue (single track)
             setQueueFromList([track], 0);
             // Set audio source so it's ready to play, but keep paused
