@@ -2179,6 +2179,10 @@
         audioPlayer.addEventListener("play", function() {
             btnPlay.classList.add("playing");
             progressContainer.classList.add("active");
+            // Update media session playback state
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing';
+            }
             // Update tab title when playback starts (including resume from pause)
             if (currentQueue.length && currentIndex >= 0 && currentIndex < currentQueue.length) {
                 var track = currentQueue[currentIndex];
@@ -2189,6 +2193,10 @@
         audioPlayer.addEventListener("pause", function() {
             btnPlay.classList.remove("playing");
             progressContainer.classList.remove("active");
+            // Update media session playback state
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'paused';
+            }
         });
 
         function updateProgressFill() {
