@@ -1812,7 +1812,7 @@
             if (opts.isNext) className += " next";
             if (opts.isCurrent) className += " current";
             btn.className = className;
-            btn.draggable = showFullQueue && !opts.isCurrent; // only allow dragging when queue expanded, and not for current track
+            btn.draggable = !opts.isCurrent; // allow dragging for all tracks except current
             btn.dataset.index = index;
 
             const artistText = getArtistDisplay(track) || "Unknown";
@@ -1857,14 +1857,7 @@
                 meta.appendChild(nowPlayingBadge);
             }
 
-            // Drag handle - only visible when queue expanded and not current track
-            const dragHandle = document.createElement("span");
-            dragHandle.className = "np-queue-drag-handle";
-            dragHandle.innerHTML = "⋮";
-            dragHandle.setAttribute("title", "Drag to reorder");
-            if (opts.isCurrent) dragHandle.style.display = 'none';
-
-            btn.appendChild(dragHandle);
+            // Click to play
             btn.appendChild(art);
             btn.appendChild(meta);
             btn.appendChild(badge);
