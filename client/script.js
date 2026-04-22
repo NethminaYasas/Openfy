@@ -458,6 +458,34 @@
             return div.innerHTML;
         }
 
+        // Media Session API integration for OS/browser media overlays
+        function updateMediaSession(track) {
+            if (!('mediaSession' in navigator)) return;
+
+            const artworkUrl = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+            const artistName = (track.artists && track.artists.length > 0 && track.artists[0].name) ||
+                               (track.artist && track.artist.name) || "Unknown";
+            const albumTitle = track.album?.title || "";
+
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title || "",
+                    artist: artistName,
+                    album: albumTitle,
+                    artwork: [
+                        {
+                            src: artworkUrl,
+                            sizes: '512x512',
+                            type: 'image/jpeg'
+                        }
+                    ]
+                });
+            } catch (e) {
+                // Silently ignore - Media Session is best-effort
+                console.warn('MediaSession metadata error:', e.message);
+            }
+        }
+
         // Create default playlist icon SVG (music note)
         function createPlaylistIconSvg() {
             var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
