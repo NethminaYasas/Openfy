@@ -2213,6 +2213,44 @@
         }
         requestAnimationFrame(smoothProgress);
 
+        // Media Session position state synchronization (throttled via timeupdate)
+        let lastMediaSessionUpdate = 0;
+        audioPlayer.addEventListener("timeupdate", function() {
+            if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+
+            const now = Date.now();
+            if (now - lastMediaSessionUpdate < 100) return; // Throttle to ~10Hz
+            lastMediaSessionUpdate = now;
+
+            if (audioPlayer.duration) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: audioPlayer.duration,
+                        playbackRate: audioPlayer.playbackRate,
+                        position: audioPlayer.currentTime
+                    });
+                } catch (e) {
+                    // Silently ignore
+                }
+            }
+        });
+
+        // Update position state when duration becomes available (some files report late)
+        audioPlayer.addEventListener("durationchange", function() {
+            if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+            if (audioPlayer.duration) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: audioPlayer.duration,
+                        playbackRate: audioPlayer.playbackRate,
+                        position: audioPlayer.currentTime
+                    });
+                } catch (e) {
+                    // Silently ignore
+                }
+            }
+        });
+
         audioPlayer.addEventListener("ended", function() {
             if (repeatState === "loop-once") {
                 repeatState = "off";
