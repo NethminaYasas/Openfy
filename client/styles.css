@@ -308,17 +308,24 @@ body {
     width: 1.5rem;
     height: 1.5rem;
     color: #727272;
+    fill: #727272;
     opacity: 0;
-    transition: opacity 0.2s ease, color 0.2s ease, transform 0.3s ease;
+    transition: opacity 0.2s ease, color 0.2s ease, fill 0.2s ease, transform 0.3s ease;
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .np-queue-panel:hover .queue-toggle-icon,
 .np-queue-header:hover .queue-toggle-icon {
-    opacity: 1;
+    opacity: 0.4;
+    color: #727272;
+    fill: #727272;
 }
 
 .queue-toggle-icon:hover {
-    color: #fff;
+    color: #fff !important;
+    fill: #fff !important;
+    opacity: 1 !important;
 }
 
 /* Spin when expanded */
@@ -752,7 +759,7 @@ a {
     border-radius: 0.5rem;
     height: 100%;
     margin-top: 0.5rem;
-    padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.75rem;
 }
 
 .sidebar.upload-disabled .library {
@@ -785,7 +792,8 @@ a {
     top: 50%;
     transform: translateY(-50%);
     overflow: hidden;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: pointer;
     /* Override the generic img size rule */
     height: 96px !important;
     width: 96px !important;
@@ -809,7 +817,11 @@ a {
 }
 
 .lib-option:hover .lib-hover-icon {
-    opacity: 1;
+    opacity: 0.4;
+}
+
+.lib-hover-icon:hover {
+    opacity: 1 !important;
 }
 
 .lib-option:hover {
@@ -3515,7 +3527,6 @@ input:checked + .toggle-slider:before {
 
 .track-row-wrapper .card:hover {
     background-color: #282828;
-    border-color: #404040;
 }
 
 .card-img {
