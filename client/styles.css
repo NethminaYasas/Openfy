@@ -2708,6 +2708,10 @@ input:checked + .toggle-slider:before {
     position: relative;
 }
 
+#ctx-track-add-queue {
+    order: -1;
+}
+
 .context-menu-item.has-submenu {
     justify-content: space-between;
 }

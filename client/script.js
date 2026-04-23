@@ -3293,6 +3293,8 @@
             // Show Add to Playlist and Add to Queue
             ctxTrackAddPlaylist.style.display = '';
             ctxTrackAddQueue.style.display = '';
+            // Reorder: Add to Queue first
+            contextMenu.insertBefore(ctxTrackAddQueue, ctxTrackAddPlaylist);
             // Reset submenu
             ctxPlaylistSubmenu.classList.remove('visible');
             ctxSubmenuItems.innerHTML = '';
