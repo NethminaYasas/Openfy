@@ -2103,10 +2103,11 @@
             }
         });
 
-        function indexOfTrackId(queue, trackId) {
+        function indexOfTrackId(queue, trackId, startFrom) {
             if (!trackId || !Array.isArray(queue)) return -1;
-            for (let i = 0; i < queue.length; i++) {
-                if (queue[i] && queue[i].id === trackId) return i;
+            const startIdx = startFrom !== undefined ? startFrom : 0;
+            for (let i = startIdx; i < queue.length; i++) {
+                if (queue[i] && queue[i].id == trackId) return i;
             }
             return -1;
         }
@@ -3295,8 +3296,8 @@
             // Reset submenu
             ctxPlaylistSubmenu.classList.remove('visible');
             ctxSubmenuItems.innerHTML = '';
-            // Disable (gray out) if track already in queue
-            if (indexOfTrackId(currentQueue, track.id) !== -1) {
+            // Disable (gray out) if track already in unplayed portion of queue (including current)
+            if (indexOfTrackId(currentQueue, track.id, currentIndex) !== -1) {
                 ctxTrackAddQueue.classList.add('disabled');
             } else {
                 ctxTrackAddQueue.classList.remove('disabled');
@@ -3744,8 +3745,8 @@
             if (ctxTrackAddQueue.classList.contains('disabled')) return;
             if (!currentContextTrack) return;
             const track = currentContextTrack;
-            // Double-check if already in queue
-            if (indexOfTrackId(currentQueue, track.id) !== -1) {
+            // Double-check if already in unplayed portion of queue (including current)
+            if (indexOfTrackId(currentQueue, track.id, currentIndex) !== -1) {
                 hideContextMenu();
                 return;
             }
