@@ -101,6 +101,37 @@ body {
     flex-direction: column;
     overflow: hidden;
     flex-shrink: 0;
+    transition: width 0.2s ease;
+}
+
+/* Minimized sidebar - show only playlist covers */
+.sidebar.sidebar-minimized {
+    width: 80px;
+}
+
+/* Hide text and icons in minimized state */
+.sidebar.sidebar-minimized .lib-option a,
+.sidebar.sidebar-minimized .icons,
+.sidebar.sidebar-minimized .nav-option a {
+    display: none;
+}
+
+/* Hide playlist names but keep covers visible */
+.sidebar.sidebar-minimized .lib-item-name {
+    display: none;
+}
+
+/* Lib box scrollable content */
+.lib-box {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.lib-box::-webkit-scrollbar {
+    display: none;
 }
 
 .main-content {
@@ -820,8 +851,27 @@ a {
     opacity: 0.4;
 }
 
+.sidebar-toggle-icon {
+    width: 28px !important;
+    height: 28px !important;
+    left: 4px !important;
+}
+
+.lib-option:hover .sidebar-toggle-icon {
+    opacity: 0.4;
+}
+
 .lib-hover-icon:hover {
     opacity: 1 !important;
+}
+
+.sidebar-toggle-icon:hover {
+    opacity: 1 !important;
+}
+
+/* Show toggle icon even when minimized */
+.sidebar.sidebar-minimized .sidebar-toggle-icon {
+    opacity: 0.7 !important;
 }
 
 .lib-option:hover {
