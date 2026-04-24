@@ -915,8 +915,13 @@ a {
     height: 40px !important;
 }
 
-/* Show minimize arrow only when hovering "Your Library" text */
+/* Show arrow at partial opacity when hovering the lib-option row (text area) */
 .lib-option:hover .sidebar-minimize {
+    opacity: 0.4 !important;
+}
+
+/* Show arrow at full opacity when hovering directly over its container */
+.sidebar-toggle-container:hover .sidebar-minimize {
     opacity: 1 !important;
 }
 
