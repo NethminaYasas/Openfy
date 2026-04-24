@@ -25,7 +25,9 @@ def _ensure_spotiflac_import() -> None:
     if _spotiflac_added:
         return
     src = SPOTIFLAC_SRC.resolve()
-    if src.is_dir() and (src / "SpotiFLAC").is_dir():
+    # Check for local SpotiFLAC directory (either as SpotiFLAC/ subdir or directly)
+    local_spotiflac = src / "SpotiFLAC" if src.name != "SpotiFLAC" else src
+    if src.is_dir() and (local_spotiflac.exists() or src.exists()):
         if str(src) not in sys.path:
             sys.path.insert(0, str(src))
         _spotiflac_added = True

@@ -9,6 +9,7 @@ import os
 import re
 import requests
 import string
+import time
 from typing import Callable
 from urllib.parse import quote
 
@@ -698,6 +699,36 @@ class AppleMusicDownloader:
             print(f"[DEBUG] Cobalt API error: {e}")
         return None
 
+    def _download_with_ytdlp(self, video_id: str, output_path: str) -> bool:
+        """Download using yt-dlp directly as fallback."""
+        try:
+            import yt_dlp
+            yt_url = f"https://music.youtube.com/watch?v={video_id}"
+
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'format': 'bestaudio/best',
+                'outtmpl': output_path,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '320',
+                }],
+                'keepvideo': False,
+            }
+
+            print(f"[DEBUG] Downloading via yt-dlp: {yt_url}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([yt_url])
+
+            return True
+        except Exception as e:
+            print(f"[DEBUG] yt-dlp download error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def _extract_video_id(self, url: str) -> str | None:
         match = re.search(r'(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})', url)
         return match.group(1) if match else None
@@ -739,6 +770,22 @@ class AppleMusicDownloader:
         download_url = self._request_spotube_dl(video_id)
         if not download_url:
             download_url = self._request_cobalt(video_id)
+
+        # If external APIs failed, try yt-dlp as final fallback
+        if not download_url:
+            print("[DEBUG] External APIs failed, trying yt-dlp direct download...")
+            ytdlp_output = expected_path.replace('.mp3', '.%(ext)s')
+            if self._download_with_ytdlp(video_id, ytdlp_output):
+                base_path = expected_path.replace('.mp3', '')
+                for ext in ['.mp3', '.m4a', '.webm', '.flac']:
+                    downloaded_file = base_path + ext
+                    if os.path.exists(downloaded_file):
+                        if not expected_path.endswith(ext):
+                            os.rename(downloaded_file, expected_path)
+                        print(f"Download completed via yt-dlp: {expected_path}")
+                        download_url = "ytdlp_local"
+                        break
+
         if not download_url:
             raise Exception("All YouTube download APIs failed")
 
@@ -950,6 +997,24 @@ class AppleMusicDownloader:
                     if attempt == 0:  # First attempt failed, prepare for retry
                         continue
                     else:  # Second attempt also failed
+                        break
+
+        # If all external APIs failed, try yt-dlp as final fallback
+        if not download_url:
+            print("[DEBUG] External APIs failed, trying yt-dlp direct download...")
+            # Remove .mp3 extension for yt-dlp output template
+            ytdlp_output = expected_path.replace('.mp3', '.%(ext)s')
+            if self._download_with_ytdlp(video_id, ytdlp_output):
+                # yt-dlp adds extension, check if file exists
+                base_path = expected_path.replace('.mp3', '')
+                for ext in ['.mp3', '.m4a', '.webm', '.flac']:
+                    downloaded_file = base_path + ext
+                    if os.path.exists(downloaded_file):
+                        # Rename to .mp3 if needed
+                        if not expected_path.endswith(ext):
+                            os.rename(downloaded_file, expected_path)
+                        print(f"Download completed via yt-dlp: {expected_path}")
+                        download_url = "ytdlp_local"  # Mark as successful
                         break
 
         if not download_url:
