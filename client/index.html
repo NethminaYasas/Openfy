@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="icon" href="/static/images/logo.png">
     <title>Openfy - Web Player</title>
-    <link rel="stylesheet" href="/static/styles.css?v=11">
+    <link rel="stylesheet" href="/static/styles.css?v=13">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
@@ -74,18 +74,24 @@
         <div class="sidebar">
             <div class="nav">
                 <div class="nav-option nav-link active" data-page="library">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
+                    <div class="nav-icon-wrapper">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
                     <a href="#">Upload</a>
                 </div>
             </div>
             <div class="library">
                 <div class="options">
                     <div class="lib-option nav-option">
-                        <img src="/static/images/library_minimize.svg" alt="" class="lib-hover-icon sidebar-toggle-icon" aria-hidden="true">
+                        <div class="sidebar-toggle-container">
+                            <img src="/static/images/sidebar_toggle.svg" alt="" class="sidebar-toggle-icon sidebar-minimize" aria-hidden="true">
+                            <img src="/static/images/sidebar_maximize.svg" alt="" class="sidebar-toggle-icon sidebar-maximize" aria-hidden="true">
+                            <img src="/static/images/library_icon.png" alt="" class="sidebar-toggle-library" aria-hidden="true">
+                        </div>
                         <a href="#">Your Library</a>
                     </div>
                     <div class="icons">

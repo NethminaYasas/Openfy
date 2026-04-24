@@ -2714,7 +2714,7 @@
         });
 
         // Sidebar minimize/maximize toggle
-        const sidebarToggleBtn = document.querySelector('.sidebar-toggle-icon');
+        const sidebarToggleBtn = document.querySelector('.sidebar-toggle-container');
         if (sidebarToggleBtn) {
             sidebarToggleBtn.addEventListener('click', function(e) {
                 e.preventDefault();
