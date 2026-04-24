@@ -109,16 +109,17 @@ body {
     width: 80px;
 }
 
-/* Hide text and icons in minimized state */
+/* Smooth fade for text/icons when minimized */
 .sidebar.sidebar-minimized .lib-option a,
 .sidebar.sidebar-minimized .icons,
 .sidebar.sidebar-minimized .nav-option a {
-    display: none;
+    opacity: 0;
+    pointer-events: none;
 }
 
-/* Hide playlist names but keep covers visible */
+/* Smooth fade for playlist names */
 .sidebar.sidebar-minimized .lib-item-name {
-    display: none;
+    opacity: 0;
 }
 
 /* Lib box scrollable content */
@@ -782,16 +783,19 @@ a {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    transform: translateX(-1px);
 }
 
 .nav-option a {
     font-size: 1rem;
     margin-left: 0;
+    transition: opacity 0.2s ease;
 }
 
 /* Align "Your Library" text with playlist items (no icon) */
 .lib-option a {
     margin-left: 0;
+    transition: opacity 0.2s ease;
 }
 
 .library {
@@ -938,6 +942,7 @@ a {
 .icons {
     font-size: 1.25rem;
     display: flex;
+    transition: opacity 0.2s ease;
 }
 
 .icons i {
@@ -2186,6 +2191,7 @@ input:checked + .toggle-slider:before {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: opacity 0.2s ease;
 }
 
 .lib-item-type {
