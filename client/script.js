@@ -445,6 +445,7 @@
         let likedTrackIds = new Set(); // Track IDs in Liked Songs
         let trackPlaylistRemovalMenu = null; // DOM reference to removal menu
         let currentTrackPlaylistsCache = []; // Playlists containing current track
+        let scrollPositions = {}; // Global tracker for scroll positions: { 'track-row-0': 0, 'uploads-row-0': 0 }
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -874,13 +875,16 @@
                     const rowContainer = prevBtn.nextElementSibling;
 
                     if (trackRow && rowContainer && rowContainer.isConnected && trackRow.isConnected) {
+                        // Use global scroll position tracker
+                        const rowKey = `track-row-${rowIndex}`;
+                        if (!(rowKey in scrollPositions)) {
+                            scrollPositions[rowKey] = 0;
+                        }
+
                         // Compute card width dynamically
                         const sampleCard = trackRow.querySelector('.track-row-card');
                         const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
                         const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
-
-                        // Create a simple position tracker for this row
-                        let currentPosition = 0;
 
                         // Button visibility variables
                         let showPrevBtn = false;
@@ -890,8 +894,8 @@
                         prevBtn.addEventListener('click', (e) => {
                             e.preventDefault();
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            currentPosition = Math.max(0, currentPosition - cardWidth * 2);
-                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
                         });
 
@@ -899,8 +903,8 @@
                         nextBtn.addEventListener('click', (e) => {
                             e.preventDefault();
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            currentPosition = Math.min(maxScroll, currentPosition + cardWidth * 2);
-                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
                         });
 
@@ -937,8 +941,8 @@
 
                         function updateButtonStates() {
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            const isAtStart = currentPosition <= 0;
-                            const isAtEnd = currentPosition >= maxScroll;
+                            const isAtStart = scrollPositions[rowKey] <= 0;
+                            const isAtEnd = scrollPositions[rowKey] >= maxScroll;
 
                             // Only hide buttons if there's no content to scroll
                             if (maxScroll <= 0) {
@@ -955,8 +959,7 @@
 
                         // Make track row transformable
                         trackRow.style.transition = 'transform 0.3s ease-out';
-                        trackRow.style.transform = 'translateX(0)';
-                        currentPosition = 0;
+                        trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
 
                         // Initial button state update
                         updateButtonStates();
@@ -1054,13 +1057,16 @@
                     const rowContainer = prevBtn.nextElementSibling;
 
                     if (trackRow && rowContainer && rowContainer.isConnected && trackRow.isConnected) {
+                        // Use global scroll position tracker
+                        const rowKey = `uploads-row-${rowIndex}`;
+                        if (!(rowKey in scrollPositions)) {
+                            scrollPositions[rowKey] = 0;
+                        }
+
                         // Compute card width dynamically
                         const sampleCard = trackRow.querySelector('.track-row-card');
                         const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
                         const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
-
-                        // Create a simple position tracker for this row
-                        let currentPosition = 0;
 
                         // Button visibility variables
                         let showPrevBtn = false;
@@ -1070,8 +1076,8 @@
                         prevBtn.addEventListener('click', (e) => {
                             e.preventDefault();
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            currentPosition = Math.max(0, currentPosition - cardWidth * 2);
-                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
                         });
 
@@ -1079,8 +1085,8 @@
                         nextBtn.addEventListener('click', (e) => {
                             e.preventDefault();
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            currentPosition = Math.min(maxScroll, currentPosition + cardWidth * 2);
-                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
                         });
 
@@ -1117,8 +1123,8 @@
 
                         function updateButtonStates() {
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            const isAtStart = currentPosition <= 0;
-                            const isAtEnd = currentPosition >= maxScroll;
+                            const isAtStart = scrollPositions[rowKey] <= 0;
+                            const isAtEnd = scrollPositions[rowKey] >= maxScroll;
 
                             // Only hide buttons if there's no content to scroll
                             if (maxScroll <= 0) {
@@ -1135,8 +1141,7 @@
 
                         // Make track row transformable
                         trackRow.style.transition = 'transform 0.3s ease-out';
-                        trackRow.style.transform = 'translateX(0)';
-                        currentPosition = 0;
+                        trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
 
                         // Initial button state update
                         updateButtonStates();
@@ -1235,13 +1240,16 @@
                     const rowContainer = prevBtn.nextElementSibling;
 
                     if (trackRow && rowContainer && rowContainer.isConnected && trackRow.isConnected) {
+                        // Use global scroll position tracker
+                        const rowKey = `most-played-row-${rowIndex}`;
+                        if (!(rowKey in scrollPositions)) {
+                            scrollPositions[rowKey] = 0;
+                        }
+
                         // Compute card width dynamically
                         const sampleCard = trackRow.querySelector('.track-row-card');
                         const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
                         const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
-
-                        // Create a simple position tracker for this row
-                        let currentPosition = 0;
 
                         // Button visibility variables
                         let showPrevBtn = false;
@@ -1251,8 +1259,8 @@
                         prevBtn.addEventListener('click', (e) => {
                             e.preventDefault();
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            currentPosition = Math.max(0, currentPosition - cardWidth * 2);
-                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
                         });
 
@@ -1260,8 +1268,8 @@
                         nextBtn.addEventListener('click', (e) => {
                             e.preventDefault();
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            currentPosition = Math.min(maxScroll, currentPosition + cardWidth * 2);
-                            trackRow.style.transform = `translateX(-${currentPosition}px)`;
+                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + cardWidth * 2);
+                            trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
                         });
 
@@ -1298,8 +1306,8 @@
 
                         function updateButtonStates() {
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            const isAtStart = currentPosition <= 0;
-                            const isAtEnd = currentPosition >= maxScroll;
+                            const isAtStart = scrollPositions[rowKey] <= 0;
+                            const isAtEnd = scrollPositions[rowKey] >= maxScroll;
 
                             // Only hide buttons if there's no content to scroll
                             if (maxScroll <= 0) {
@@ -2722,6 +2730,8 @@
                 const sidebar = document.querySelector('.sidebar');
                 if (sidebar) {
                     sidebar.classList.toggle('sidebar-minimized');
+                    // Update scroll button visibility after sidebar toggle (with delay for animation)
+                    setTimeout(updateAllScrollButtonStates, 200);
                 }
             });
         }
@@ -3701,6 +3711,8 @@
             if (addPlaylistModalOverlay && addPlaylistModalOverlay.style.display === "flex") {
                 positionAddToPlaylistModal(npLikeBtn);
             }
+            // Update scroll button visibility on resize
+            updateAllScrollButtonStates();
         });
 
         // Also close removal menu when main context menu is closed
@@ -4466,8 +4478,73 @@
         });
 
         function updateTrackRowScrollButtons() {
-            // This function can be used to update scroll button states if needed
-            // Currently it's a placeholder to match the library implementation
+            // Update scroll button visibility for all track rows (library, uploads, most-played)
+            // Called after window resize or sidebar toggle
+            const updateForContainer = (containerSelector, idPrefix) => {
+                const container = document.querySelector(containerSelector);
+                if (!container) return;
+
+                const wrappers = container.querySelectorAll('.track-row-wrapper');
+                wrappers.forEach((wrapper, rowIndex) => {
+                    const prevBtn = wrapper.querySelector(`#${idPrefix}-prev-${rowIndex}`);
+                    const nextBtn = wrapper.querySelector(`#${idPrefix}-next-${rowIndex}`);
+                    const rowContainer = wrapper.querySelector('.track-row-container');
+                    const trackRow = wrapper.querySelector('.track-row');
+
+                    if (!prevBtn || !nextBtn || !rowContainer || !trackRow) return;
+                    if (!prevBtn.isConnected || !nextBtn.isConnected) return;
+
+                    // Get or create the row key for global scroll position
+                    const rowKey = `${idPrefix}-${rowIndex}`;
+                    if (!(rowKey in scrollPositions)) {
+                        scrollPositions[rowKey] = 0;
+                    }
+
+                    // Reset scroll position to 0 when layout changes
+                    scrollPositions[rowKey] = 0;
+                    trackRow.style.transform = 'translateX(0)';
+
+                    const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                    const isAtStart = true; // Always at start after reset
+                    const isAtEnd = maxScroll <= 0;
+
+                    // Remove all visibility classes first
+                    prevBtn.classList.remove('hidden', 'visible', 'prev-visible', 'next-visible');
+                    nextBtn.classList.remove('hidden', 'visible', 'prev-visible', 'next-visible');
+
+                    if (maxScroll <= 0) {
+                        // No scroll needed - hide both buttons
+                        prevBtn.classList.add('hidden');
+                        nextBtn.classList.add('hidden');
+                    } else {
+                        // Has scroll content
+                        // Hide prev if at start
+                        if (isAtStart) {
+                            prevBtn.classList.add('hidden');
+                        } else {
+                            prevBtn.classList.add('visible', 'prev-visible');
+                        }
+                        // Hide next if at end
+                        if (isAtEnd) {
+                            nextBtn.classList.add('hidden');
+                        } else {
+                            nextBtn.classList.add('visible', 'next-visible');
+                        }
+                    }
+                });
+            };
+
+            // Update all container types - library uses #tracks-grid, others use their IDs
+            updateForContainer('#most-played-grid', 'most-played-row');
+            updateForContainer('#uploads-grid', 'uploads-row');
+            updateForContainer('#tracks-grid', 'track-row');
+        }
+
+        function updateAllScrollButtonStates() {
+            // Delay to allow layout to settle
+            setTimeout(() => {
+                updateTrackRowScrollButtons();
+            }, 150);
         }
 
         document.addEventListener('DOMContentLoaded', function() {
