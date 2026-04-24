@@ -87,3 +87,7 @@ git pull --ff-only origin main
 - **API.md**: Complete API endpoint reference
 - **server/.env.example**: Environment configuration template
 - **server/requirements.txt**: Python dependencies
+
+## Claude Behavior
+
+- **Never auto-commit or auto-push**: Do not create git commits or push to remotes unless explicitly instructed by the user. Await explicit confirmation before any git write operations.

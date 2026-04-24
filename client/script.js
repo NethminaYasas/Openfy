@@ -425,6 +425,7 @@
         let currentQueue = [];
         let currentIndex = -1;
         let currentTrackId = null;
+        let lastRenderedIndices = []; // Track which queue indices were last rendered (for animation)
         let dragSourceIndex = null; // Track index being dragged
         let draggedElement = null; // DOM element being dragged
         let lastInsertBeforeEl = null; // For FLIP animation during reordering
@@ -450,7 +451,7 @@
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
 
-        const QUEUE_LOOKAHEAD = 6; // store current + next 6
+        const MAX_QUEUE_CAPACITY = 20; // maximum total tracks in queue
 
         // Escape HTML to prevent XSS when inserting playlist names into DOM
         function escapeHtml(text) {
@@ -619,7 +620,7 @@
             }
 
             const idx = Math.max(0, Math.min((startIndex | 0), arr.length - 1));
-            currentQueue = arr.slice(idx, idx + 1 + QUEUE_LOOKAHEAD);
+            currentQueue = arr.slice(idx, idx + MAX_QUEUE_CAPACITY);
             currentIndex = 0;
             queueOriginal = null;
             shuffleQueueOnce();
@@ -654,6 +655,25 @@
             // Re-render queue panel
             renderNowPlayingQueue();
         }
+
+        function enforceQueueCapacity() {
+  if (currentQueue.length <= MAX_QUEUE_CAPACITY) return;
+
+  const excess = currentQueue.length - MAX_QUEUE_CAPACITY;
+
+  // Remove from the front (before currently playing track) first
+  const removableBefore = Math.min(excess, currentIndex);
+  if (removableBefore > 0) {
+    currentQueue.splice(0, removableBefore);
+    currentIndex -= removableBefore;
+  }
+
+  // If still over capacity, remove queued tracks AFTER current
+  const remainingExcess = currentQueue.length - MAX_QUEUE_CAPACITY;
+  if (remainingExcess > 0) {
+    currentQueue.splice(currentIndex + 1, remainingExcess);
+  }
+}
 
         function extractDominantColorFromImage(img) {
             // Create a canvas to sample the image
@@ -2034,45 +2054,111 @@
         function renderNowPlayingQueue() {
             if (!npNextPanel || !npQueueNext) return;
 
-            npQueueNext.innerHTML = "";
             npNextPanel.style.display = "";
 
+            // Empty state
             if (!currentQueue || !currentQueue.length || currentIndex < 0) {
+                npQueueNext.innerHTML = "";
                 const empty = document.createElement("div");
                 empty.className = "np-queue-empty";
                 empty.textContent = "Play something to build a queue.";
                 npQueueNext.appendChild(empty);
+                lastRenderedIndices = [];
                 return;
             }
 
             const nextIndex = currentIndex + 1;
             if (nextIndex >= currentQueue.length) {
+                npQueueNext.innerHTML = "";
                 const empty = document.createElement("div");
                 empty.className = "np-queue-empty";
                 empty.textContent = "End of queue.";
                 npQueueNext.appendChild(empty);
+                lastRenderedIndices = [];
                 return;
             }
 
-             // Determine which tracks to show - never include current track
-             let tracksToShow = showFullQueue ? currentQueue.slice(nextIndex) : [currentQueue[nextIndex]];
-             // Explicitly filter out the currently playing track by ID to ensure it doesn't appear
-             if (currentTrackId) {
-                 tracksToShow = tracksToShow.filter(track => track.id !== currentTrackId);
-             }
-             if (tracksToShow.length === 0) {
-                 const empty = document.createElement("div");
-                 empty.className = "np-queue-empty";
-                 empty.textContent = "End of queue.";
-                 npQueueNext.appendChild(empty);
-                 return;
-             }
-             const startIdx = nextIndex;
+            const visibleCount = showFullQueue ? 6 : 1;
+            const windowStart = nextIndex;
+            const windowEnd = Math.min(nextIndex + visibleCount, currentQueue.length);
+            const newIndices = [];
+            for (let i = windowStart; i < windowEnd; i++) {
+                newIndices.push(i);
+            }
 
-             tracksToShow.forEach((track, i) => {
-                 const itemIndex = startIdx + i;
-                 npQueueNext.appendChild(buildQueueItem(track, itemIndex));
-             });
+            // Capture currently rendered queue items (only .np-queue-item elements)
+            const oldChildren = Array.from(npQueueNext.querySelectorAll('.np-queue-item'));
+            const oldMap = new Map(); // index -> element
+            oldChildren.forEach(el => {
+                const idx = parseInt(el.dataset.index, 10);
+                if (!isNaN(idx)) oldMap.set(idx, el);
+            });
+
+            // Capture old positions for items that will persist (for FLIP)
+            const oldRects = new Map();
+            newIndices.forEach(idx => {
+                if (oldMap.has(idx)) {
+                    const el = oldMap.get(idx);
+                    oldRects.set(idx, el.getBoundingClientRect());
+                }
+            });
+
+            // Clear and rebuild in new order, reusing DOM where possible
+            npQueueNext.innerHTML = "";
+            const reusedEls = [];
+
+            newIndices.forEach(idx => {
+                let el = oldMap.get(idx);
+                if (el) {
+                    // Clean up any leftover animation state
+                    el.classList.remove('queue-enter');
+                    el.style.transform = '';
+                    el.style.transition = '';
+                    npQueueNext.appendChild(el);
+                    reusedEls.push(el);
+                } else {
+                    const track = currentQueue[idx];
+                    el = buildQueueItem(track, idx, { isCurrent: false, badgeText: "" });
+                    el.classList.add('queue-enter');
+                    npQueueNext.appendChild(el);
+                }
+            });
+
+            // FLIP animation for reused items: animate their upward slide
+            reusedEls.forEach(el => {
+                const idx = parseInt(el.dataset.index, 10);
+                if (oldRects.has(idx)) {
+                    const oldRect = oldRects.get(idx);
+                    const newRect = el.getBoundingClientRect();
+                    const deltaY = oldRect.top - newRect.top;
+                    if (deltaY !== 0) {
+                        // Start from old position (offset down)
+                        el.style.transform = `translateY(${deltaY}px)`;
+                        el.style.transition = 'none';
+                        // Force reflow
+                        el.offsetHeight;
+                        // Animate to natural (new) position
+                        el.style.transition = 'transform 0.25s ease-out';
+                        el.style.transform = '';
+                    }
+                }
+            });
+
+            // Cleanup animation artifacts after animation completes
+            setTimeout(() => {
+                if (!npQueueNext) return;
+                npQueueNext.querySelectorAll('.queue-enter').forEach(el => {
+                    el.classList.remove('queue-enter');
+                });
+                reusedEls.forEach(el => {
+                    if (el && el.style) {
+                        el.style.transform = '';
+                        el.style.transition = '';
+                    }
+                });
+            }, 300);
+
+            lastRenderedIndices = newIndices;
         }
 
         // Toggle full queue view on header click
@@ -3779,6 +3865,7 @@
             }
             // Add track to end of queue
             currentQueue.push(track);
+            enforceQueueCapacity();
             // Invalidate shuffle state since queue changed manually
             queueOriginal = null;
             renderNowPlayingQueue();

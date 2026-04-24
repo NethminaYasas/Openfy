@@ -403,6 +403,21 @@ body {
     font-size: 0.85rem;
 }
 
+@keyframes queueSlideUp {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.np-queue-item.queue-enter {
+    animation: queueSlideUp 0.25s ease-out forwards;
+}
+
 .np-queue-item {
     width: 100%;
     display: flex;
