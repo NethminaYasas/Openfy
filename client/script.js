@@ -2713,6 +2713,19 @@
             try { await api("/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "My Playlist" }) }); loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
         });
 
+        // Sidebar minimize/maximize toggle
+        const sidebarToggleBtn = document.querySelector('.sidebar-toggle-icon');
+        if (sidebarToggleBtn) {
+            sidebarToggleBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const sidebar = document.querySelector('.sidebar');
+                if (sidebar) {
+                    sidebar.classList.toggle('sidebar-minimized');
+                }
+            });
+        }
+
         userIcon.addEventListener("click", function(event) {
             event.stopPropagation();
             console.log("User icon clicked, toggling dropdown");
