@@ -2794,19 +2794,59 @@
         });
 
         // Sidebar minimize/maximize toggle
-        const sidebarToggleBtn = document.querySelector('.sidebar-toggle-container');
-        if (sidebarToggleBtn) {
-            sidebarToggleBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                const sidebar = document.querySelector('.sidebar');
+        (function() {
+            const sidebar = document.querySelector('.sidebar');
+            const sidebarToggleBtn = document.querySelector('.sidebar-toggle-container');
+
+            function updateLibraryUI(minimized) {
                 if (sidebar) {
-                    sidebar.classList.toggle('sidebar-minimized');
-                    // Update scroll button visibility after sidebar toggle (with delay for animation)
-                    setTimeout(updateAllScrollButtonStates, 200);
+                    sidebar.classList.toggle('sidebar-minimized', minimized);
                 }
-            });
-        }
+                localStorage.setItem("library_minimized", minimized);
+            }
+
+            function loadLibraryState() {
+                if (currentUser && typeof currentUser.library_minimized !== 'undefined') {
+                    updateLibraryUI(currentUser.library_minimized);
+                } else {
+                    const saved = localStorage.getItem("library_minimized");
+                    if (saved !== null) {
+                        updateLibraryUI(saved !== "false");
+                    } else {
+                        updateLibraryUI(false); // default to expanded
+                    }
+                }
+            }
+
+            // Initial load
+            loadLibraryState();
+
+            if (sidebarToggleBtn) {
+                sidebarToggleBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const currentlyMinimized = sidebar && sidebar.classList.contains('sidebar-minimized');
+                    const newState = !currentlyMinimized;
+                    updateLibraryUI(newState);
+                    setTimeout(updateAllScrollButtonStates, 200);
+
+                    if (authHash) {
+                        api("/user/library-state", {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ library_minimized: newState })
+                        }).then(() => {
+                            if (currentUser) currentUser.library_minimized = newState;
+                        }).catch(err => {
+                            console.error("Failed to update library state:", err);
+                            updateLibraryUI(!newState);
+                        });
+                    }
+                });
+            }
+
+            window.refreshLibraryState = loadLibraryState;
+        })();
 
         userIcon.addEventListener("click", function(event) {
             event.stopPropagation();
@@ -2929,9 +2969,11 @@
                 
                 // Show hash modal instead of directly showing app
                 showHashModal(user.auth_hash);
-                
+
                 // Refresh upload toggle to reflect server-stored preference
                 if (window.refreshUploadState) window.refreshUploadState();
+                // Refresh library sidebar state
+                if (window.refreshLibraryState) window.refreshLibraryState();
             } catch (err) { alert("Failed: " + err.message); }
         });
 
@@ -2955,6 +2997,8 @@
 
                 // Refresh upload toggle to reflect server-stored preference
                 if (window.refreshUploadState) window.refreshUploadState();
+                // Refresh library sidebar state
+                if (window.refreshLibraryState) window.refreshLibraryState();
 
                 // Start the update checker
                 startUpdateChecker();
@@ -2987,6 +3031,8 @@
 
                         // Refresh upload toggle to reflect server-stored preference
                         if (window.refreshUploadState) window.refreshUploadState();
+                        // Refresh library sidebar state
+                        if (window.refreshLibraryState) window.refreshLibraryState();
 
                         // Start the update checker
                         startUpdateChecker();
@@ -3029,6 +3075,8 @@
 
             // Refresh upload toggle to reflect server-stored preference
             if (window.refreshUploadState) window.refreshUploadState();
+            // Refresh library sidebar state
+            if (window.refreshLibraryState) window.refreshLibraryState();
 
             // Start the update checker
             startUpdateChecker();

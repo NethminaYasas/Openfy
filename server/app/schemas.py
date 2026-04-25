@@ -98,6 +98,10 @@ class UserUploadPreferenceUpdate(BaseModel):
     upload_enabled: bool
 
 
+class UserLibraryStateUpdate(BaseModel):
+    library_minimized: bool
+
+
 class UserOut(BaseModel):
     """User schema with auth_hash — ONLY for signup/signin responses"""
 
@@ -106,6 +110,7 @@ class UserOut(BaseModel):
     auth_hash: str
     is_admin: bool = False
     upload_enabled: bool = True
+    library_minimized: bool = False
     created_at: datetime
 
     class Config:
@@ -119,6 +124,7 @@ class UserOutPublic(BaseModel):
     name: str
     is_admin: bool = False
     upload_enabled: bool = True
+    library_minimized: bool = False
     created_at: datetime
 
     class Config:

@@ -70,6 +70,7 @@ from .schemas import (
     UserOut,
     UserOutPublic,
     UserUploadPreferenceUpdate,
+    UserLibraryStateUpdate,
 )
 from .settings import settings
 from .services.storage import ensure_dirs
@@ -360,6 +361,12 @@ def _startup():
             if "last_track_id" not in ucols:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN last_track_id VARCHAR(36)")
+                )
+                conn.commit()
+
+            if "library_minimized" not in ucols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN library_minimized INTEGER DEFAULT 0")
                 )
                 conn.commit()
 
@@ -1390,6 +1397,35 @@ def update_last_track(
     user.last_track_id = track_id
     db.commit()
     return {"status": "updated", "track_id": track_id}
+
+
+@app.get("/user/library-state")
+def get_library_state(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get the user's library sidebar state (minimized/expanded)"""
+    user = _require_user(db, x_auth_hash)
+    return {"library_minimized": bool(user.library_minimized)}
+
+
+@app.put("/user/library-state")
+def update_library_state(
+    payload: UserLibraryStateUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update the user's library sidebar state"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    user.library_minimized = 1 if payload.library_minimized else 0
+    db.commit()
+    db.refresh(user)
+    return {"status": "updated", "library_minimized": bool(user.library_minimized)}
 
 
 # Admin endpoints
