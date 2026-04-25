@@ -3448,8 +3448,17 @@
             // Reset submenu
             ctxPlaylistSubmenu.classList.remove('visible');
             ctxSubmenuItems.innerHTML = '';
-            // Disable (gray out) if track already in unplayed portion of queue (including current)
-            if (indexOfTrackId(currentQueue, track.id, currentIndex) !== -1) {
+            // Disable (gray out) if track already in visible portion of queue (next 6 tracks from current)
+            // Calculate visible window: currentIndex + 1 to currentIndex + 6 (or end of queue)
+            const queueWindowEnd = Math.min(currentIndex + 1 + 6, currentQueue.length);
+            let isInVisibleQueue = false;
+            for (let i = currentIndex + 1; i < queueWindowEnd; i++) {
+                if (currentQueue[i] && currentQueue[i].id == track.id) {
+                    isInVisibleQueue = true;
+                    break;
+                }
+            }
+            if (isInVisibleQueue) {
                 ctxTrackAddQueue.classList.add('disabled');
             } else {
                 ctxTrackAddQueue.classList.remove('disabled');
@@ -3899,13 +3908,22 @@
             if (ctxTrackAddQueue.classList.contains('disabled')) return;
             if (!currentContextTrack) return;
             const track = currentContextTrack;
-            // Double-check if already in unplayed portion of queue (including current)
-            if (indexOfTrackId(currentQueue, track.id, currentIndex) !== -1) {
+            // Double-check if already in visible portion of queue (next 6 tracks from current)
+            const queueWindowEnd = Math.min(currentIndex + 1 + 6, currentQueue.length);
+            let isInVisibleQueue = false;
+            for (let i = currentIndex + 1; i < queueWindowEnd; i++) {
+                if (currentQueue[i] && currentQueue[i].id == track.id) {
+                    isInVisibleQueue = true;
+                    break;
+                }
+            }
+            if (isInVisibleQueue) {
                 hideContextMenu();
                 return;
             }
-            // Add track to end of queue
-            currentQueue.push(track);
+            // Add track to top of queue (right after current track)
+            const insertIndex = currentIndex + 1;
+            currentQueue.splice(insertIndex, 0, track);
             enforceQueueCapacity();
             // Invalidate shuffle state since queue changed manually
             queueOriginal = null;
