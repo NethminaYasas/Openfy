@@ -635,25 +635,32 @@
             if (toIndex < 0 || toIndex > currentQueue.length) return;
             if (fromIndex === toIndex) return;
 
-            // When moving an item forward in the array, removal shifts the target
-            // index left by one. Adjusting here keeps the underlying queue order in
-            // sync with the visual drop position.
-            const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+            // `toIndex` is already the final absolute index derived from DOM order
+            // in the drop handler, so insert directly at that index.
+            const insertAt = toIndex;
+            const prevCurrentIndex = currentIndex;
 
             // Remove from old position, then insert at the adjusted position.
             const [track] = currentQueue.splice(fromIndex, 1);
             currentQueue.splice(insertAt, 0, track);
 
-            // Update currentIndex if needed
-            if (currentTrackId) {
-                const idx = indexOfTrackId(currentQueue, currentTrackId);
-                if (idx !== -1) currentIndex = idx;
-                else currentIndex = -1; // track not found, reset
-            } else {
-                currentIndex = -1;
+            // Keep currentIndex stable by position math (not by track-id lookup),
+            // so duplicate track IDs cannot cause unexpected jumps.
+            if (prevCurrentIndex >= 0 && prevCurrentIndex < currentQueue.length) {
+                if (fromIndex === prevCurrentIndex) {
+                    currentIndex = insertAt;
+                } else if (fromIndex < prevCurrentIndex && insertAt >= prevCurrentIndex) {
+                    currentIndex = prevCurrentIndex - 1;
+                } else if (fromIndex > prevCurrentIndex && insertAt <= prevCurrentIndex) {
+                    currentIndex = prevCurrentIndex + 1;
+                } else {
+                    currentIndex = prevCurrentIndex;
+                }
             }
 
-            // Clear shuffle state since manual reorder overrides it
+            // Manual queue order is authoritative: disable shuffle + clear snapshot.
+            shuffle = false;
+            if (btnShuffle) btnShuffle.classList.remove("active");
             queueOriginal = null;
 
             // Re-render queue panel
