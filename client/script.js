@@ -630,13 +630,17 @@
         // Reorder queue: move track at fromIndex to toIndex (inserts before target)
         function reorderQueue(fromIndex, toIndex) {
             if (!Array.isArray(currentQueue) || fromIndex < 0 || fromIndex >= currentQueue.length) return;
-            if (toIndex < 0 || toIndex >= currentQueue.length) return;
+            // `toIndex` is allowed to equal `currentQueue.length` so a track can be
+            // dropped at the end of the queue.
+            if (toIndex < 0 || toIndex > currentQueue.length) return;
             if (fromIndex === toIndex) return;
 
-            // After removal, splice at toIndex gives the correct final position
-            const insertAt = toIndex;
+            // When moving an item forward in the array, removal shifts the target
+            // index left by one. Adjusting here keeps the underlying queue order in
+            // sync with the visual drop position.
+            const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
 
-            // Remove from old position, insert at new
+            // Remove from old position, then insert at the adjusted position.
             const [track] = currentQueue.splice(fromIndex, 1);
             currentQueue.splice(insertAt, 0, track);
 
@@ -1842,6 +1846,7 @@
             btn.className = className;
             btn.draggable = !opts.isCurrent; // allow dragging for all tracks except current
             btn.dataset.index = index;
+            btn.dataset.trackId = track && track.id != null ? String(track.id) : "";
 
             const artistText = getArtistDisplay(track) || "Unknown";
             const seed = ((track.title || "") + " " + artistText).trim() || "Openfy";
@@ -2082,81 +2087,62 @@
             const windowStart = nextIndex;
             const windowEnd = Math.min(nextIndex + visibleCount, currentQueue.length);
             const newIndices = [];
-            for (let i = windowStart; i < windowEnd; i++) {
-                newIndices.push(i);
-            }
+            for (let i = windowStart; i < windowEnd; i++) newIndices.push(i);
 
-            // Capture currently rendered queue items (only .np-queue-item elements)
-            const oldChildren = Array.from(npQueueNext.querySelectorAll('.np-queue-item'));
-            const oldMap = new Map(); // index -> element
-            oldChildren.forEach(el => {
-                const idx = parseInt(el.dataset.index, 10);
-                if (!isNaN(idx)) oldMap.set(idx, el);
+            const oldRectsByTrackId = new Map();
+            npQueueNext.querySelectorAll('.np-queue-item').forEach(el => {
+                const trackId = el.dataset.trackId;
+                if (trackId) oldRectsByTrackId.set(trackId, el.getBoundingClientRect());
             });
 
-            // Capture old positions for items that will persist (for FLIP)
-            const oldRects = new Map();
-            newIndices.forEach(idx => {
-                if (oldMap.has(idx)) {
-                    const el = oldMap.get(idx);
-                    oldRects.set(idx, el.getBoundingClientRect());
-                }
-            });
-
-            // Clear and rebuild in new order, reusing DOM where possible
+            // Rebuild from the queue state directly so the visible list never
+            // drifts away from `currentQueue` after a manual reorder.
             npQueueNext.innerHTML = "";
-            const reusedEls = [];
+            const mountedItems = [];
 
             newIndices.forEach(idx => {
-                let el = oldMap.get(idx);
-                if (el) {
-                    // Clean up any leftover animation state
-                    el.classList.remove('queue-enter');
-                    el.style.transform = '';
-                    el.style.transition = '';
-                    npQueueNext.appendChild(el);
-                    reusedEls.push(el);
-                } else {
-                    const track = currentQueue[idx];
-                    el = buildQueueItem(track, idx, { isCurrent: false, badgeText: "" });
-                    el.classList.add('queue-enter');
-                    npQueueNext.appendChild(el);
-                }
+                const track = currentQueue[idx];
+                const el = buildQueueItem(track, idx, { isCurrent: false, badgeText: "" });
+                npQueueNext.appendChild(el);
+                mountedItems.push(el);
             });
 
-            // FLIP animation for reused items: animate their upward slide
-            reusedEls.forEach(el => {
-                const idx = parseInt(el.dataset.index, 10);
-                if (oldRects.has(idx)) {
-                    const oldRect = oldRects.get(idx);
-                    const newRect = el.getBoundingClientRect();
+            // FLIP-style motion: existing tracks glide to new positions, new tracks
+            // get a subtle entry motion so queue updates feel continuous.
+            mountedItems.forEach(el => {
+                const trackId = el.dataset.trackId;
+                const oldRect = trackId ? oldRectsByTrackId.get(trackId) : null;
+                const newRect = el.getBoundingClientRect();
+
+                if (oldRect) {
+                    const deltaX = oldRect.left - newRect.left;
                     const deltaY = oldRect.top - newRect.top;
-                    if (deltaY !== 0) {
-                        // Start from old position (offset down)
-                        el.style.transform = `translateY(${deltaY}px)`;
+                    if (deltaX !== 0 || deltaY !== 0) {
                         el.style.transition = 'none';
-                        // Force reflow
+                        el.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
                         el.offsetHeight;
-                        // Animate to natural (new) position
-                        el.style.transition = 'transform 0.25s ease-out';
+                        el.style.transition = 'transform 0.24s ease';
                         el.style.transform = '';
                     }
+                } else {
+                    el.style.transition = 'none';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(10px)';
+                    el.offsetHeight;
+                    el.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+                    el.style.opacity = '';
+                    el.style.transform = '';
                 }
             });
 
-            // Cleanup animation artifacts after animation completes
             setTimeout(() => {
                 if (!npQueueNext) return;
-                npQueueNext.querySelectorAll('.queue-enter').forEach(el => {
-                    el.classList.remove('queue-enter');
+                npQueueNext.querySelectorAll('.np-queue-item').forEach(el => {
+                    el.style.transition = '';
+                    el.style.transform = '';
+                    el.style.opacity = '';
                 });
-                reusedEls.forEach(el => {
-                    if (el && el.style) {
-                        el.style.transform = '';
-                        el.style.transition = '';
-                    }
-                });
-            }, 300);
+            }, 260);
 
             lastRenderedIndices = newIndices;
         }
