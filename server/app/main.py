@@ -310,6 +310,11 @@ def _startup():
                     text("ALTER TABLE tracks ADD COLUMN user_hash VARCHAR(64)")
                 )
                 conn.commit()
+            if "source_url" not in cols:
+                conn.execute(
+                    text("ALTER TABLE tracks ADD COLUMN source_url VARCHAR(2048)")
+                )
+                conn.commit()
             if "universal_track_id" not in cols:
                 conn.execute(
                     text("ALTER TABLE tracks ADD COLUMN universal_track_id VARCHAR(64)")
@@ -909,7 +914,7 @@ def upload_track_file(
             status_code=403, detail="Uploads are disabled for your account"
         )
     manual_upload_enabled = _get_app_setting_bool(
-        db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
+        db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=False
     )
     if not manual_upload_enabled:
         raise HTTPException(

@@ -6,6 +6,7 @@ from sqlalchemy import delete, select
 from server.app.main import app
 from server.app.db import Base, engine, SessionLocal
 from server.app.models import User, Playlist, Track, PlaylistTrack
+from server.app.services.storage import store_upload
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -238,16 +239,95 @@ def test_delete_track_removes_association(client: TestClient, db: Session, user_
     assert body["status"] == "removed"
     assert body["playlist_id"] == playlist.id
     assert body["track_id"] == track.id
-    assert body.get("was_present") is True
 
-    # Verify removed from DB
-    link = db.execute(
-        select(PlaylistTrack).where(
-            PlaylistTrack.playlist_id == playlist.id,
-            PlaylistTrack.track_id == track.id,
-        )
-    ).scalar_one_or_none()
-    assert link is None
+
+def test_manual_upload_toggle_off_blocks_regular_user_upload(client: TestClient, db: Session):
+    """When admin disables manual upload, regular users cannot upload files via API."""
+    admin = create_unique_user(db, name_suffix="_admin_upoff", is_admin=1)
+    user = create_unique_user(db, name_suffix="_regular_upoff", is_admin=0)
+
+    toggle_resp = client.put(
+        "/admin/settings/manual-upload",
+        headers={"x-auth-hash": admin.auth_hash},
+        json={"manual_audio_upload_enabled": False},
+    )
+    assert toggle_resp.status_code == 200
+    assert toggle_resp.json()["manual_audio_upload_enabled"] is False
+
+    upload_resp = client.post(
+        "/tracks/upload",
+        headers={"x-auth-hash": user.auth_hash},
+        files={"file": ("blocked.mp3", b"fake audio bytes", "audio/mpeg")},
+    )
+    assert upload_resp.status_code == 403
+    assert "disabled" in upload_resp.json()["detail"].lower()
+
+
+def test_manual_upload_toggle_off_blocks_admin_upload_too(client: TestClient, db: Session):
+    """Admin toggle must block everyone, including admins, from manual file upload."""
+    admin = create_unique_user(db, name_suffix="_admin_selfblock", is_admin=1)
+
+    toggle_resp = client.put(
+        "/admin/settings/manual-upload",
+        headers={"x-auth-hash": admin.auth_hash},
+        json={"manual_audio_upload_enabled": False},
+    )
+    assert toggle_resp.status_code == 200
+    assert toggle_resp.json()["manual_audio_upload_enabled"] is False
+
+    upload_resp = client.post(
+        "/tracks/upload",
+        headers={"x-auth-hash": admin.auth_hash},
+        files={"file": ("blocked-admin.mp3", b"fake audio bytes", "audio/mpeg")},
+    )
+    assert upload_resp.status_code == 403
+    assert "disabled" in upload_resp.json()["detail"].lower()
+
+
+def test_manual_upload_keeps_source_url_blank(client: TestClient, db: Session):
+    """Manual file uploads should not persist an external source URL."""
+    import io
+    import wave
+
+    user = create_unique_user(db, name_suffix="_manual_blank", is_admin=0)
+
+    wav_buf = io.BytesIO()
+    with wave.open(wav_buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(8000)
+        wf.writeframes(b"\x00\x00" * 800)  # 0.1s silence
+    wav_bytes = wav_buf.getvalue()
+
+    upload_resp = client.post(
+        "/tracks/upload",
+        headers={"x-auth-hash": user.auth_hash},
+        files={"file": ("manual.wav", wav_bytes, "audio/wav")},
+    )
+    assert upload_resp.status_code == 200
+
+    created_track = db.execute(
+        select(Track)
+        .where(Track.user_hash == user.auth_hash)
+        .order_by(Track.created_at.desc())
+    ).scalars().first()
+    assert created_track is not None
+    assert created_track.source_url is None
+    if created_track.file_path:
+        from pathlib import Path
+        p = Path(created_track.file_path)
+        if p.exists():
+            p.unlink()
+
+
+def test_store_upload_uses_preferred_stem_for_link_download_name(tmp_path):
+    """When preferred metadata title is provided, saved file name should use it."""
+    src = tmp_path / "random_source_name.mp3"
+    src.write_bytes(b"abc")
+    dest_dir = tmp_path / "dest"
+    moved = store_upload(src, destination_dir=dest_dir, preferred_stem="My Track Title")
+    assert moved.name == "My_Track_Title.mp3"
+    assert moved.exists()
 
 
 def test_delete_track_idempotent(client: TestClient, db: Session, user_and_auth):

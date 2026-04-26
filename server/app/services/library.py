@@ -165,6 +165,7 @@ def _build_track_from_metadata(
     album_id: str | None,
     user_hash: str | None,
     source_id: str | None = None,
+    source_url: str | None = None,
     universal_track_id: str | None = None,
 ) -> Track:
     """Create a new Track instance from metadata (without adding to session)."""
@@ -183,6 +184,7 @@ def _build_track_from_metadata(
         album_id=album_id,
         user_hash=user_hash,
         source_id=source_id,
+        source_url=source_url,
         universal_track_id=universal_track_id,
     )
 
@@ -199,7 +201,14 @@ def compute_universal_track_id(file_path: Path) -> str:
     return hasher.hexdigest()
 
 
-def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None, source_id: str | None = None) -> Track:
+def _upsert_track(
+    db: Session,
+    file_path: Path,
+    metadata: dict,
+    user_hash: str | None = None,
+    source_id: str | None = None,
+    source_url: str | None = None,
+) -> Track:
     # 1. Parse artist names
     raw_artists = metadata.get("artist") or []
     artist_names = _parse_artist_names(raw_artists)
@@ -219,6 +228,8 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         if existing:
             if not existing.universal_track_id:
                 existing.universal_track_id = universal_track_id
+            if source_url and not existing.source_url:
+                existing.source_url = source_url
                 db.add(existing)
             # Track already exists from same source, return existing without updating
             return existing
@@ -249,6 +260,10 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
             existing.user_hash = user_hash
         if not existing.universal_track_id:
             existing.universal_track_id = universal_track_id
+        if source_url and not existing.source_url:
+            existing.source_url = source_url
+        if source_id and not existing.source_id:
+            existing.source_id = source_id
 
         # Sync artist associations
         _associate_track_artists(db, existing.id, artist_names)
@@ -272,6 +287,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         album_id=album.id if album else None,
         user_hash=user_hash,
         source_id=source_id,
+        source_url=source_url,
         universal_track_id=universal_track_id,
     )
     db.add(track)
@@ -299,6 +315,10 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
                 existing.user_hash = user_hash
             if not existing.universal_track_id:
                 existing.universal_track_id = universal_track_id
+            if source_url and not existing.source_url:
+                existing.source_url = source_url
+            if source_id and not existing.source_id:
+                existing.source_id = source_id
 
             # Sync artist associations
             _associate_track_artists(db, existing.id, artist_names)
@@ -394,7 +414,13 @@ def _read_metadata(path: Path) -> dict:
     return info
 
 
-def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None, source_id: str | None = None) -> dict:
+def scan_paths(
+    db: Session,
+    paths: Iterable[Path],
+    user_hash: str | None = None,
+    source_id: str | None = None,
+    source_url: str | None = None,
+) -> dict:
     # Collect all audio files first
     audio_files = []
     for path in paths:
@@ -420,7 +446,14 @@ def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None,
 
     created = 0
     for file in audio_files:
-        _upsert_track(db, file, _read_metadata(file), user_hash=user_hash, source_id=source_id)
+        _upsert_track(
+            db,
+            file,
+            _read_metadata(file),
+            user_hash=user_hash,
+            source_id=source_id,
+            source_url=source_url,
+        )
         if str(file) not in existing_paths:
             created += 1
 

@@ -852,10 +852,7 @@ class AppleMusicDownloader:
             return self.download_by_info(track_info, output_dir)
         except Exception as e:
             print(f"[!] Verification failed: {e}")
-            # If verification fails, try without strict verification as last resort
-            print(f"[!] Attempting download without strict verification")
-            track_info["skip_verification"] = True
-            return self.download_by_info(track_info, output_dir)
+            raise
 
     def download_by_info(self, track_info: dict, output_dir: str, **kwargs) -> str:
         """Download using pre-extracted track info (for use by other services)."""

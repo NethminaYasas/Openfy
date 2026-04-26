@@ -101,6 +101,7 @@ class Track(Base):
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
     album_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("albums.id"))
     source_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)  # Spotify/Apple Music track ID
+    source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     universal_track_id: Mapped[str | None] = mapped_column(
         String(64), index=True, nullable=True
     )

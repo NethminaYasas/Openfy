@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
+from mutagen import File as MutagenFile
 from sqlalchemy.orm import Session
 
 from ..models import DownloadJob, Track
@@ -35,6 +36,66 @@ logger = logging.getLogger(__name__)
 # Local SpotiFLAC source
 SPOTIFLAC_SRC = Path(__file__).resolve().parents[2] / "SpotiFLAC"
 _spotiflac_added = False
+
+
+def _normalize_for_match(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _extract_downloaded_title(path: Path) -> str:
+    audio = MutagenFile(path)
+    if not audio:
+        return ""
+    tags = audio.tags or {}
+    title = tags.get("TIT2") or tags.get("title") or tags.get("TITLE")
+    if isinstance(title, (list, tuple)):
+        title = title[0] if title else ""
+    if title is None:
+        return ""
+    if hasattr(title, "text"):
+        text = getattr(title, "text")
+        if isinstance(text, (list, tuple)):
+            return str(text[0]).strip() if text else ""
+        return str(text).strip()
+    return str(title).strip()
+
+
+def _extract_downloaded_duration_ms(path: Path) -> int:
+    audio = MutagenFile(path)
+    if not audio or not getattr(audio, "info", None):
+        return 0
+    duration = getattr(audio.info, "length", 0) or 0
+    return int(float(duration) * 1000)
+
+
+def _validate_download_against_expected(downloaded_path: Path, track_info: dict) -> None:
+    expected_title = str(track_info.get("name", "")).strip()
+    expected_duration_ms = int(track_info.get("duration_ms", 0) or 0)
+
+    if not expected_title:
+        raise Exception("Missing expected title metadata from URL")
+    if expected_duration_ms <= 0:
+        raise Exception("Missing expected duration metadata from URL")
+
+    actual_title = _extract_downloaded_title(downloaded_path)
+    if actual_title:
+        exp_norm = _normalize_for_match(expected_title)
+        act_norm = _normalize_for_match(actual_title)
+        if exp_norm not in act_norm and act_norm not in exp_norm:
+            raise Exception(
+                f"Downloaded title mismatch (expected '{expected_title}', got '{actual_title}')"
+            )
+
+    actual_duration_ms = _extract_downloaded_duration_ms(downloaded_path)
+    if actual_duration_ms <= 0:
+        raise Exception("Could not read downloaded track duration")
+
+    duration_diff = abs(actual_duration_ms - expected_duration_ms)
+    duration_tolerance_ms = 3000
+    if duration_diff > duration_tolerance_ms:
+        raise Exception(
+            f"Duration mismatch (expected {expected_duration_ms}ms, got {actual_duration_ms}ms)"
+        )
 
 
 def _ensure_spotiflac_import() -> None:
@@ -90,10 +151,16 @@ def _download_with_yt_music(
             _append_log(db, job, f"Starting download to {settings.downloads_dir}")
 
             downloader = AppleMusicDownloader()
+            expected_track_info: dict | None = None
 
             # Auto-detect URL type and download
             url_type = downloader.parse_url_type(query)
             if url_type == "spotify":
+                expected_track_info = downloader._extract_spotify_metadata(query)
+                if not expected_track_info:
+                    raise Exception("Could not extract Spotify metadata for strict verification")
+                if not expected_track_info.get("duration_ms"):
+                    raise Exception("Spotify duration metadata missing; refusing non-verifiable download")
                 _append_log(db, job, f"Spotify track detected, searching for audio source...")
 
                 # Run download with timeout to prevent hanging
@@ -118,6 +185,14 @@ def _download_with_yt_music(
                         db.commit()
                         return
             else:
+                parsed = downloader.parse_apple_music_url(query)
+                if not parsed or not parsed.get("track_id"):
+                    raise Exception("Could not parse Apple Music track URL")
+                expected_track_info = downloader.get_track_info(parsed["track_id"])
+                if not expected_track_info:
+                    raise Exception("Could not extract Apple Music metadata for strict verification")
+                if not expected_track_info.get("duration_ms"):
+                    raise Exception("Apple Music duration metadata missing; refusing non-verifiable download")
                 _append_log(db, job, f"Apple Music track detected, searching for audio source...")
 
                 def do_download():
@@ -145,10 +220,28 @@ def _download_with_yt_music(
 
             # Move to library and scan
             if is_audio_file(Path(downloaded_file)):
-                moved = store_upload(Path(downloaded_file), settings.music_dir)
+                downloaded_path = Path(downloaded_file)
+                if expected_track_info:
+                    _validate_download_against_expected(downloaded_path, expected_track_info)
+                preferred_stem = (
+                    str(expected_track_info.get("name", "")).strip()
+                    if expected_track_info
+                    else None
+                )
+                moved = store_upload(
+                    downloaded_path,
+                    settings.music_dir,
+                    preferred_stem=preferred_stem or None,
+                )
                 source_id = _extract_source_id(query)
                 if moved:
-                    scan_paths(db, [moved], user_hash=user_hash, source_id=source_id)
+                    scan_paths(
+                        db,
+                        [moved],
+                        user_hash=user_hash,
+                        source_id=source_id,
+                        source_url=query,
+                    )
                     _append_log(db, job, "Scan complete - track added to library")
                     job.status = "completed"
                     job.output_path = str(settings.music_dir)
@@ -267,7 +360,13 @@ def _run_download(
                 db.commit()
                 return
 
-            scan_paths(db, moved_files, user_hash=user_hash, source_id=source_id)
+            scan_paths(
+                db,
+                moved_files,
+                user_hash=user_hash,
+                source_id=source_id,
+                source_url=query,
+            )
             _append_log(db, job, "Scan complete - track(s) added to library")
             job.status = "completed"
             job.output_path = str(settings.music_dir)

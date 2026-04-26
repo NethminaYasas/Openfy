@@ -3836,6 +3836,7 @@
         async function applyPendingChanges() {
             const toRemove = [...modalOriginalInPlaylist].filter(id => !modalPendingInPlaylist.has(id));
             const toAdd = [...modalPendingInPlaylist].filter(id => !modalOriginalInPlaylist.has(id));
+            let createdNewPlaylist = false;
 
             try {
                 // Removals first
@@ -3862,6 +3863,10 @@
                             // Replace placeholder in cache
                             const idx = allPlaylistsCache.findIndex(p => p.id === id);
                             if (idx !== -1) allPlaylistsCache[idx] = { ...newPl, _isNew: false };
+                            if (!userPlaylists.some(p => p.id === newPl.id)) {
+                                userPlaylists.push(newPl);
+                                createdNewPlaylist = true;
+                            }
                             // Add track to new playlist
                             await api(`/playlists/${newPl.id}/tracks?track_id=${currentTrackId}`, { method: "POST" });
                         } else {
@@ -3869,8 +3874,25 @@
                         }
                     }
                 }
-                // Refresh and close
-                loadPlaylists();
+                // Sync in-memory membership caches for current track without full sidebar refresh
+                if (currentTrackId) {
+                    if (modalPendingInPlaylist.has('liked')) {
+                        likedTrackIds.add(currentTrackId);
+                    } else {
+                        likedTrackIds.delete(currentTrackId);
+                    }
+                    const inRegular = [...modalPendingInPlaylist].some(id => id !== 'liked');
+                    if (inRegular) {
+                        trackIdsInRegularPlaylists.add(currentTrackId);
+                    } else {
+                        trackIdsInRegularPlaylists.delete(currentTrackId);
+                    }
+                    syncLikeButtonState({ id: currentTrackId });
+                }
+                // Re-render only when a new playlist was created
+                if (createdNewPlaylist) {
+                    renderLibrary();
+                }
                 hideAddToPlaylistModal();
             } catch (err) {
                 alert("Failed to save changes: " + err.message);
@@ -4377,8 +4399,6 @@
                     npLikeBtn.setAttribute("title", "Added to playlist");
                 }
                 hideContextMenu();
-                // Reload playlists to update counts, etc.
-                loadPlaylists();
             } catch (err) {
                 alert("Failed to add track to playlist: " + err.message);
             }
