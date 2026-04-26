@@ -656,19 +656,19 @@
             return '#' + r + g + b;
         }
 
-        // Build 2x2 mosaic from track artwork
-        function buildMosaic(tracks, playlist) {
+        // Build playlist cover using server-generated collage (same as library), fallback to client mosaic
+        function buildPlaylistCover(tracks, playlist) {
             var mosaic = document.getElementById('playlist-mosaic');
             mosaic.innerHTML = '';
 
-            // Liked Songs shows heart icon, not collage
+            // Liked Songs: same gradient + heart as library sidebar
             if (playlist && playlist.is_liked) {
                 var item = document.createElement('div');
                 item.className = 'playlist-mosaic-item';
                 item.style.gridColumn = '1 / -1';
                 item.style.gridRow = '1 / -1';
-                item.style.background = 'linear-gradient(135deg, #450a5c 0%, #1e3a8a 50%, #450a5c 100%)';
-                item.innerHTML = '<i class="fa-solid fa-heart" style="font-size: 4rem; color: #1ed760;"></i>';
+                item.style.background = 'linear-gradient(135deg, #450af5, #c4efd9)';
+                item.innerHTML = '<i class="fa-solid fa-heart" style="font-size: 4rem; color: #ffffff;"></i>';
                 mosaic.appendChild(item);
                 return;
             }
@@ -684,9 +684,52 @@
                 return;
             }
 
-            // Handle different playlist sizes
+            // Try server-generated cover image (same URL as library view)
+            var wrapper = document.createElement('div');
+            wrapper.className = 'playlist-mosaic-item';
+            wrapper.style.gridColumn = '1 / -1';
+            wrapper.style.gridRow = '1 / -1';
+
+            var coverImg = document.createElement('img');
+            coverImg.src = withBase("/playlists/" + playlist.id + "/cover?v=" + Date.now());
+            coverImg.style.width = '100%';
+            coverImg.style.height = '100%';
+            coverImg.style.objectFit = 'cover';
+            coverImg.onerror = function() {
+                // Server cover not available (e.g. <4 tracks, no artwork) - fall back to client mosaic
+                buildMosaicFallback(tracks, playlist);
+            };
+            wrapper.appendChild(coverImg);
+            mosaic.appendChild(wrapper);
+        }
+
+        // Fallback: build 2x2 mosaic from individual track artwork (original buildMosaic logic)
+        function buildMosaicFallback(tracks, playlist) {
+            var mosaic = document.getElementById('playlist-mosaic');
+            mosaic.innerHTML = '';
+
+            if (playlist && playlist.is_liked) {
+                var item = document.createElement('div');
+                item.className = 'playlist-mosaic-item';
+                item.style.gridColumn = '1 / -1';
+                item.style.gridRow = '1 / -1';
+                item.style.background = 'linear-gradient(135deg, #450af5, #c4efd9)';
+                item.innerHTML = '<i class="fa-solid fa-heart" style="font-size: 4rem; color: #ffffff;"></i>';
+                mosaic.appendChild(item);
+                return;
+            }
+
+            if (!tracks || tracks.length === 0) {
+                var item = document.createElement('div');
+                item.className = 'playlist-mosaic-item';
+                item.style.gridColumn = '1 / -1';
+                item.style.gridRow = '1 / -1';
+                item.innerHTML = '<i class="fa-solid fa-music"></i>';
+                mosaic.appendChild(item);
+                return;
+            }
+
             if (tracks.length === 1) {
-                // Single song - fill entire mosaic
                 var item = document.createElement('div');
                 item.className = 'playlist-mosaic-item';
                 item.style.gridColumn = '1 / -1';
@@ -700,7 +743,6 @@
             }
 
             if (tracks.length === 2) {
-                // 2 songs - duplicate in both rows
                 for (var i = 0; i < 4; i++) {
                     var item = document.createElement('div');
                     item.className = 'playlist-mosaic-item';
@@ -715,7 +757,6 @@
             }
 
             if (tracks.length === 3) {
-                // 3 songs - 3 thumbnails + 1 placeholder
                 for (var i = 0; i < 3; i++) {
                     var item = document.createElement('div');
                     item.className = 'playlist-mosaic-item';
@@ -725,7 +766,6 @@
                     item.appendChild(img);
                     mosaic.appendChild(item);
                 }
-                // Placeholder for 4th
                 var placeholder = document.createElement('div');
                 placeholder.className = 'playlist-mosaic-item';
                 placeholder.style.background = '#282828';
@@ -2920,23 +2960,16 @@
                     '<div class="playlist-meta-avatar"></div>' +
                     ownerName + ' • ' + formatTotalDuration(tracks);
 
-                // Build mosaic and extract color
-                buildMosaic(tracks, pl);
+                // Build cover using server-generated collage (same as library) with mosaic fallback
+                buildPlaylistCover(tracks, pl);
 
-                // Get first artwork for color extraction
+                // Gradient background: Liked Songs uses purple, others use static gray since cover provides visual
                 if (pl && pl.is_liked) {
-                    // Liked Songs uses a purple gradient like in the library
                     document.getElementById('playlist-gradient').style.background =
                         'linear-gradient(180deg, #4a1a6b 0%, #121212 300px)';
-                } else if (tracks.length > 0 && tracks[0].track && tracks[0].track.album && tracks[0].track.album.artwork_path) {
-                    var artUrl = withBase('/tracks/' + tracks[0].track.id + '/artwork?v=' + Date.now());
-                    var color = await extractDominantColor(artUrl);
-                    var hex = rgbToHex(color);
-                    document.getElementById('playlist-gradient').style.background =
-                        'linear-gradient(180deg, ' + hex + ' 0%, #121212 300px)';
                 } else {
                     document.getElementById('playlist-gradient').style.background =
-                        'linear-gradient(180deg, #535353 0%, #121212 300px)';
+                        'linear-gradient(180deg, #282828 0%, #121212 300px)';
                 }
 
                 // Build song list
