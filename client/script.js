@@ -644,26 +644,31 @@
                 var img = new Image();
                 img.crossOrigin = 'Anonymous';
                 img.onload = function() {
-                    var canvas = document.createElement('canvas');
-                    var ctx = canvas.getContext('2d');
-                    var size = 50;
-                    canvas.width = size;
-                    canvas.height = size;
-                    ctx.drawImage(img, 0, 0, size, size);
-                    var data = ctx.getImageData(0, 0, size, size).data;
+                    try {
+                        var canvas = document.createElement('canvas');
+                        var ctx = canvas.getContext('2d');
+                        var size = 50;
+                        canvas.width = size;
+                        canvas.height = size;
+                        ctx.drawImage(img, 0, 0, size, size);
+                        var data = ctx.getImageData(0, 0, size, size).data;
 
-                    var colorBucket = [];
-                    for (var i = 0; i < data.length; i += 16) {
-                        if (data[i + 3] > 200) {
-                            var r = data[i], g = data[i+1], b = data[i+2];
-                            var hsl = rgbToHsl(r, g, b);
-                            // Weight: high saturation and balanced lightness are vibrant
-                            var weight = hsl.s * (1 - Math.abs(hsl.l - 0.5) * 2);
-                            colorBucket.push({ r, g, b, h: hsl.h, s: hsl.s, l: hsl.l, weight: weight });
+                        var colorBucket = [];
+                        for (var i = 0; i < data.length; i += 16) {
+                            if (data[i + 3] > 200) {
+                                var r = data[i], g = data[i+1], b = data[i+2];
+                                var hsl = rgbToHsl(r, g, b);
+                                // Weight: high saturation and balanced lightness are vibrant
+                                var weight = hsl.s * (1 - Math.abs(hsl.l - 0.5) * 2);
+                                colorBucket.push({ r, g, b, h: hsl.h, s: hsl.s, l: hsl.l, weight: weight });
+                            }
                         }
-                    }
 
-                    if (colorBucket.length === 0) {
+                        if (colorBucket.length === 0) {
+                            resolve(['#282828', '#121212']);
+                            return;
+                        }
+                    } catch (e) {
                         resolve(['#282828', '#121212']);
                         return;
                     }
@@ -3301,11 +3306,28 @@
                     document.getElementById('playlist-gradient').style.background =
                         'linear-gradient(180deg, #4a1a6b 0%, #121212 100%)';
                 } else {
-                    const coverUrl = withBase("/playlists/" + pl.id + "/cover?v=" + Date.now());
-                    extractVibrantColors(coverUrl).then(colors => {
-                        document.getElementById('playlist-gradient').style.background =
-                            `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
-                    });
+                    const coverPath = "/playlists/" + pl.id + "/cover?v=" + Date.now();
+                    fetch(withBase(coverPath), { headers: apiHeaders() })
+                        .then(res => {
+                            if (!res.ok) throw new Error("HTTP " + res.status);
+                            return res.blob();
+                        })
+                        .then(blob => {
+                            const objectUrl = URL.createObjectURL(blob);
+                            extractVibrantColors(objectUrl).then(colors => {
+                                if (currentPlaylistId == pl.id) {
+                                    document.getElementById('playlist-gradient').style.background =
+                                        `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
+                                }
+                                URL.revokeObjectURL(objectUrl);
+                            });
+                        })
+                        .catch(err => {
+                            if (currentPlaylistId == pl.id) {
+                                document.getElementById('playlist-gradient').style.background =
+                                    'linear-gradient(180deg, #282828 0%, #121212 100%)';
+                            }
+                        });
                 }
 
                 // Build song list
@@ -5540,6 +5562,13 @@
                     }
 
                     const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
+                    
+                    // Cap scroll position to max bounds when resizing
+                    if (scrollPositions[rowKey] > maxScroll) {
+                        scrollPositions[rowKey] = maxScroll;
+                        trackRow.style.transform = `translateX(-${maxScroll}px)`;
+                    }
+
                     const isAtStart = scrollPositions[rowKey] <= 0;
                     const isAtEnd = scrollPositions[rowKey] >= maxScroll;
 
@@ -5576,10 +5605,16 @@
         }
 
         function updateAllScrollButtonStates() {
-            // Delay to allow layout to settle
-            setTimeout(() => {
-                updateTrackRowScrollButtons();
-            }, 150);
+            updateTrackRowScrollButtons();
+        }
+
+        // Use ResizeObserver for perfectly accurate layout updates during animations and resizes
+        const mainContentResizeObserver = new ResizeObserver(() => {
+            updateTrackRowScrollButtons();
+        });
+        const mainContentEl = document.querySelector('.main-content');
+        if (mainContentEl) {
+            mainContentResizeObserver.observe(mainContentEl);
         }
 
         document.addEventListener('DOMContentLoaded', function() {
