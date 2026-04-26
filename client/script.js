@@ -106,54 +106,14 @@
               const img = new Image();
               img.crossOrigin = 'Anonymous';
 
-              img.onload = () => {
+              img.onload = async () => {
                 try {
-                  const canvas = document.createElement('canvas');
-                  const ctx = canvas.getContext('2d');
-
-                  // Scale down for faster processing
-                  const scale = 0.1;
-                  canvas.width = img.width * scale;
-                  canvas.height = img.height * scale;
-
-                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-                  // Sample from center area
-                  const centerX = Math.floor(canvas.width / 2);
-                  const centerY = Math.floor(canvas.height / 2);
-                  const size = Math.min(canvas.width, canvas.height) * 0.3;
-
-                  let r = 0, g = 0, b = 0;
-                  let count = 0;
-
-                  for (let x = centerX - size/2; x < centerX + size/2; x++) {
-                    for (let y = centerY - size/2; y < centerY + size/2; y++) {
-                      const pixel = ctx.getImageData(x, y, 1, 1).data;
-                      r += pixel[0];
-                      g += pixel[1];
-                      b += pixel[2];
-                      count++;
-                    }
-                  }
-
-                  if (count > 0) {
-                    const avgR = Math.round(r / count);
-                    const avgG = Math.round(g / count);
-                    const avgB = Math.round(b / count);
-
-                    // Create gradient from color to transparent black
-                    const primary = `rgb(${avgR}, ${avgG}, ${avgB})`;
-                    const secondary = 'rgba(0, 0, 0, 0)';
-
-                    resolve({ primary, secondary });
-                  } else {
-                    throw new Error('No pixels sampled');
-                  }
+                  const colors = await extractVibrantColors(imageUrl);
+                  resolve({ primary: colors[0], secondary: colors[1] });
                 } catch (error) {
                   reject(error);
                 }
               };
-
               img.onerror = () => reject(new Error('Failed to load image'));
               img.src = imageUrl;
             });
@@ -166,10 +126,17 @@
               hash = label.charCodeAt(i) + ((hash << 5) - hash);
             }
             const hue = Math.abs(hash) % 360;
-            const primary = `hsl(${hue}, 70%, 40%)`;
-            const secondary = 'rgba(0, 0, 0, 0)';
+            
+            // Generate two analogous colors for the fallback
+            const colors = [
+              hslToRgb(hue, 0.4, 0.25),
+              hslToRgb((hue + 20) % 360, 0.3, 0.15)
+            ];
 
-            return { primary, secondary };
+            return { 
+                primary: `rgb(${colors[0].r}, ${colors[0].g}, ${colors[0].b})`, 
+                secondary: `rgb(${colors[1].r}, ${colors[1].g}, ${colors[1].b})` 
+            };
           }
 
           _queueTransition(colors) {
@@ -188,7 +155,7 @@
 
             // Apply colors to the hidden div
             to.style.setProperty('--gradient-start', this.next.primary);
-            to.style.setProperty('--gradient-end', this.next.secondary);
+            to.style.setProperty('--gradient-mid', this.next.secondary);
             to.style.opacity = '0';
 
             // Force reflow
