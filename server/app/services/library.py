@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Iterable
@@ -164,6 +165,7 @@ def _build_track_from_metadata(
     album_id: str | None,
     user_hash: str | None,
     source_id: str | None = None,
+    universal_track_id: str | None = None,
 ) -> Track:
     """Create a new Track instance from metadata (without adding to session)."""
     return Track(
@@ -181,7 +183,20 @@ def _build_track_from_metadata(
         album_id=album_id,
         user_hash=user_hash,
         source_id=source_id,
+        universal_track_id=universal_track_id,
     )
+
+
+def compute_universal_track_id(file_path: Path) -> str:
+    """Stable content hash used as a cross-server track address."""
+    hasher = hashlib.sha256()
+    with file_path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None, source_id: str | None = None) -> Track:
@@ -196,11 +211,15 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     album_title = _normalize(metadata.get("album"), fallback=None) if metadata.get("album") else None
     title = _normalize(metadata.get("title"), fallback=file_path.stem)
     duration = metadata.get("duration")
+    universal_track_id = compute_universal_track_id(file_path)
 
     # Check if track already exists by source_id first (Spotify/Apple Music duplicates)
     if source_id:
         existing = db.execute(select(Track).where(Track.source_id == source_id)).scalar_one_or_none()
         if existing:
+            if not existing.universal_track_id:
+                existing.universal_track_id = universal_track_id
+                db.add(existing)
             # Track already exists from same source, return existing without updating
             return existing
 
@@ -228,6 +247,8 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         existing.mime_type = metadata.get("mime_type")
         if user_hash and not existing.user_hash:
             existing.user_hash = user_hash
+        if not existing.universal_track_id:
+            existing.universal_track_id = universal_track_id
 
         # Sync artist associations
         _associate_track_artists(db, existing.id, artist_names)
@@ -251,6 +272,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         album_id=album.id if album else None,
         user_hash=user_hash,
         source_id=source_id,
+        universal_track_id=universal_track_id,
     )
     db.add(track)
     try:
@@ -275,6 +297,8 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
             existing.mime_type = metadata.get("mime_type")
             if user_hash and not existing.user_hash:
                 existing.user_hash = user_hash
+            if not existing.universal_track_id:
+                existing.universal_track_id = universal_track_id
 
             # Sync artist associations
             _associate_track_artists(db, existing.id, artist_names)

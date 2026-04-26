@@ -410,6 +410,11 @@
         const appMain = document.getElementById("app-main");
         const topBar = document.getElementById("top-bar");
         const topBarHome = document.getElementById("top-bar-home");
+        const manualUploadSection = document.getElementById("manual-upload-section");
+        const manualFileInput = document.getElementById("manual-file-input");
+        const manualUploadButton = document.getElementById("manual-upload-button");
+        const manualUploadStatus = document.getElementById("manual-upload-status");
+        const adminManualUploadToggle = document.getElementById("manual-upload-enabled-admin");
 
         const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist"), admin: document.getElementById("page-admin"), settings: document.getElementById("page-settings") };
         const btnPlay = document.getElementById("btn-play");
@@ -453,6 +458,7 @@
         let scrollPositions = {}; // Global tracker for scroll positions: { 'track-row-0': 0, 'uploads-row-0': 0 }
         let currentStreamToken = null;
         let currentStreamTokenTrackId = null;
+        let manualAudioUploadEnabled = true;
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -589,6 +595,7 @@
             document.querySelectorAll(".nav-link").forEach(function(link) { link.classList.toggle("active", link.dataset.page === pageId); });
             if (pageId === "library" && authHash) {
                 loadUserUploads();
+                refreshManualUploadSetting();
             }
             // Add/remove page-specific classes on main container for styling
             document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
@@ -1663,6 +1670,102 @@
                     loadTrackPaused(data);
                 }
             } catch (err) { console.error("Failed to load last track:", err); }
+        }
+
+        function applyManualUploadUI(enabled) {
+            manualAudioUploadEnabled = !!enabled;
+            if (manualUploadSection) {
+                manualUploadSection.style.display = manualAudioUploadEnabled ? "block" : "none";
+            }
+            if (manualUploadButton) {
+                manualUploadButton.disabled = !manualAudioUploadEnabled;
+            }
+            if (manualFileInput) {
+                manualFileInput.disabled = !manualAudioUploadEnabled;
+                if (!manualAudioUploadEnabled) {
+                    manualFileInput.value = "";
+                }
+            }
+            if (adminManualUploadToggle) {
+                adminManualUploadToggle.checked = manualAudioUploadEnabled;
+            }
+            if (manualUploadStatus && !manualAudioUploadEnabled) {
+                manualUploadStatus.style.display = "none";
+                manualUploadStatus.textContent = "";
+            }
+        }
+
+        async function refreshManualUploadSetting() {
+            if (!authHash) {
+                applyManualUploadUI(true);
+                return;
+            }
+            try {
+                const data = await api("/system/settings");
+                applyManualUploadUI(!!data.manual_audio_upload_enabled);
+            } catch (err) {
+                console.error("Failed to load system settings:", err);
+                applyManualUploadUI(true);
+            }
+        }
+
+        async function uploadFromFile() {
+            if (!manualAudioUploadEnabled) {
+                alert("Manual audio file uploads are currently disabled by admin.");
+                return;
+            }
+            if (!currentUser || (!currentUser.is_admin && !currentUser.upload_enabled)) {
+                alert("Uploads are disabled for your account.");
+                return;
+            }
+            if (!manualFileInput || !manualFileInput.files || !manualFileInput.files.length) {
+                alert("Choose an audio file first.");
+                return;
+            }
+
+            const selectedFile = manualFileInput.files[0];
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+
+            if (manualUploadStatus) {
+                manualUploadStatus.style.display = "block";
+                manualUploadStatus.textContent = "Uploading file...";
+            }
+            if (manualUploadButton) {
+                manualUploadButton.disabled = true;
+            }
+
+            try {
+                await api("/tracks/upload", {
+                    method: "POST",
+                    body: formData
+                });
+                if (manualUploadStatus) {
+                    manualUploadStatus.textContent = "Upload complete.";
+                }
+                if (manualFileInput) {
+                    manualFileInput.value = "";
+                }
+                loadTracks();
+                loadMostPlayed();
+                loadUserUploads();
+                setTimeout(function() {
+                    if (manualUploadStatus) {
+                        manualUploadStatus.style.display = "none";
+                        manualUploadStatus.textContent = "";
+                    }
+                }, 2000);
+            } catch (err) {
+                if (manualUploadStatus) {
+                    manualUploadStatus.textContent = "Upload failed: " + err.message;
+                } else {
+                    alert("Upload failed: " + err.message);
+                }
+            } finally {
+                if (manualUploadButton) {
+                    manualUploadButton.disabled = !manualAudioUploadEnabled;
+                }
+            }
         }
 
         async function downloadFromLink() {
@@ -2789,6 +2892,7 @@
         document.querySelectorAll(".nav-link").forEach(function(link) { link.addEventListener("click", function(event) { event.preventDefault(); setActivePage(link.dataset.page || "home"); }); });
         document.getElementById("back-to-home").addEventListener("click", function(event) { event.preventDefault(); setActivePage("home"); });
         document.getElementById("download-button").addEventListener("click", function(event) { event.preventDefault(); downloadFromLink(); });
+        manualUploadButton?.addEventListener("click", function(event) { event.preventDefault(); uploadFromFile(); });
         searchInput.addEventListener("input", function() {
             if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
             searchDebounceTimer = setTimeout(runSearch, 150);
@@ -3414,6 +3518,7 @@
 
                 // Refresh upload toggle to reflect server-stored preference
                 if (window.refreshUploadState) window.refreshUploadState();
+                refreshManualUploadSetting();
                 // Refresh library sidebar state
                 if (window.refreshLibraryState) window.refreshLibraryState();
             } catch (err) { alert("Failed: " + err.message); }
@@ -3439,6 +3544,7 @@
 
                 // Refresh upload toggle to reflect server-stored preference
                 if (window.refreshUploadState) window.refreshUploadState();
+                refreshManualUploadSetting();
                 // Refresh library sidebar state
                 if (window.refreshLibraryState) window.refreshLibraryState();
 
@@ -3473,6 +3579,7 @@
 
                         // Refresh upload toggle to reflect server-stored preference
                         if (window.refreshUploadState) window.refreshUploadState();
+                        refreshManualUploadSetting();
                         // Refresh library sidebar state
                         if (window.refreshLibraryState) window.refreshLibraryState();
 
@@ -3517,6 +3624,7 @@
 
             // Refresh upload toggle to reflect server-stored preference
             if (window.refreshUploadState) window.refreshUploadState();
+            refreshManualUploadSetting();
             // Refresh library sidebar state
             if (window.refreshLibraryState) window.refreshLibraryState();
 
@@ -4834,7 +4942,37 @@
             if (adminLibraryView) {
                 adminLibraryView.style.display = "none";
             }
+            loadAdminManualUploadSetting();
             setActivePage("admin");
+        });
+
+        async function loadAdminManualUploadSetting() {
+            if (!isAdmin || !adminManualUploadToggle) return;
+            try {
+                const data = await api("/admin/settings/manual-upload");
+                applyManualUploadUI(!!data.manual_audio_upload_enabled);
+            } catch (err) {
+                console.error("Failed to load admin manual upload setting:", err);
+            }
+        }
+
+        adminManualUploadToggle?.addEventListener("change", async function() {
+            const enabled = !!this.checked;
+            this.disabled = true;
+            try {
+                const data = await api("/admin/settings/manual-upload", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ manual_audio_upload_enabled: enabled })
+                });
+                applyManualUploadUI(!!data.manual_audio_upload_enabled);
+            } catch (err) {
+                console.error("Failed to update manual upload setting:", err);
+                this.checked = !enabled;
+                alert("Failed to update manual upload setting: " + err.message);
+            } finally {
+                this.disabled = false;
+            }
         });
 
         // Load users list with optional search query

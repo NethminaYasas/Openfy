@@ -1,4 +1,6 @@
 import secrets
+import shutil
+import tempfile
 from pathlib import Path
 import json
 import time
@@ -16,6 +18,8 @@ from fastapi import (
     Header,
     Query,
     Request,
+    UploadFile,
+    File,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +61,7 @@ from .models import (
     DownloadJob,
     User,
     TrackPlay,
+    AppSetting,
     track_artist,
 )
 from .schemas import (
@@ -75,14 +80,17 @@ from .schemas import (
     UserOutPublic,
     UserUploadPreferenceUpdate,
     UserLibraryStateUpdate,
+    AdminManualUploadSettingUpdate,
+    SystemSettingsOut,
 )
 from .settings import settings
-from .services.storage import ensure_dirs
-from .services.library import scan_default_library, scan_paths
+from .services.storage import ensure_dirs, store_upload, is_audio_file
+from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
 
 # Global variable to track last track update
 last_track_update = 0
+MANUAL_AUDIO_UPLOAD_SETTING_KEY = "manual_audio_upload_enabled"
 
 
 def update_track_timestamp():
@@ -91,6 +99,36 @@ def update_track_timestamp():
     import time
 
     last_track_update = int(time.time() * 1000)  # Milliseconds since epoch
+
+
+def _parse_bool_setting(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    return default
+
+
+def _get_app_setting_bool(db: Session, key: str, default: bool) -> bool:
+    row = db.get(AppSetting, key)
+    if not row:
+        return default
+    return _parse_bool_setting(row.value, default=default)
+
+
+def _set_app_setting_bool(db: Session, key: str, value: bool) -> bool:
+    row = db.get(AppSetting, key)
+    raw = "1" if value else "0"
+    if not row:
+        row = AppSetting(key=key, value=raw)
+        db.add(row)
+    else:
+        row.value = raw
+    db.commit()
+    return value
 
 
 def rate_limit(max_requests: int, window_seconds: int = 60):
@@ -272,6 +310,17 @@ def _startup():
                     text("ALTER TABLE tracks ADD COLUMN user_hash VARCHAR(64)")
                 )
                 conn.commit()
+            if "universal_track_id" not in cols:
+                conn.execute(
+                    text("ALTER TABLE tracks ADD COLUMN universal_track_id VARCHAR(64)")
+                )
+                conn.commit()
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_tracks_universal_track_id ON tracks(universal_track_id)"
+                )
+            )
+            conn.commit()
 
             pcols = [
                 row[1]
@@ -404,6 +453,19 @@ def _startup():
                 )
                 conn.commit()
 
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(128) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) VALUES (:key, '1', CURRENT_TIMESTAMP)"
+                ),
+                {"key": MANUAL_AUDIO_UPLOAD_SETTING_KEY},
+            )
+            conn.commit()
+
             # Clean up orphaned playlist_tracks that reference missing tracks or playlists
             with engine.connect() as conn2:
                 conn2.execute(
@@ -460,6 +522,32 @@ def _startup():
                     )
                 )
         db.commit()
+    finally:
+        db.close()
+
+    # Backfill universal track IDs for old rows that don't have one yet.
+    db = SessionLocal()
+    try:
+        tracks_missing_hash = db.execute(
+            select(Track).where(Track.universal_track_id.is_(None))
+        ).scalars().all()
+        changed = False
+        for track in tracks_missing_hash:
+            if not track.file_path:
+                continue
+            path = Path(track.file_path)
+            if not _is_within_dir(path, settings.music_dir):
+                continue
+            path = path.resolve()
+            if not _is_within_dir(path, settings.music_dir) or not path.exists():
+                continue
+            try:
+                track.universal_track_id = compute_universal_track_id(path)
+                changed = True
+            except Exception:
+                logger.warning("Failed computing universal_track_id for track %s", track.id)
+        if changed:
+            db.commit()
     finally:
         db.close()
 
@@ -807,6 +895,87 @@ def create_stream_token(
         raise HTTPException(status_code=404, detail="Track not found")
     token = _issue_stream_token(user.auth_hash, track_id)
     return {"token": token, "expires_in": _STREAM_TOKEN_TTL_SECONDS}
+
+
+@app.post("/tracks/upload", response_model=TrackOut)
+def upload_track_file(
+    file: UploadFile = File(...),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    user = _require_user(db, x_auth_hash)
+    if not user.is_admin and not user.upload_enabled:
+        raise HTTPException(
+            status_code=403, detail="Uploads are disabled for your account"
+        )
+    manual_upload_enabled = _get_app_setting_bool(
+        db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
+    )
+    if not manual_upload_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Manual audio file uploads are currently disabled by admin",
+        )
+
+    original_name = file.filename or ""
+    suffix = Path(original_name).suffix.lower()
+    if not suffix or not is_audio_file(Path(f"track{suffix}")):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported audio format. Use mp3/flac/wav/m4a/ogg/opus.",
+        )
+
+    tmp_dir = settings.data_dir / "tmp_uploads"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=suffix, dir=str(tmp_dir)
+    )
+    tmp_path = Path(tmp_file.name)
+    tmp_file.close()
+
+    try:
+        with tmp_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        final_path = store_upload(tmp_path, settings.music_dir)
+        scan_paths(db, [final_path], user_hash=user.auth_hash)
+        track = db.execute(
+            select(Track)
+            .options(selectinload(Track.artists), selectinload(Track.album))
+            .where(Track.file_path == str(final_path))
+        ).scalar_one_or_none()
+        if not track:
+            raise HTTPException(status_code=500, detail="Uploaded track was not indexed")
+        return track
+    finally:
+        try:
+            file.file.close()
+        except Exception:
+            pass
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+
+@app.get("/tracks/by-universal/{universal_track_id}", response_model=TrackOut)
+def get_track_by_universal_id(
+    universal_track_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_user(db, x_auth_hash)
+    universal_track_id = universal_track_id.lower()
+    if not re.match(r"^[0-9a-f]{64}$", universal_track_id):
+        raise HTTPException(status_code=400, detail="Invalid universal track ID format")
+    track = db.execute(
+        select(Track)
+        .options(selectinload(Track.artists), selectinload(Track.album))
+        .where(Track.universal_track_id == universal_track_id)
+    ).scalar_one_or_none()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return track
 
 
 @app.get("/artists", response_model=List[ArtistOut])
@@ -1447,6 +1616,19 @@ def auth_me(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db
     return user
 
 
+@app.get("/system/settings", response_model=SystemSettingsOut)
+def get_system_settings(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_user(db, x_auth_hash)
+    return {
+        "manual_audio_upload_enabled": _get_app_setting_bool(
+            db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
+        )
+    }
+
+
 @app.put("/user/upload-preference")
 def update_upload_preference(
     payload: UserUploadPreferenceUpdate,
@@ -1529,6 +1711,36 @@ def update_library_state(
 
 
 # Admin endpoints
+@app.get("/admin/settings/manual-upload", response_model=SystemSettingsOut)
+def get_admin_manual_upload_setting(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return {
+        "manual_audio_upload_enabled": _get_app_setting_bool(
+            db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
+        )
+    }
+
+
+@app.put("/admin/settings/manual-upload", response_model=SystemSettingsOut)
+def update_admin_manual_upload_setting(
+    payload: AdminManualUploadSettingUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    enabled = _set_app_setting_bool(
+        db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, payload.manual_audio_upload_enabled
+    )
+    return {"manual_audio_upload_enabled": enabled}
+
+
 @app.get("/admin/users")
 def list_all_users(
     q: str | None = Query(None),
@@ -1646,6 +1858,7 @@ def list_all_tracks(
         result.append(
             {
                 "id": track.id,
+                "universal_track_id": track.universal_track_id,
                 "title": track.title,
                 "artist_name": artist_name,
                 "user_name": user.name if user else "Unclaimed",

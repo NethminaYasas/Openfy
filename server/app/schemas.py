@@ -38,6 +38,7 @@ class TrackBase(BaseModel):
 
 class TrackOut(TrackBase):
     id: str
+    universal_track_id: str | None = None
     file_size: int | None = None
     duration: float | None = None
     mime_type: str | None = None
@@ -101,6 +102,14 @@ class UserUploadPreferenceUpdate(BaseModel):
 
 class UserLibraryStateUpdate(BaseModel):
     library_minimized: bool
+
+
+class AdminManualUploadSettingUpdate(BaseModel):
+    manual_audio_upload_enabled: bool
+
+
+class SystemSettingsOut(BaseModel):
+    manual_audio_upload_enabled: bool
 
 
 class UserOut(BaseModel):

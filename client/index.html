@@ -114,6 +114,14 @@
 
             <div class="page" id="page-library">
                 <button class="back-btn" id="back-to-home"><i class="fa-solid fa-chevron-left"></i></button>
+                <div class="section" id="manual-upload-section">
+                    <h2>Upload from File</h2>
+                    <div class="add-form" id="manual-upload-form">
+                        <input id="manual-file-input" type="file" accept=".mp3,.flac,.wav,.m4a,.ogg,.opus,audio/*" />
+                        <button class="badge" id="manual-upload-button">Upload File</button>
+                    </div>
+                    <p class="download-status-text" id="manual-upload-status" style="display:none;"></p>
+                </div>
                 <div class="section">
                     <h2>Upload from Link</h2>
                     <div class="add-form" id="download-form">
@@ -203,19 +211,44 @@
                     <button class="back-btn" id="admin-back-home"><i class="fa-solid fa-chevron-left"></i></button>
                     <div class="section">
                         <h2>Admin Panel</h2>
-                        <div class="admin-controls" id="admin-controls">
-                            <div class="admin-card">
-                                <h3><i class="fa-solid fa-folder-open"></i> Library Management</h3>
-                                <p>View and manage all tracks in your music library.</p>
-                                <div class="admin-actions">
-                                    <button class="badge" id="view-library-btn">View All Tracks</button>
+                        <div class="settings-cards admin-controls" id="admin-controls">
+                            <div class="settings-card admin-card">
+                                <div class="settings-card-row admin-option-row">
+                                    <div class="settings-card-header">
+                                        <i class="fa-solid fa-folder-open"></i>
+                                        <h3>Library Management</h3>
+                                    </div>
+                                    <span>View and manage all tracks in your music library.</span>
+                                    <div class="admin-actions">
+                                        <button class="badge" id="view-library-btn">View All Tracks</button>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="admin-card">
-                                <h3><i class="fa-solid fa-users"></i> User Management</h3>
-                                <p>View and manage system users.</p>
-                                <div class="admin-actions">
-                                    <button class="badge" id="view-users-btn">View Users</button>
+                            <div class="settings-card admin-card">
+                                <div class="settings-card-row admin-option-row">
+                                    <div class="settings-card-header">
+                                        <i class="fa-solid fa-users"></i>
+                                        <h3>User Management</h3>
+                                    </div>
+                                    <span>View and manage system users.</span>
+                                    <div class="admin-actions">
+                                        <button class="badge" id="view-users-btn">View Users</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-card admin-card">
+                                <div class="settings-card-row admin-option-row">
+                                    <div class="settings-card-header">
+                                        <i class="fa-solid fa-upload"></i>
+                                        <h3>Manual File Uploads</h3>
+                                    </div>
+                                    <span>Enable or disable direct audio file uploads for all users.</span>
+                                    <div class="settings-toggle">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="manual-upload-enabled-admin">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
