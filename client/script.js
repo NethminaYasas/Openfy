@@ -416,6 +416,7 @@
         const btnPrev = document.getElementById("btn-prev");
         const btnNext = document.getElementById("btn-next");
         const btnRepeat = document.getElementById("btn-repeat");
+        const playlistPlayBtn = document.getElementById("playlist-play-btn");
 
         let repeatState = "off";
         let repeatCount = 0;
@@ -425,6 +426,7 @@
         let currentQueue = [];
         let currentIndex = -1;
         let currentTrackId = null;
+        let currentPlayingPlaylistId = null; // Which playlist is currently being played (for library highlight)
         let lastRenderedIndices = []; // Track which queue indices were last rendered (for animation)
         let dragSourceIndex = null; // Track index being dragged
         let draggedElement = null; // DOM element being dragged
@@ -1025,6 +1027,9 @@
             card.appendChild(info);
 
             card.addEventListener("click", function() {
+                // Clear playing playlist highlight (not playing from a playlist)
+                currentPlayingPlaylistId = null;
+                updateLibraryPlayingState();
                 setQueueFromList(list, index);
                 if (currentQueue.length) playTrack(currentQueue[0]);
             });
@@ -2494,6 +2499,10 @@
                 var artistTitle = (track.artists && track.artists.length > 0 && track.artists[0].name) || (track.artist && track.artist.name) || "Unknown";
                 document.title = (track.title || "Openfy") + " - " + artistTitle;
             }
+            // Update playlist play button state if we're on the playlist page
+            if (currentPlayingPlaylistId === currentPlaylistId) {
+                playlistPlayBtn.classList.add('playing');
+            }
         });
         audioPlayer.addEventListener("pause", function() {
             btnPlay.classList.remove("playing");
@@ -2501,6 +2510,10 @@
             // Update media session playback state
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.playbackState = 'paused';
+            }
+            // Update playlist play button state if we're on the playlist page
+            if (currentPlayingPlaylistId === currentPlaylistId) {
+                playlistPlayBtn.classList.remove('playing');
             }
         });
 
@@ -2577,8 +2590,10 @@
                 // Check if there's a next track
                 var nextIndex = (currentIndex + 1) % currentQueue.length;
                 if (nextIndex === 0) {
-                    // No next track - reset title
+                    // No next track - playback finished
                     document.title = "Openfy - Web Player";
+                    currentPlayingPlaylistId = null;
+                    updateLibraryPlayingState();
                 } else {
                     playByIndex(currentIndex + 1, false);
                 }
@@ -2760,6 +2775,8 @@
             } else if (repeatState === "loop-once") {
                 repeatState = "loop-twice";
                 repeatCount = 0;
+                btnRepeat.classList.add("loop-twice");
+                btnRepeat.classList.remove("active");
             } else {
                 repeatState = "off";
                 repeatCount = 0;
@@ -2875,6 +2892,7 @@
             userPlaylists.forEach(function(pl) {
                 var item = document.createElement("div");
                 item.className = "lib-item";
+                item.setAttribute("data-playlist-id", pl.id);
                 var bg = pl.is_liked ? "linear-gradient(135deg,#450af5,#c4efd9)" : "#282828";
 
                 var cover = document.createElement("div");
@@ -2944,6 +2962,21 @@
             });
         }
 
+        // Update library playlist names: highlight the currently playing playlist
+        function updateLibraryPlayingState() {
+            // Remove playing class from all library items
+            var allItems = document.querySelectorAll('.lib-item');
+            allItems.forEach(function(item) { item.classList.remove('playing'); });
+
+            // Find the library item for the currently playing playlist
+            if (currentPlayingPlaylistId) {
+                var playingItem = document.querySelector('.lib-item[data-playlist-id="' + currentPlayingPlaylistId + '"]');
+                if (playingItem) {
+                    playingItem.classList.add('playing');
+                }
+            }
+        }
+
         async function openPlaylist(playlistId) {
             currentPlaylistId = playlistId;
             try {
@@ -3007,6 +3040,8 @@
                         // Click on title starts playback
                         row.addEventListener('click', function() {
                             setQueueFromList(tracks.map(function(t) { return t.track; }), i);
+                            currentPlayingPlaylistId = currentPlaylistId;
+                            updateLibraryPlayingState();
                             if (currentQueue.length) playTrack(currentQueue[0]);
                         });
 
@@ -3017,17 +3052,43 @@
                 // Store tracks for play button
                 window.currentPlaylistTracks = tracks;
 
+                // Update playlist play button state based on whether this playlist is currently playing
+                if (currentPlayingPlaylistId === playlistId && !audioPlayer.paused) {
+                    playlistPlayBtn.classList.add('playing');
+                } else {
+                    playlistPlayBtn.classList.remove('playing');
+                }
+
                 setActivePage("playlist");
             } catch (err) { console.error(err); }
         }
 
         // Playlist action button handlers
-        document.getElementById('playlist-play-btn').addEventListener('click', function() {
+        playlistPlayBtn.addEventListener('click', function() {
             var tracks = window.currentPlaylistTracks;
             if (!tracks || tracks.length === 0) return;
 
-            // Clear queue and add playlist tracks
+            // Check if we're already playing from this playlist
+            var isPlayingThisPlaylist = (currentPlayingPlaylistId === currentPlaylistId);
+            var isAudioPlaying = !audioPlayer.paused;
+
+            if (isPlayingThisPlaylist && currentQueue.length > 0) {
+                // Toggle pause/play for current playlist
+                if (isAudioPlaying) {
+                    audioPlayer.pause();
+                    playlistPlayBtn.classList.remove('playing');
+                } else {
+                    audioPlayer.play();
+                    playlistPlayBtn.classList.add('playing');
+                }
+                return;
+            }
+
+            // Start playing this playlist
             currentQueue = tracks.map(function(t) { return t.track; });
+            currentPlayingPlaylistId = currentPlaylistId;
+            updateLibraryPlayingState();
+            playlistPlayBtn.classList.add('playing');
             if (currentQueue.length) {
                 playTrack(currentQueue[0]);
             }

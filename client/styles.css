@@ -1609,7 +1609,8 @@ a {
     position: relative;
 }
 
-.repeat-btn.active i {
+.repeat-btn.active i,
+.repeat-btn.loop-twice i {
     color: #1db954;
 }
 
@@ -1617,15 +1618,24 @@ a {
     position: absolute;
     bottom: -2px;
     right: -2px;
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
     background: #1db954;
     border-radius: 50%;
     display: none;
+    font-size: 7px;
+    font-weight: 700;
+    color: white;
+    align-items: center;
+    justify-content: center;
 }
 
 .repeat-btn.loop-twice .repeat-dot {
-    display: block;
+    display: flex;
+}
+
+.repeat-btn.loop-twice .repeat-dot::after {
+    content: "1";
 }
 
 #btn-shuffle.active i {
@@ -2215,7 +2225,12 @@ input:checked + .toggle-slider:before {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+/* Highlight currently playing playlist name in green */
+.lib-item.playing .lib-item-name {
+    color: #1db954;
 }
 
 .lib-item-type {
@@ -4048,6 +4063,7 @@ input:checked + .toggle-slider:before {
     justify-content: center;
     cursor: pointer;
     transition: transform 0.1s, background 0.1s;
+    position: relative;
 }
 
 .playlist-play-btn:hover {
@@ -4058,7 +4074,24 @@ input:checked + .toggle-slider:before {
 .playlist-play-btn i {
     color: black;
     font-size: 1.25rem;
-    margin-left: 2px;
+    position: absolute;
+    transition: opacity 0.2s ease;
+}
+
+.playlist-play-btn .play-icon {
+    opacity: 1;
+}
+
+.playlist-play-btn .pause-icon {
+    opacity: 0;
+}
+
+.playlist-play-btn.playing .play-icon {
+    opacity: 0;
+}
+
+.playlist-play-btn.playing .pause-icon {
+    opacity: 1;
 }
 
 .playlist-shuffle-btn,
