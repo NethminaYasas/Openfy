@@ -105,7 +105,26 @@ List all tracks in the library, ordered by creation date (newest first).
 }
 ```
 
+### `GET /tracks/batch`
+
+Get multiple tracks by IDs in the order requested.
+
+**Query Parameters:**
+- `ids` (required, string): Comma-separated track IDs
+
+**Response:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Track Title",
+    ...
+  }
+]
+```
+
 ### `GET /tracks/{track_id}`
+
 
 Get detailed information about a specific track.
 
@@ -201,6 +220,30 @@ Multipart form data:
     "name": "Artist Name"
   },
   "file_path": "/data/music/track.mp3"
+}
+```
+
+## Liked Songs
+
+### `POST /liked/{track_id}`
+
+Toggle the "liked" status of a track for the authenticated user.
+
+**Response:**
+```json
+{
+  "status": "liked" // or "unliked"
+}
+```
+
+### `GET /liked/{track_id}`
+
+Check if a track is liked by the authenticated user.
+
+**Response:**
+```json
+{
+  "liked": true
 }
 ```
 
@@ -409,6 +452,97 @@ Delete a playlist.
 ```json
 {
   "message": "Playlist deleted"
+}
+```
+
+## User State
+
+### `GET /user/last-track`
+
+Get the user's last played track.
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Track Title",
+  ...
+}
+```
+
+### `PUT /user/last-track`
+
+Update the user's last played track.
+
+**Query Parameters:**
+- `track_id` (required, string): Track ID to set as last played
+
+**Response:**
+```json
+{
+  "status": "updated",
+  "track_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### `GET /user/queue`
+
+Get the user's saved queue state.
+
+**Response:**
+```json
+{
+  "queue": ["track_id_1", "track_id_2", ...],
+  "current_index": 0
+}
+```
+
+### `PUT /user/queue`
+
+Save the user's current queue state.
+
+**Request Body:**
+```json
+{
+  "track_ids": ["track_id_1", "track_id_2", ...],
+  "current_index": 0
+}
+```
+
+**Response:**
+```json
+{
+  "status": "updated"
+}
+```
+
+### `GET /user/library-state`
+
+Get the user's library sidebar state (minimized/expanded).
+
+**Response:**
+```json
+{
+  "library_minimized": false
+}
+```
+
+### `PUT /user/library-state`
+
+Update the user's library sidebar state.
+
+**Request Body:**
+```json
+{
+  "library_minimized": true
+}
+```
+
+**Response:**
+```json
+{
+  "status": "updated",
+  "library_minimized": true
 }
 ```
 
