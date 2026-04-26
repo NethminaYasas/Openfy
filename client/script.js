@@ -2147,20 +2147,18 @@
             try {
                 const res = await api("/liked/" + trackId);
                 if (res.liked) {
-                    npLikeBtn.classList.add("liked");
-                    npLikeBtn.innerHTML = '<i class="fa-solid fa-heart"></i>';
-                    npLikeBtn.setAttribute("aria-label", "Remove from Liked Songs");
-                    npLikeBtn.setAttribute("title", "Remove from Liked Songs");
+                    likedTrackIds.add(trackId);
                 } else {
-                    npLikeBtn.classList.remove("liked");
-                    npLikeBtn.innerHTML = "";
-                    npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
-                    npLikeBtn.setAttribute("title", "Add to Liked Songs");
+                    likedTrackIds.delete(trackId);
+                }
+                if (currentTrackId === trackId) {
+                    syncLikeButtonState({ id: trackId });
                 }
             } catch (e) {
                 console.error("checkIfLiked error:", e);
-                npLikeBtn.classList.remove("liked");
-                npLikeBtn.innerHTML = "";
+                if (currentTrackId === trackId) {
+                    syncLikeButtonState({ id: trackId });
+                }
             }
         }
 
@@ -2209,7 +2207,7 @@
                 npLikeBtn.setAttribute("aria-label", "Added to playlist");
                 npLikeBtn.setAttribute("title", "Added to playlist");
             } else {
-                npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                npLikeBtn.innerHTML = '';
                 npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
                 npLikeBtn.setAttribute("title", "Add to Liked Songs");
             }
@@ -3828,7 +3826,7 @@
                 npLikeBtn.setAttribute('title', 'Added to playlist');
             } else {
                 npLikeBtn.classList.remove('liked', 'in-playlist');
-                npLikeBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                npLikeBtn.innerHTML = '';
                 npLikeBtn.setAttribute('aria-label', 'Add to Liked Songs');
                 npLikeBtn.setAttribute('title', 'Add to Liked Songs');
             }
