@@ -100,6 +100,7 @@ class Track(Base):
 
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
     album_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("albums.id"))
+    source_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)  # Spotify/Apple Music track ID
 
     artist = relationship(
         "Artist", back_populates="tracks"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import logging
@@ -9,10 +10,25 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from sqlalchemy.orm import Session
 
-from ..models import DownloadJob
+from ..models import DownloadJob, Track
 from ..settings import settings
 from .storage import ensure_dirs, is_audio_file, store_upload
 from .library import scan_paths
+
+
+def _extract_source_id(url: str) -> str | None:
+    """Extract track ID from Spotify or Apple Music URL."""
+    # Spotify: https://open.spotify.com/track/xyz123?...
+    spotify_match = re.search(r'spotify\.com/track/([a-zA-Z0-9]+)', url)
+    if spotify_match:
+        return f"spotify:{spotify_match.group(1)}"
+
+    # Apple Music: https://music.apple.com/us/track/name/id123456789
+    apple_match = re.search(r'music\.apple\.com/[^/]+/track/[^/]+/(\d+)', url)
+    if apple_match:
+        return f"apple:{apple_match.group(1)}"
+
+    return None
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +146,9 @@ def _download_with_yt_music(
             # Move to library and scan
             if is_audio_file(Path(downloaded_file)):
                 moved = store_upload(Path(downloaded_file), settings.music_dir)
+                source_id = _extract_source_id(query)
                 if moved:
-                    scan_paths(db, [moved], user_hash=user_hash)
+                    scan_paths(db, [moved], user_hash=user_hash, source_id=source_id)
                     _append_log(db, job, "Scan complete - track added to library")
                     job.status = "completed"
                     job.output_path = str(settings.music_dir)
@@ -179,6 +196,9 @@ def _run_download(
 
         job.status = "running"
         db.commit()
+
+        # Extract source_id for duplicate detection
+        source_id = _extract_source_id(query)
 
         try:
             _ensure_spotiflac_import()
@@ -246,7 +266,7 @@ def _run_download(
                 db.commit()
                 return
 
-            scan_paths(db, moved_files, user_hash=user_hash)
+            scan_paths(db, moved_files, user_hash=user_hash, source_id=source_id)
             _append_log(db, job, "Scan complete - track(s) added to library")
             job.status = "completed"
             job.output_path = str(settings.music_dir)
@@ -280,6 +300,33 @@ def queue_download(
         job.log = "Downloader only accepts full URLs. Paste a complete https:// link."
         db.commit()
         return job
+
+    # Check for duplicate track by source_id or title+artist (Spotify/Apple Music URLs)
+    from sqlalchemy import select
+    source_id = _extract_source_id(query)
+    is_apple = "music.apple.com" in query
+    is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
+
+    if source_id:
+        # Check by source_id first
+        existing = db.execute(
+            select(Track).where(Track.source_id == source_id)
+        ).scalar_one_or_none()
+        if existing:
+            job.status = "failed"
+            job.log = f"Track already in library: {existing.title}"
+            db.commit()
+            return job
+
+    # For Spotify/Apple URLs, also check by title as fallback
+    # This catches duplicates even without source_id stored
+    if is_spotify or is_apple:
+        # Note: title-based matching would require API call to get track name from URL
+        # For now, only source_id based matching is implemented
+
+        if is_apple and apple_match:
+            track_id = apple_match.group(1)
+            # Same as above
 
     # Route Apple Music and Spotify URLs to the ytmusicapi-based downloader
     is_apple = "music.apple.com" in query

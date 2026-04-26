@@ -163,6 +163,7 @@ def _build_track_from_metadata(
     artist_id: str | None,
     album_id: str | None,
     user_hash: str | None,
+    source_id: str | None = None,
 ) -> Track:
     """Create a new Track instance from metadata (without adding to session)."""
     return Track(
@@ -179,10 +180,11 @@ def _build_track_from_metadata(
         artist_id=artist_id,
         album_id=album_id,
         user_hash=user_hash,
+        source_id=source_id,
     )
 
 
-def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None) -> Track:
+def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str | None = None, source_id: str | None = None) -> Track:
     # 1. Parse artist names
     raw_artists = metadata.get("artist") or []
     artist_names = _parse_artist_names(raw_artists)
@@ -195,7 +197,14 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
     title = _normalize(metadata.get("title"), fallback=file_path.stem)
     duration = metadata.get("duration")
 
-    # Check if track already exists
+    # Check if track already exists by source_id first (Spotify/Apple Music duplicates)
+    if source_id:
+        existing = db.execute(select(Track).where(Track.source_id == source_id)).scalar_one_or_none()
+        if existing:
+            # Track already exists from same source, return existing without updating
+            return existing
+
+    # Check if track already exists by file path
     existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
 
     if existing:
@@ -241,6 +250,7 @@ def _upsert_track(db: Session, file_path: Path, metadata: dict, user_hash: str |
         artist_id=primary_artist.id if primary_artist else None,
         album_id=album.id if album else None,
         user_hash=user_hash,
+        source_id=source_id,
     )
     db.add(track)
     try:
@@ -360,7 +370,7 @@ def _read_metadata(path: Path) -> dict:
     return info
 
 
-def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None) -> dict:
+def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None, source_id: str | None = None) -> dict:
     # Collect all audio files first
     audio_files = []
     for path in paths:
@@ -386,7 +396,7 @@ def scan_paths(db: Session, paths: Iterable[Path], user_hash: str | None = None)
 
     created = 0
     for file in audio_files:
-        _upsert_track(db, file, _read_metadata(file), user_hash=user_hash)
+        _upsert_track(db, file, _read_metadata(file), user_hash=user_hash, source_id=source_id)
         if str(file) not in existing_paths:
             created += 1
 
