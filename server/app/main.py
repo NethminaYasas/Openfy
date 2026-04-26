@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import List
 from collections import defaultdict
 from time import monotonic
+from threading import Lock
 
 from fastapi import (
     FastAPI,
@@ -42,6 +43,9 @@ logger = logging.getLogger(__name__)
 
 # In-memory rate limiting store: {identifier: [(timestamp, count), ...]}
 _rate_limit_store: dict[str, list] = defaultdict(list)
+_stream_token_store: dict[str, tuple[str, str, float]] = {}
+_stream_token_lock = Lock()
+_STREAM_TOKEN_TTL_SECONDS = 120
 
 from .db import Base, engine, get_db, SessionLocal
 from .models import (
@@ -123,6 +127,32 @@ def _delete_playlist_collage(playlist_id: str):
     path = collages_dir / f"{playlist_id}.jpg"
     if path.exists():
         path.unlink()
+
+
+def _issue_stream_token(user_hash: str, track_id: str) -> str:
+    token = secrets.token_urlsafe(24)
+    expires_at = monotonic() + _STREAM_TOKEN_TTL_SECONDS
+    with _stream_token_lock:
+        _stream_token_store[token] = (user_hash, track_id, expires_at)
+    return token
+
+
+def _validate_stream_token(token: str, track_id: str) -> str | None:
+    now = monotonic()
+    with _stream_token_lock:
+        # Opportunistic cleanup for expired tokens.
+        expired = [k for k, (_, _, exp) in _stream_token_store.items() if exp <= now]
+        for key in expired:
+            _stream_token_store.pop(key, None)
+
+        row = _stream_token_store.get(token)
+        if not row:
+            return None
+        user_hash, token_track_id, expires_at = row
+        if expires_at <= now or token_track_id != track_id:
+            _stream_token_store.pop(token, None)
+            return None
+        return user_hash
 
 
 app = FastAPI(title=settings.app_name)
@@ -207,6 +237,10 @@ async def add_track_update_timestamp(request: Request, call_next):
         # Add track update timestamp to responses for tracks endpoint
         if request.url.path.startswith("/tracks"):
             response.headers["X-Track-Update-Timestamp"] = str(last_track_update)
+        if request.url.path.startswith("/auth/") or request.url.path.endswith("/stream-token"):
+            # Prevent caches from storing sensitive bearer-like auth material.
+            response.headers.setdefault("Cache-Control", "no-store")
+            response.headers.setdefault("Pragma", "no-cache")
 
         return response
     except Exception:
@@ -383,6 +417,29 @@ def _startup():
                     )
                 )
                 conn2.commit()
+
+            # Add indexes for common read paths in API endpoints.
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_pos ON playlist_tracks(playlist_id, position)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_tracks_created_at ON tracks(created_at DESC)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_tracks_user_hash_created_at ON tracks(user_hash, created_at DESC)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_playlists_user_hash_created_at ON playlists(user_hash, created_at DESC)"
+                )
+            )
+            conn.commit()
 
     db = SessionLocal()
     try:
@@ -638,9 +695,19 @@ def stream_track(
     track = db.get(Track, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    # Audio elements can't set custom headers, so we support passing the auth hash via query too.
-    auth = request.query_params.get("auth")
-    user = _require_user(db, x_auth_hash or auth)
+    user: User | None = None
+    if x_auth_hash:
+        user = _require_user(db, x_auth_hash)
+    else:
+        token = request.query_params.get("token")
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        user_hash = _validate_stream_token(token, track_id)
+        if not user_hash:
+            raise HTTPException(status_code=401, detail="Invalid or expired stream token")
+        user = _get_user(db, user_hash)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid stream user")
 
     # Double-check path is within music directory BEFORE and AFTER resolution
     # to prevent symlink-based path traversal attacks
@@ -719,6 +786,27 @@ def stream_track(
         headers=headers,
         media_type=track.mime_type or "audio/mpeg",
     )
+
+
+@app.get("/tracks/{track_id}/stream-token")
+def create_stream_token(
+    track_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    import uuid
+
+    try:
+        uuid.UUID(track_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid track ID format")
+
+    user = _require_user(db, x_auth_hash)
+    track = db.get(Track, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    token = _issue_stream_token(user.auth_hash, track_id)
+    return {"token": token, "expires_in": _STREAM_TOKEN_TTL_SECONDS}
 
 
 @app.get("/artists", response_model=List[ArtistOut])
@@ -840,18 +928,34 @@ def get_playlist(
 @app.get("/playlists/{playlist_id}/cover")
 def get_playlist_cover(
     playlist_id: str,
+    x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     """
-    Return a 500x500 JPEG collage of the first 4 tracks' album artwork.
-    No authentication required — playlist ID is a UUID (unguessable).
-    Liked Songs, playlists with <4 tracks, or missing artwork return 404.
+    Return a cached 500x500 JPEG collage of a playlist's first 4 tracks.
+    Requires authentication and playlist ownership (or admin).
     """
+    import uuid
+
+    try:
+        uuid.UUID(playlist_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid playlist ID format")
+
+    user = _require_user(db, x_auth_hash)
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
+    if playlist.user_hash != user.auth_hash and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Not your playlist")
     if playlist.is_liked:
         raise HTTPException(status_code=404, detail="Liked Songs has no collage")
+
+    collages_dir = settings.artwork_dir / "collages"
+    collages_dir.mkdir(parents=True, exist_ok=True)
+    out_path = collages_dir / f"{playlist_id}.jpg"
+    if out_path.exists():
+        return FileResponse(out_path, media_type="image/jpeg")
 
     # Get first 4 tracks (ordered by position)
     tracks_stmt = (
@@ -890,26 +994,17 @@ def get_playlist_cover(
                 continue  # Skip invalid/outside paths
             if path.exists():
                 try:
-                    img = Image.open(path).convert("RGB")
-                    img = img.resize((tile_size, tile_size), Image.Resampling.LANCZOS)
-                    collage.paste(img, pos)
+                    with Image.open(path) as opened:
+                        img = opened.convert("RGB")
+                        img = img.resize((tile_size, tile_size), Image.Resampling.LANCZOS)
+                        collage.paste(img, pos)
                     continue
                 except Exception:
                     pass  # fall through to gray block
         # Missing artwork — leave gray (already the background)
 
-    # Save collage
-    collages_dir = settings.artwork_dir / "collages"
-    collages_dir.mkdir(parents=True, exist_ok=True)
-    out_path = collages_dir / f"{playlist_id}.jpg"
     collage.save(out_path, format="JPEG", quality=85)
-
-    # Return image bytes
-    import io
-    buf = io.BytesIO()
-    collage.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    return Response(content=buf.read(), media_type="image/jpeg")
+    return FileResponse(out_path, media_type="image/jpeg")
 
 
 @app.put("/playlists/{playlist_id}", response_model=PlaylistOut)
@@ -1581,24 +1676,25 @@ def delete_track(
     track_title = track.title
     file_path = track.file_path
 
+    # Validate path before deletion, but never fail DB deletion if file path is untrusted.
+    p = Path(file_path)
+    safe_delete_target: Path | None = None
+    if _is_within_dir(p, settings.music_dir):
+        resolved = p.resolve()
+        if _is_within_dir(resolved, settings.music_dir):
+            safe_delete_target = resolved
+    else:
+        logger.warning("Skipping file delete for track %s outside music dir: %s", track_id, file_path)
+
     # Delete from database (cascades to playlist_tracks)
     db.delete(track)
     db.commit()
 
-    # Delete file from disk
-    try:
-        p = Path(file_path)
-        # Validate BEFORE resolution to catch malicious paths
-        if not _is_within_dir(p, settings.music_dir):
-            raise HTTPException(status_code=403, detail="Cannot delete file outside music directory")
-        p = p.resolve()
-        if not _is_within_dir(p, settings.music_dir):
-            raise HTTPException(status_code=403, detail="Cannot delete file outside music directory")
-        if p.exists():
-            p.unlink()
-    except HTTPException:
-        raise
-    except Exception as e:
-        pass  # File deletion failure shouldn't break the response
+    # Best-effort delete from disk for validated local paths.
+    if safe_delete_target and safe_delete_target.exists():
+        try:
+            safe_delete_target.unlink()
+        except Exception:
+            logger.warning("Failed to delete file for track %s at %s", track_id, safe_delete_target)
 
     return {"status": "deleted", "track": track_title}

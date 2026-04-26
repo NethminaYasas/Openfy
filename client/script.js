@@ -451,6 +451,8 @@
         let trackPlaylistRemovalMenu = null; // DOM reference to removal menu
         let currentTrackPlaylistsCache = []; // Playlists containing current track
         let scrollPositions = {}; // Global tracker for scroll positions: { 'track-row-0': 0, 'uploads-row-0': 0 }
+        let currentStreamToken = null;
+        let currentStreamTokenTrackId = null;
 
         function withBase(path) { return apiBase ? apiBase + path : path; }
         function apiHeaders() { const h = {}; if (authHash) h["x-auth-hash"] = authHash; return h; }
@@ -554,6 +556,30 @@
             const ct = res.headers.get("content-type") || "";
             if (ct.includes("application/json")) return res.json();
             return res.text();
+        }
+
+        async function getTrackStreamUrl(trackId) {
+            if (!authHash) throw new Error("Not authenticated");
+            if (!currentStreamToken || currentStreamTokenTrackId !== trackId) {
+                const tokenRes = await api("/tracks/" + trackId + "/stream-token");
+                currentStreamToken = tokenRes.token;
+                currentStreamTokenTrackId = trackId;
+            }
+            return withBase("/tracks/" + trackId + "/stream?token=" + encodeURIComponent(currentStreamToken));
+        }
+
+        async function setAuthenticatedImage(img, path, onFailure) {
+            try {
+                const response = await fetch(withBase(path), { headers: apiHeaders() });
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                const blob = await response.blob();
+                if (img.dataset.objectUrl) URL.revokeObjectURL(img.dataset.objectUrl);
+                const objectUrl = URL.createObjectURL(blob);
+                img.dataset.objectUrl = objectUrl;
+                img.src = objectUrl;
+            } catch (err) {
+                if (onFailure) onFailure(err);
+            }
         }
 
         function setActivePage(pageId) {
@@ -695,7 +721,6 @@
             wrapper.style.gridRow = '1 / -1';
 
             var coverImg = document.createElement('img');
-            coverImg.src = withBase("/playlists/" + playlist.id + "/cover?v=" + Date.now());
             coverImg.style.width = '100%';
             coverImg.style.height = '100%';
             coverImg.style.objectFit = 'cover';
@@ -705,6 +730,11 @@
             };
             wrapper.appendChild(coverImg);
             mosaic.appendChild(wrapper);
+            setAuthenticatedImage(
+                coverImg,
+                "/playlists/" + playlist.id + "/cover?v=" + Date.now(),
+                function() { buildMosaicFallback(tracks, playlist); }
+            );
         }
 
         // Fallback: build 2x2 mosaic from individual track artwork (original buildMosaic logic)
@@ -1898,14 +1928,18 @@
             }
         });
 
-        function playTrack(track) {
+        async function playTrack(track) {
             console.log('Playing track:', track.title);
             currentTrackId = track.id;
+            currentStreamToken = null;
+            currentStreamTokenTrackId = null;
             updateMediaSession(track);
-            var streamUrl = "/tracks/" + track.id + "/stream";
-            if (authHash) streamUrl += "?auth=" + encodeURIComponent(authHash);
-            audioPlayer.src = withBase(streamUrl);
-            audioPlayer.play().catch(function(err) { console.error(err); });
+            getTrackStreamUrl(track.id)
+                .then(function(streamUrl) {
+                    audioPlayer.src = streamUrl;
+                    return audioPlayer.play();
+                })
+                .catch(function(err) { console.error(err); });
             nowTitle.textContent = track.title || "";
             nowArtist.textContent = getArtistDisplay(track) || "";
             // Set tab title: "Track Name - First Artist"
@@ -1946,18 +1980,22 @@
             hideRemovalMenuIfVisible();
         }
 
-        function loadTrackPaused(track) {
+        async function loadTrackPaused(track) {
             console.log('Loading track (paused):', track.title);
             currentTrackId = track.id;
+            currentStreamToken = null;
+            currentStreamTokenTrackId = null;
             updateMediaSession(track);
             // Set track to current queue (single track)
             setQueueFromList([track], 0);
             // Set audio source so it's ready to play, but keep paused
-            var streamUrl = "/tracks/" + track.id + "/stream";
-            if (authHash) streamUrl += "?auth=" + encodeURIComponent(authHash);
-            audioPlayer.src = withBase(streamUrl);
-            audioPlayer.pause();
-            audioPlayer.currentTime = 0;
+            getTrackStreamUrl(track.id)
+                .then(function(streamUrl) {
+                    audioPlayer.src = streamUrl;
+                    audioPlayer.pause();
+                    audioPlayer.currentTime = 0;
+                })
+                .catch(function(err) { console.error(err); });
             // Update UI
             nowTitle.textContent = track.title || "";
             nowArtist.textContent = getArtistDisplay(track) || "";
@@ -2925,7 +2963,6 @@
                     // Regular playlist: try loading collage thumbnail
                     cover.style.background = "transparent";
                     var img = document.createElement("img");
-                    img.src = withBase("/playlists/" + pl.id + "/cover?v=" + Date.now());
                     img.alt = escapeHtml(pl.name || "Playlist");
                     img.style.width = "100%";
                     img.style.height = "100%";
@@ -2937,6 +2974,15 @@
                         cover.appendChild(createPlaylistIconSvg());
                     };
                     cover.appendChild(img);
+                    setAuthenticatedImage(
+                        img,
+                        "/playlists/" + pl.id + "/cover?v=" + Date.now(),
+                        function() {
+                            img.style.display = "none";
+                            cover.style.background = "#282828";
+                            cover.appendChild(createPlaylistIconSvg());
+                        }
+                    );
                 }
 
                 var info = document.createElement("div");
@@ -4601,7 +4647,6 @@
                 } else {
                     // Regular playlist: try loading collage thumbnail
                     const img = document.createElement('img');
-                    img.src = withBase("/playlists/" + pl.id + "/cover?v=" + Date.now());
                     img.alt = escapeHtml(pl.name);
                     img.style.width = '100%';
                     img.style.height = '100%';
@@ -4615,6 +4660,17 @@
                         thumb.appendChild(fallback);
                     };
                     thumb.appendChild(img);
+                    setAuthenticatedImage(
+                        img,
+                        "/playlists/" + pl.id + "/cover?v=" + Date.now(),
+                        function() {
+                            img.style.display = 'none';
+                            const fallback = createPlaylistIconSvg();
+                            fallback.style.width = '20px';
+                            fallback.style.height = '20px';
+                            thumb.appendChild(fallback);
+                        }
+                    );
                 }
                 item.appendChild(thumb);
 

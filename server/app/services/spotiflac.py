@@ -241,12 +241,12 @@ def _run_download(
                 new_files = files_after - files_before
                 if new_files and attempt < 5:
                     _append_log(
-                        job, f"Waiting for download to complete... (attempt {attempt + 1})"
+                        db, job, f"Waiting for download to complete... (attempt {attempt + 1})"
                     )
                     continue
                 elif not new_files and attempt < 5:
                     _append_log(
-                        job, f"Waiting for download to complete... (attempt {attempt + 1})"
+                        db, job, f"Waiting for download to complete... (attempt {attempt + 1})"
                     )
 
             _append_log(db, job, f"Moved {len(moved_files)} files to library")
@@ -258,6 +258,7 @@ def _run_download(
                 new_files = files_after - files_before
                 if new_files:
                     _append_log(
+                        db,
                         job,
                         f"Non-audio files created: {', '.join(f.name for f in new_files)}",
                     )
@@ -318,16 +319,6 @@ def queue_download(
             db.commit()
             return job
 
-    # For Spotify/Apple URLs, also check by title as fallback
-    # This catches duplicates even without source_id stored
-    if is_spotify or is_apple:
-        # Note: title-based matching would require API call to get track name from URL
-        # For now, only source_id based matching is implemented
-
-        if is_apple and apple_match:
-            track_id = apple_match.group(1)
-            # Same as above
-
     # Route Apple Music and Spotify URLs to the ytmusicapi-based downloader
     is_apple = "music.apple.com" in query
     is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
@@ -336,6 +327,7 @@ def queue_download(
         db.commit()
         thread = threading.Thread(
             target=lambda: _download_with_yt_music(job.id, query, settings.database_url, user_hash),
+            daemon=True,
         )
         thread.start()
         return job
@@ -344,6 +336,7 @@ def queue_download(
     thread = threading.Thread(
         target=_run_download,
         args=(job.id, query, settings.database_url, user_hash),
+        daemon=True,
     )
     thread.start()
 

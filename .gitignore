@@ -1,1 +1,44 @@
 .worktrees/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python caches / artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Node / frontend artifacts
+node_modules/
+dist/
+build/
+
+# Runtime files
+*.log
+*.pid
+
+# Local env / secrets (keep templates)
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+
+# Local runtime data
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Local tooling state
+.superpowers/
