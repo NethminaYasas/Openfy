@@ -433,6 +433,8 @@
         let lastInsertBeforeEl = null; // For FLIP animation during reordering
         let currentContextPlaylist = null; // { id, name, is_liked, pinned }
         let currentContextTrack = null; // track object for track context menu
+        let currentContextQueueIndex = null; // queue index when context menu is opened from queue panel
+        let currentTrackContextFromQueuePanel = false; // whether track context menu was opened from queue panel
         let pendingActionPlaylistId = null; // stored ID for rename/delete modals
         let lastTrackUpdate = 0;
         let updateCheckInterval = null;
@@ -2144,6 +2146,12 @@
                 playTrack(currentQueue[currentIndex]);
             });
 
+            // Right-click context menu for queued track
+            btn.addEventListener("contextmenu", function(ev) {
+                ev.preventDefault();
+                showTrackContextMenu(ev, track, { fromQueuePanel: true, queueIndex: index });
+            });
+
             // Drag start
             btn.addEventListener("dragstart", function(ev) {
                 if (opts.isCurrent) {
@@ -2276,20 +2284,31 @@
         // Drop finalizes reorder
         npQueueNext.addEventListener("drop", function(ev) {
             ev.preventDefault();
-            if (dragSourceIndex === null || !draggedElement) return;
+            const transferData = ev.dataTransfer ? ev.dataTransfer.getData("text/plain") : "";
+            const transferIndex = Number.parseInt(transferData, 10);
+            const sourceIndex = Number.isInteger(dragSourceIndex)
+                ? dragSourceIndex
+                : (Number.isInteger(transferIndex) ? transferIndex : null);
+            if (sourceIndex === null) return;
 
             // Compute new index based on dragged element's position in DOM
             const allItems = Array.from(npQueueNext.querySelectorAll(".np-queue-item"));
-            const newVisualIndex = allItems.indexOf(draggedElement);
+            let movedEl = draggedElement;
+            if (!movedEl || !npQueueNext.contains(movedEl)) {
+                movedEl = npQueueNext.querySelector('.np-queue-item[data-index="' + sourceIndex + '"]');
+            }
+            if (!movedEl) return;
+
+            const newVisualIndex = allItems.indexOf(movedEl);
             if (newVisualIndex === -1) return;
 
             // Visual index → absolute queue index
             const nextIndex = currentIndex + 1;
             const toIndex = nextIndex + newVisualIndex;
 
-            if (toIndex === dragSourceIndex) return;
+            if (toIndex === sourceIndex) return;
 
-            reorderQueue(dragSourceIndex, toIndex);
+            reorderQueue(sourceIndex, toIndex);
         });
 
         function renderNowPlayingQueue() {
@@ -3550,6 +3569,7 @@
         const ctxPlaylistSubmenu = document.getElementById("ctx-playlist-submenu");
         const ctxSubmenuItems = document.getElementById("submenu-playlist-items");
         const ctxTrackAddQueue = document.getElementById("ctx-track-add-queue");
+        const ctxTrackAddQueueLabel = ctxTrackAddQueue ? ctxTrackAddQueue.querySelector("span") : null;
         const submenuSearchWrapper = document.getElementById("submenu-search-wrapper");
         const submenuSearchInput = document.getElementById("submenu-search-input");
 
@@ -3787,14 +3807,22 @@
             }
             currentContextPlaylist = null;
             currentContextTrack = null;
+            currentContextQueueIndex = null;
+            currentTrackContextFromQueuePanel = false;
+            ctxTrackAddQueue.dataset.action = "add";
+            if (ctxTrackAddQueueLabel) ctxTrackAddQueueLabel.textContent = "Add to Queue";
         }
 
-        function showTrackContextMenu(e, track) {
+        function showTrackContextMenu(e, track, opts) {
+            opts = opts || {};
             // Close any existing context menu first
             hideContextMenu();
 
             currentContextTrack = track;
             currentContextPlaylist = null; // clear playlist context
+            currentContextQueueIndex = Number.isInteger(opts.queueIndex) ? opts.queueIndex : null;
+            const openedFromQueuePanel = !!opts.fromQueuePanel;
+            currentTrackContextFromQueuePanel = openedFromQueuePanel;
 
             // Position menu near mouse
             const menuWidth = 180;
@@ -3818,20 +3846,28 @@
             // Reset submenu
             ctxPlaylistSubmenu.classList.remove('visible');
             ctxSubmenuItems.innerHTML = '';
-            // Disable (gray out) if track already in visible portion of queue (next 6 tracks from current)
-            // Calculate visible window: currentIndex + 1 to currentIndex + 6 (or end of queue)
-            const queueWindowEnd = Math.min(currentIndex + 1 + 6, currentQueue.length);
-            let isInVisibleQueue = false;
-            for (let i = currentIndex + 1; i < queueWindowEnd; i++) {
-                if (currentQueue[i] && currentQueue[i].id == track.id) {
-                    isInVisibleQueue = true;
-                    break;
-                }
-            }
-            if (isInVisibleQueue) {
-                ctxTrackAddQueue.classList.add('disabled');
-            } else {
+            if (openedFromQueuePanel) {
+                ctxTrackAddQueue.dataset.action = "remove";
+                if (ctxTrackAddQueueLabel) ctxTrackAddQueueLabel.textContent = "Remove from Queue";
                 ctxTrackAddQueue.classList.remove('disabled');
+            } else {
+                ctxTrackAddQueue.dataset.action = "add";
+                if (ctxTrackAddQueueLabel) ctxTrackAddQueueLabel.textContent = "Add to Queue";
+                // Disable (gray out) if track already in visible portion of queue (next 6 tracks from current)
+                // Calculate visible window: currentIndex + 1 to currentIndex + 6 (or end of queue)
+                const queueWindowEnd = Math.min(currentIndex + 1 + 6, currentQueue.length);
+                let isInVisibleQueue = false;
+                for (let i = currentIndex + 1; i < queueWindowEnd; i++) {
+                    if (currentQueue[i] && currentQueue[i].id == track.id) {
+                        isInVisibleQueue = true;
+                        break;
+                    }
+                }
+                if (isInVisibleQueue) {
+                    ctxTrackAddQueue.classList.add('disabled');
+                } else {
+                    ctxTrackAddQueue.classList.remove('disabled');
+                }
             }
 
             // Show the menu
@@ -3851,6 +3887,17 @@
             }
             // Position submenu next to parent item
             ctxPlaylistSubmenu.style.top = ctxTrackAddPlaylist.offsetTop + "px";
+            if (currentTrackContextFromQueuePanel) {
+                ctxPlaylistSubmenu.style.left = "auto";
+                ctxPlaylistSubmenu.style.right = "100%";
+                ctxPlaylistSubmenu.style.marginLeft = "0";
+                ctxPlaylistSubmenu.style.marginRight = "4px";
+            } else {
+                ctxPlaylistSubmenu.style.left = "100%";
+                ctxPlaylistSubmenu.style.right = "auto";
+                ctxPlaylistSubmenu.style.marginLeft = "4px";
+                ctxPlaylistSubmenu.style.marginRight = "0";
+            }
             // Show submenu
             ctxPlaylistSubmenu.classList.add('visible');
             // Show and clear search, reset all items visible
@@ -4277,6 +4324,20 @@
             // Ignore if disabled
             if (ctxTrackAddQueue.classList.contains('disabled')) return;
             if (!currentContextTrack) return;
+            const action = ctxTrackAddQueue.dataset.action || "add";
+            if (action === "remove") {
+                const removeIndex = currentContextQueueIndex;
+                if (!Number.isInteger(removeIndex) || removeIndex <= currentIndex || removeIndex >= currentQueue.length) {
+                    hideContextMenu();
+                    return;
+                }
+                currentQueue.splice(removeIndex, 1);
+                // Invalidate shuffle state since queue changed manually
+                queueOriginal = null;
+                renderNowPlayingQueue();
+                hideContextMenu();
+                return;
+            }
             const track = currentContextTrack;
             // Double-check if already in visible portion of queue (next 6 tracks from current)
             const queueWindowEnd = Math.min(currentIndex + 1 + 6, currentQueue.length);
