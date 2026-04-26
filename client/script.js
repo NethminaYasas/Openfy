@@ -2914,16 +2914,16 @@
                 if (pl.pinned) {
                     var pinSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                     pinSvg.className = "library-pin-icon";
-                    pinSvg.setAttribute("viewBox", "290 120 160 160");
+                    // Path geometry spans ~16x16; using a narrower viewBox clips the icon.
+                    pinSvg.setAttribute("viewBox", "0 0 16 16");
+                    pinSvg.setAttribute("width", "14");
+                    pinSvg.setAttribute("height", "14");
                     pinSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+                    pinSvg.setAttribute("fill", "#1ed760");
                     pinSvg.setAttribute("aria-hidden", "true");
-                    var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                    g.setAttribute("transform", "translate(290, 120) scale(10)");
                     var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                    path.setAttribute("d", "M8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
-                    path.setAttribute("fill", "#1ed760");
-                    g.appendChild(path);
-                    pinSvg.appendChild(g);
+                    path.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    pinSvg.appendChild(path);
                     typeEl.appendChild(pinSvg);
                     typeEl.appendChild(document.createTextNode(" "));
                 }
@@ -3683,11 +3683,11 @@
             if (pinIcon) {
                 if (playlist.pinned) {
                     // Filled pin (pinned.svg) - green
-                    pinIcon.setAttribute("d", "M8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    pinIcon.setAttribute("d", "M8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
                     pinIcon.setAttribute("fill", "#1ed760");
                 } else {
                     // Outline pin (pin.svg) - gray
-                    pinIcon.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    pinIcon.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
                     pinIcon.setAttribute("fill", "#b3b3b3");
                 }
             }
@@ -4462,7 +4462,7 @@
 
             filtered.forEach(pl => {
                 const item = document.createElement('div');
-                item.className = 'add-playlist-item';
+                item.className = 'add-playlist-item' + (pl.pinned ? ' pinned' : '');
                 item.dataset.playlistId = pl.id;
 
                 // Thumbnail
@@ -4519,10 +4519,10 @@
                 const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 if (pl.pinned) {
                     // Filled pin (pinned) - green
-                    path.setAttribute("d", "M8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    path.setAttribute("d", "M8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
                 } else {
                     // Outline pin (unpinned) - gray
-                    path.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822.797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                    path.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
                 }
                 g.appendChild(path);
                 pinSvg.appendChild(g);

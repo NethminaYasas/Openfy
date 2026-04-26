@@ -3388,7 +3388,8 @@ input:checked + .toggle-slider:before {
     transition: opacity 0.15s ease;
 }
 
-.add-playlist-item:hover .add-playlist-pin {
+.add-playlist-item:hover .add-playlist-pin,
+.add-playlist-item.pinned .add-playlist-pin {
     opacity: 1;
 }
 
