@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -77,10 +77,11 @@ class PlaylistUpdate(BaseModel):
 class PlaylistOut(BaseModel):
     id: str
     name: str
-    description: str | None = None
+    description: Optional[str] = None
     is_liked: bool = False
     pinned: bool = False
     created_at: datetime
+    user: Optional['UserOutPublic'] = None
 
     class Config:
         from_attributes = True

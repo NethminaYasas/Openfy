@@ -824,7 +824,12 @@ def get_playlist(
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
-    playlist = db.get(Playlist, playlist_id)
+    stmt = (
+        select(Playlist)
+        .options(selectinload(Playlist.user))
+        .where(Playlist.id == playlist_id)
+    )
+    playlist = db.execute(stmt).scalar_one_or_none()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
     if playlist.user_hash != user.auth_hash and not user.is_admin:

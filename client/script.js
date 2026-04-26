@@ -789,14 +789,14 @@
         function formatTotalDuration(tracks) {
             if (!tracks || tracks.length === 0) return '0 songs';
 
-            var totalMs = 0;
+            var totalSeconds = 0;
             tracks.forEach(function(pt) {
                 if (pt.track && pt.track.duration) {
-                    totalMs += pt.track.duration;
+                    totalSeconds += pt.track.duration;
                 }
             });
 
-            var totalMinutes = Math.floor(totalMs / 60000);
+            var totalMinutes = Math.floor(totalSeconds / 60);
             var hours = Math.floor(totalMinutes / 60);
             var minutes = totalMinutes % 60;
 
@@ -2951,7 +2951,7 @@
                 var tracks = await api("/playlists/" + playlistId + "/tracks");
 
                 // Get playlist owner info
-                var ownerName = pl.user ? pl.user.username : 'User';
+                var ownerName = pl.user ? pl.user.name : 'User';
 
                 // Update header
                 document.getElementById('playlist-name').textContent = pl.name;

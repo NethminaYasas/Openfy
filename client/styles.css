@@ -4121,6 +4121,7 @@ input:checked + .toggle-slider:before {
     top: 0;
     background: #121212;
     z-index: 10;
+    column-gap: 12px;
 }
 
 .ps-col-num { grid-column: 1; width: 40px; text-align: center; }
