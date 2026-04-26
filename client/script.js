@@ -560,8 +560,9 @@
             if (pageId === "library" && authHash) {
                 loadUserUploads();
             }
-            // Add/remove home-page class on main container for styling
+            // Add/remove page-specific classes on main container for styling
             document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
+            document.getElementById('app-main').classList.toggle('playlist-page', pageId === 'playlist');
 
             // Notify gradient manager about page navigation
             if (gradientManager) {
