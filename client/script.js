@@ -411,7 +411,7 @@
         const topBar = document.getElementById("top-bar");
         const topBarHome = document.getElementById("top-bar-home");
 
-        const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist"), admin: document.getElementById("page-admin") };
+        const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist"), admin: document.getElementById("page-admin"), settings: document.getElementById("page-settings") };
         const btnPlay = document.getElementById("btn-play");
         const btnPrev = document.getElementById("btn-prev");
         const btnNext = document.getElementById("btn-next");
@@ -2878,6 +2878,15 @@
             showProfileModal();
         });
 
+        document.getElementById("settings-btn").addEventListener("click", function() {
+            userDropdown.classList.remove("visible");
+            setActivePage("settings");
+        });
+
+        document.getElementById("settings-back-home").addEventListener("click", function() {
+            setActivePage("home");
+        });
+
         document.getElementById("logout-btn").addEventListener("click", function() {
             localStorage.removeItem("openfy_auth");
             authHash = "";
@@ -2904,12 +2913,16 @@
         // Upload toggle functionality
         (function() {
             const uploadCheckbox = document.getElementById("upload-enabled");
+            const uploadCheckboxSettings = document.getElementById("upload-enabled-settings");
             const sidebar = document.querySelector('.sidebar');
 
             // Function to update UI based on uploadEnabled state
             function updateUploadUI(enabled) {
                 if (uploadCheckbox) {
                     uploadCheckbox.checked = enabled;
+                }
+                if (uploadCheckboxSettings) {
+                    uploadCheckboxSettings.checked = enabled;
                 }
                 if (sidebar) {
                     sidebar.classList.toggle('upload-disabled', !enabled);
@@ -2953,6 +2966,29 @@
                         } catch (err) {
                             console.error("Failed to update upload preference:", err);
                             // Revert on error
+                            updateUploadUI(!enabled);
+                        }
+                    }
+                });
+            }
+
+            // Also handle settings page toggle
+            if (uploadCheckboxSettings) {
+                uploadCheckboxSettings.addEventListener("change", async function() {
+                    const enabled = this.checked;
+                    updateUploadUI(enabled);
+
+                    // Sync with server if user is logged in
+                    if (currentUser && authHash) {
+                        try {
+                            await api("/user/upload-preference", {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ upload_enabled: enabled })
+                            });
+                            currentUser.upload_enabled = enabled;
+                        } catch (err) {
+                            console.error("Failed to update upload preference:", err);
                             updateUploadUI(!enabled);
                         }
                     }

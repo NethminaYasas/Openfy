@@ -2339,6 +2339,76 @@ input:checked + .toggle-slider:before {
     padding: 1rem 1.5rem;
 }
 
+/* Settings page */
+.page#page-settings {
+    padding: 1rem 1.5rem;
+}
+
+.page#page-settings > .back-btn {
+    align-self: flex-start;
+    width: auto;
+    margin-bottom: 1rem;
+}
+
+.settings-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.settings-card {
+    background-color: #232323;
+    border-radius: 8px;
+    padding: 1.25rem;
+}
+
+.settings-card-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+}
+
+.settings-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+.settings-card-header .settings-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.settings-card-header h3 {
+    white-space: nowrap;
+}
+
+.settings-card-row span {
+    color: #b3b3b3;
+    font-size: 0.875rem;
+    margin: 0;
+    flex: 1;
+}
+
+.settings-toggle {
+    flex-shrink: 0;
+}
+
+.settings-card-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.settings-toggle {
+    display: flex;
+    align-items: center;
+}
+
 .admin-dashboard {
     display: block;
 }
@@ -2408,7 +2478,6 @@ input:checked + .toggle-slider:before {
     background-color: #232323;
     border-radius: 8px;
     padding: 1.5rem;
-    border-left: 4px solid #1db954;
 }
 
 .admin-card h3 {
