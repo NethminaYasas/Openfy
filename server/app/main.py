@@ -80,6 +80,7 @@ from .schemas import (
     UserOutPublic,
     UserUploadPreferenceUpdate,
     UserLibraryStateUpdate,
+    UserQueueUpdate,
     AdminManualUploadSettingUpdate,
     SystemSettingsOut,
 )
@@ -191,6 +192,24 @@ def _validate_stream_token(token: str, track_id: str) -> str | None:
             _stream_token_store.pop(token, None)
             return None
         return user_hash
+
+
+# Auto-migration: add queue_data column to users table if missing
+def _migrate():
+    from sqlalchemy import text
+    from .db import engine
+    with engine.begin() as conn:
+        # Check if queue_data column exists
+        try:
+            conn.execute(text("SELECT queue_data FROM users LIMIT 1"))
+        except Exception:
+            # Column doesn't exist, add it
+            conn.execute(text("ALTER TABLE users ADD COLUMN queue_data TEXT"))
+            print("Migration: Added queue_data column to users table")
+    # Create all tables (for new installations)
+    Base.metadata.create_all(bind=engine)
+
+_migrate()
 
 
 app = FastAPI(title=settings.app_name)
@@ -726,6 +745,29 @@ def most_played(
     return tracks
 
 
+@app.get("/tracks/batch", response_model=list[TrackOut])
+def get_tracks_batch(
+    ids: str = Query(..., description="Comma-separated track IDs"),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get multiple tracks by IDs (comma-separated) in the order requested"""
+    _require_user(db, x_auth_hash)
+    id_list = [tid.strip() for tid in ids.split(",") if tid.strip()]
+    if not id_list:
+        return []
+    stmt = (
+        select(Track)
+        .options(selectinload(Track.artists), selectinload(Track.album))
+        .where(Track.id.in_(id_list))
+    )
+    tracks = db.execute(stmt).scalars().all()
+    # Preserve order: map by id and reorder according to id_list
+    track_map = {str(t.id): t for t in tracks}
+    ordered = [track_map[tid] for tid in id_list if tid in track_map]
+    return ordered
+
+
 @app.get("/tracks/{track_id}", response_model=TrackOut)
 def get_track(
     track_id: str,
@@ -820,6 +862,25 @@ def stream_track(
             db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
             # Update user's last played track
             user.last_track_id = track_id
+            
+            # Sync queue index if track is in the current queue
+            if user.queue_data:
+                try:
+                    import json
+                    qdata = json.loads(user.queue_data)
+                    tids = qdata.get("track_ids", [])
+                    curr_idx = qdata.get("current_index", 0)
+                    # If current index track doesn't match streamed track, find it in queue
+                    if 0 <= curr_idx < len(tids) and tids[curr_idx] != track_id:
+                        if track_id in tids:
+                            qdata["current_index"] = tids.index(track_id)
+                            user.queue_data = json.dumps(qdata)
+                    elif curr_idx >= len(tids) and track_id in tids:
+                        qdata["current_index"] = tids.index(track_id)
+                        user.queue_data = json.dumps(qdata)
+                except Exception:
+                    pass # Best effort
+
             db.commit()  # Single atomic commit
         except Exception:
             db.rollback()
@@ -848,6 +909,24 @@ def stream_track(
             db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
             # Update user's last played track
             user.last_track_id = track_id
+
+            # Sync queue index if track is in the current queue
+            if user.queue_data:
+                try:
+                    import json
+                    qdata = json.loads(user.queue_data)
+                    tids = qdata.get("track_ids", [])
+                    curr_idx = qdata.get("current_index", 0)
+                    if 0 <= curr_idx < len(tids) and tids[curr_idx] != track_id:
+                        if track_id in tids:
+                            qdata["current_index"] = tids.index(track_id)
+                            user.queue_data = json.dumps(qdata)
+                    elif curr_idx >= len(tids) and track_id in tids:
+                        qdata["current_index"] = tids.index(track_id)
+                        user.queue_data = json.dumps(qdata)
+                except Exception:
+                    pass # Best effort
+
             db.commit()  # Single atomic commit
         except Exception:
             db.rollback()
@@ -1713,6 +1792,54 @@ def update_library_state(
     db.commit()
     db.refresh(user)
     return {"status": "updated", "library_minimized": bool(user.library_minimized)}
+
+
+@app.get("/user/queue")
+def get_user_queue(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get the user's saved queue state"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    if not user.queue_data:
+        return {"queue": [], "current_index": 0}
+
+    import json
+    try:
+        data = json.loads(user.queue_data)
+        return {
+            "queue": data.get("track_ids", []),
+            "current_index": data.get("current_index", 0)
+        }
+    except (json.JSONDecodeError, KeyError):
+        return {"queue": [], "current_index": 0}
+
+
+@app.put("/user/queue")
+def update_user_queue(
+    payload: UserQueueUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Save the user's current queue state"""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    import json
+    user.queue_data = json.dumps({
+        "track_ids": payload.track_ids,
+        "current_index": payload.current_index
+    })
+    db.commit()
+    return {"status": "updated"}
 
 
 # Admin endpoints

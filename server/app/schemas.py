@@ -104,6 +104,11 @@ class UserLibraryStateUpdate(BaseModel):
     library_minimized: bool
 
 
+class UserQueueUpdate(BaseModel):
+    track_ids: list[str] = Field(default_factory=list)
+    current_index: int = 0
+
+
 class AdminManualUploadSettingUpdate(BaseModel):
     manual_audio_upload_enabled: bool
 

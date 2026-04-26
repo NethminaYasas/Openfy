@@ -881,6 +881,7 @@
                 currentIndex = -1;
                 queueOriginal = null;
                 renderNowPlayingQueue();
+                scheduleQueueSave();
                 return;
             }
 
@@ -890,6 +891,7 @@
             queueOriginal = null;
             shuffleQueueOnce();
             renderNowPlayingQueue();
+            scheduleQueueSave();
         }
 
         // Reorder queue: move track at fromIndex to toIndex (inserts before target)
@@ -930,6 +932,7 @@
 
             // Re-render queue panel
             renderNowPlayingQueue();
+            scheduleQueueSave();
         }
 
         function enforceQueueCapacity() {
@@ -1672,6 +1675,81 @@
             } catch (err) { console.error("Failed to load last track:", err); }
         }
 
+        async function loadUserQueue() {
+            if (!authHash) return false;
+            try {
+                const data = await api("/user/queue");
+                if (!data || !data.queue || !data.queue.length) return false;
+
+                const trackIds = data.queue;
+                const savedIndex = data.current_index || 0;
+
+                // Fetch full track objects for these IDs
+                const tracksResponse = await api("/tracks/batch?ids=" + encodeURIComponent(trackIds.join(",")));
+                const tracks = Array.isArray(tracksResponse) ? tracksResponse : [];
+
+                if (tracks.length) {
+                    // Clamp index to valid range
+                    const safeIndex = Math.min(savedIndex, tracks.length - 1);
+                    setQueueFromList(tracks, safeIndex >= 0 ? safeIndex : 0);
+                    // After queue is set, set now playing to the current track without resetting queue
+                    const currentTrack = currentQueue[currentIndex];
+                    if (currentTrack) {
+                        // Use loadTrackPaused with preserveQueue to set now playing UI and audio (paused)
+                        loadTrackPaused(currentTrack, true);
+                    }
+                    return true;
+                }
+                return false;
+            } catch (err) {
+                console.error("Failed to load user queue:", err);
+                return false;
+            }
+        }
+
+        // Debounced queue save to avoid spamming API
+        let queueSaveTimeout = null;
+        function scheduleQueueSave() {
+            if (queueSaveTimeout) clearTimeout(queueSaveTimeout);
+            queueSaveTimeout = setTimeout(saveQueueToServer, 1000); // 1.0s debounce
+        }
+
+        async function saveQueueToServer() {
+            if (!authHash) return;
+            try {
+                const payload = {
+                    track_ids: currentQueue.map(t => t.id),
+                    current_index: currentIndex
+                };
+                await api("/user/queue", {
+                    method: "PUT",
+                    body: JSON.stringify(payload)
+                });
+            } catch (err) {
+                console.error("Failed to save queue:", err);
+            }
+        }
+
+        // Save immediately on page unload using keepalive fetch
+        window.addEventListener("beforeunload", function() {
+            if (authHash && currentQueue.length) {
+                const payload = {
+                    track_ids: currentQueue.map(t => t.id),
+                    current_index: currentIndex
+                };
+                // Use fetch with keepalive to ensure the request finishes even if the tab closes
+                fetch(withBase("/user/queue"), {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-auth-hash": authHash
+                    },
+                    body: JSON.stringify(payload),
+                    keepalive: true
+                }).catch(err => console.error("Unload save failed:", err));
+            }
+        });
+
         function applyManualUploadUI(enabled) {
             manualAudioUploadEnabled = !!enabled;
             if (manualUploadSection) {
@@ -2083,14 +2161,16 @@
             hideRemovalMenuIfVisible();
         }
 
-        async function loadTrackPaused(track) {
+        async function loadTrackPaused(track, preserveQueue = false) {
             console.log('Loading track (paused):', track.title);
             currentTrackId = track.id;
             currentStreamToken = null;
             currentStreamTokenTrackId = null;
             updateMediaSession(track);
-            // Set track to current queue (single track)
-            setQueueFromList([track], 0);
+            // Set track to current queue (single track) unless preserving existing queue
+            if (!preserveQueue) {
+                setQueueFromList([track], 0);
+            }
             // Set audio source so it's ready to play, but keep paused
             getTrackStreamUrl(track.id)
                 .then(function(streamUrl) {
@@ -2283,6 +2363,7 @@
                 repeatCount = 0;
                 btnRepeat.classList.remove("active", "loop-twice");
                 playTrack(currentQueue[currentIndex]);
+                scheduleQueueSave();
             });
 
             // Right-click context menu for queued track
@@ -2614,6 +2695,7 @@
                 const idx = indexOfTrackId(currentQueue, activeTrackId);
                 if (idx !== -1) currentIndex = idx;
             }
+            scheduleQueueSave();
         }
 
         // Paint initial empty state for the queue panel.
@@ -2641,6 +2723,7 @@
                 btnRepeat.classList.remove("active", "loop-twice");
             }
             playTrack(currentQueue[currentIndex]);
+            scheduleQueueSave();
         }
 
         audioPlayer.addEventListener("loadedmetadata", function() { totTime.textContent = formatDuration(audioPlayer.duration); });
@@ -2918,6 +3001,7 @@
             btnShuffle.classList.toggle("active", shuffle);
             if (shuffle) {
                 shuffleQueueOnce();
+                scheduleQueueSave();
             } else {
                 unshuffleQueue();
             }
@@ -3537,8 +3621,13 @@
                 topBar.style.display = "flex";
                 dropdownUsername.textContent = user.name;
                 npLikeBtn.classList.add("hidden");
-                loadTracks(); loadPlaylists(); loadUserUploads();
-                loadLastTrackPaused();
+                await loadTracks();
+                await loadPlaylists();
+                await loadUserUploads();
+                const hasQueue = await loadUserQueue();
+                if (!hasQueue) {
+                    await loadLastTrackPaused();
+                }
 
                 // Refresh upload toggle to reflect server-stored preference
                 if (window.refreshUploadState) window.refreshUploadState();
@@ -3570,8 +3659,13 @@
                         topBar.style.display = "flex";
                         dropdownUsername.textContent = user.name;
                         npLikeBtn.classList.add("hidden");
-                        loadTracks(); loadPlaylists(); loadUserUploads();
-                        loadLastTrackPaused();
+                        await loadTracks();
+                        await loadPlaylists();
+                        await loadUserUploads();
+                        const hasQueue = await loadUserQueue();
+                        if (!hasQueue) {
+                            await loadLastTrackPaused();
+                        }
                         // Set home-page class for successful auto-login (home page)
                         document.getElementById('app-main').classList.add('home-page');
 
@@ -3608,15 +3702,20 @@
             hashModalOverlay.style.display = "flex";
         }
 
-        function hideHashModal() {
+        async function hideHashModal() {
             hashModalOverlay.style.display = "none";
             // After closing modal, show the main app
             authOverlay.style.display = "none";
             appMain.style.display = "flex";
             topBar.style.display = "flex";
             dropdownUsername.textContent = currentUser.name;
-            loadTracks(); loadPlaylists(); loadUserUploads();
-            loadLastTrackPaused();
+            await loadTracks();
+            await loadPlaylists();
+            await loadUserUploads();
+            const hasQueue = await loadUserQueue();
+            if (!hasQueue) {
+                await loadLastTrackPaused();
+            }
             // Ensure home-page class is present when returning to main app (home page)
             document.getElementById('app-main').classList.add('home-page');
 
@@ -4507,6 +4606,7 @@
                 // Invalidate shuffle state since queue changed manually
                 queueOriginal = null;
                 renderNowPlayingQueue();
+                scheduleQueueSave();
                 hideContextMenu();
                 return;
             }
@@ -4531,6 +4631,7 @@
             // Invalidate shuffle state since queue changed manually
             queueOriginal = null;
             renderNowPlayingQueue();
+            scheduleQueueSave();
             hideContextMenu();
         });
 

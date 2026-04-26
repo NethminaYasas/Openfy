@@ -137,6 +137,7 @@ class User(Base):
         String(36), ForeignKey("tracks.id"), nullable=True
     )
     library_minimized: Mapped[bool] = mapped_column(Integer, default=0)
+    queue_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     playlists = relationship(

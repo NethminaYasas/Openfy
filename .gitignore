@@ -42,3 +42,20 @@ data/*.sqlite3
 
 # Local tooling state
 .superpowers/
+
+# AI / LLM Tools
+.claude/
+CLAUDE.md
+.gemini/
+.antigravity/
+.cursor/
+.idx/
+.anthropic/
+.openai/
+AI.md
+PROMPTS.md
+*.prompt.md
+*.ai.md
+docs/superpowers/
+
+
