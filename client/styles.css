@@ -4073,6 +4073,10 @@ input:checked + .toggle-slider:before {
     color: #fff;
 }
 
+.playlist-download-btn {
+    display: none;
+}
+
 .playlist-shuffle-btn.active {
     color: #1db954;
     position: relative;

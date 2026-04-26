@@ -671,15 +671,6 @@
                 return;
             }
 
-            // Get up to 4 unique artwork URLs
-            var artworks = [];
-            tracks.forEach(function(pt) {
-                if (pt.track && pt.track.artwork && artworks.indexOf(pt.track.artwork) === -1) {
-                    artworks.push(pt.track.artwork);
-                }
-                if (artworks.length >= 4) return;
-            });
-
             // Handle different playlist sizes
             if (tracks.length === 1) {
                 // Single song - fill entire mosaic
@@ -687,11 +678,10 @@
                 item.className = 'playlist-mosaic-item';
                 item.style.gridColumn = '1 / -1';
                 item.style.gridRow = '1 / -1';
-                if (artworks.length > 0) {
-                    var img = document.createElement('img');
-                    img.src = withBase('/tracks/' + tracks[0].track.id + '/artwork?v=' + Date.now());
-                    item.appendChild(img);
-                }
+                var img = document.createElement('img');
+                img.src = withBase('/tracks/' + tracks[0].track.id + '/artwork?v=' + (tracks[0].track.updated_at || Date.now()));
+                img.onerror = function() { this.parentElement.innerHTML = '<i class="fa-solid fa-music"></i>'; };
+                item.appendChild(img);
                 mosaic.appendChild(item);
                 return;
             }
@@ -702,11 +692,10 @@
                     var item = document.createElement('div');
                     item.className = 'playlist-mosaic-item';
                     var artIndex = i < 2 ? 0 : 1;
-                    if (artworks[artIndex]) {
-                        var img = document.createElement('img');
-                        img.src = withBase('/tracks/' + tracks[artIndex].track.id + '/artwork?v=' + Date.now());
-                        item.appendChild(img);
-                    }
+                    var img = document.createElement('img');
+                    img.src = withBase('/tracks/' + tracks[artIndex].track.id + '/artwork?v=' + (tracks[artIndex].track.updated_at || Date.now()));
+                    img.onerror = function() { this.style.display = 'none'; };
+                    item.appendChild(img);
                     mosaic.appendChild(item);
                 }
                 return;
@@ -717,11 +706,10 @@
                 for (var i = 0; i < 3; i++) {
                     var item = document.createElement('div');
                     item.className = 'playlist-mosaic-item';
-                    if (artworks[i]) {
-                        var img = document.createElement('img');
-                        img.src = withBase('/tracks/' + tracks[i].track.id + '/artwork?v=' + Date.now());
-                        item.appendChild(img);
-                    }
+                    var img = document.createElement('img');
+                    img.src = withBase('/tracks/' + tracks[i].track.id + '/artwork?v=' + (tracks[i].track.updated_at || Date.now()));
+                    img.onerror = function() { this.style.display = 'none'; };
+                    item.appendChild(img);
                     mosaic.appendChild(item);
                 }
                 // Placeholder for 4th
@@ -736,11 +724,10 @@
             for (var i = 0; i < 4; i++) {
                 var item = document.createElement('div');
                 item.className = 'playlist-mosaic-item';
-                if (artworks[i]) {
-                    var img = document.createElement('img');
-                    img.src = withBase('/tracks/' + tracks[i].track.id + '/artwork?v=' + Date.now());
-                    item.appendChild(img);
-                }
+                var img = document.createElement('img');
+                img.src = withBase('/tracks/' + tracks[i].track.id + '/artwork?v=' + (tracks[i].track.updated_at || Date.now()));
+                img.onerror = function() { this.style.display = 'none'; };
+                item.appendChild(img);
                 mosaic.appendChild(item);
             }
         }
