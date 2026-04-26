@@ -5132,17 +5132,51 @@
             if (adminLibraryView) {
                 adminLibraryView.style.display = "none";
             }
-            loadAdminManualUploadSetting();
+            loadAdminStats();
+            loadAdminSettings();
             setActivePage("admin");
         });
 
-        async function loadAdminManualUploadSetting() {
-            if (!isAdmin || !adminManualUploadToggle) return;
+        async function loadAdminStats() {
+            if (!isAdmin) return;
             try {
-                const data = await api("/admin/settings/manual-upload");
-                applyManualUploadUI(!!data.manual_audio_upload_enabled);
+                const stats = await api("/admin/stats");
+                const totalUsersEl = document.getElementById("stat-total-users");
+                const onlineUsersEl = document.getElementById("stat-online-users");
+                const storageUsedEl = document.getElementById("stat-storage-used");
+                
+                if (totalUsersEl) totalUsersEl.textContent = stats.total_users;
+                if (onlineUsersEl) onlineUsersEl.textContent = stats.online_users;
+                
+                if (storageUsedEl) {
+                    // Format storage
+                    const bytes = stats.total_storage_bytes;
+                    let formatted = "0 B";
+                    if (bytes > 0) {
+                        const k = 1024;
+                        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                        const i = Math.floor(Math.log(bytes) / Math.log(k));
+                        formatted = parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                    }
+                    storageUsedEl.textContent = formatted;
+                }
             } catch (err) {
-                console.error("Failed to load admin manual upload setting:", err);
+                console.error("Failed to load admin stats:", err);
+            }
+        }
+
+        async function loadAdminSettings() {
+            if (!isAdmin) return;
+            try {
+                const data = await api("/admin/settings");
+                applyManualUploadUI(!!data.manual_audio_upload_enabled);
+                
+                const tzSelect = document.getElementById("server-timezone-select");
+                if (tzSelect && data.timezone) {
+                    tzSelect.value = data.timezone;
+                }
+            } catch (err) {
+                console.error("Failed to load admin settings:", err);
             }
         }
 
@@ -5150,7 +5184,7 @@
             const enabled = !!this.checked;
             this.disabled = true;
             try {
-                const data = await api("/admin/settings/manual-upload", {
+                const data = await api("/admin/settings", {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ manual_audio_upload_enabled: enabled })
@@ -5160,6 +5194,23 @@
                 console.error("Failed to update manual upload setting:", err);
                 this.checked = !enabled;
                 alert("Failed to update manual upload setting: " + err.message);
+            } finally {
+                this.disabled = false;
+            }
+        });
+
+        document.getElementById("server-timezone-select")?.addEventListener("change", async function() {
+            const tz = this.value;
+            this.disabled = true;
+            try {
+                await api("/admin/settings", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ timezone: tz })
+                });
+            } catch (err) {
+                console.error("Failed to update timezone:", err);
+                alert("Failed to update timezone: " + err.message);
             } finally {
                 this.disabled = false;
             }

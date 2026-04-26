@@ -2498,6 +2498,65 @@ input:checked + .toggle-slider:before {
     padding: 1.25rem;
 }
 
+.admin-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-top: 2rem;
+    margin-bottom: 2.5rem;
+}
+
+.stat-item {
+    background: #1f1f1f;
+    padding: 1.5rem;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid #2a2a2a;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.stat-item:hover {
+    background: #252525;
+    transform: translateY(-2px);
+}
+
+.stat-label {
+    color: #b3b3b3;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    color: #fff;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.settings-select-container {
+    flex-shrink: 0;
+}
+
+.settings-select {
+    background: #282828;
+    color: white;
+    border: 1px solid #3e3e3e;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.settings-select:focus {
+    border-color: #1db954;
+}
+
 .admin-option-row {
     align-items: center;
     gap: 0.75rem;

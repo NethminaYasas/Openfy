@@ -141,6 +141,7 @@ class User(Base):
     repeat_state: Mapped[str] = mapped_column(String(20), default="off")
     queue_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     playlists = relationship(
         "Playlist", back_populates="user", cascade="all, delete-orphan"

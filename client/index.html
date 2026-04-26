@@ -211,6 +211,20 @@
                     <button class="back-btn" id="admin-back-home"><i class="fa-solid fa-chevron-left"></i></button>
                     <div class="section">
                         <h2>Admin Panel</h2>
+                        <div class="admin-stats" id="admin-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Users</span>
+                                <span class="stat-value" id="stat-total-users">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Online</span>
+                                <span class="stat-value" id="stat-online-users">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Storage Used</span>
+                                <span class="stat-value" id="stat-storage-used">-</span>
+                            </div>
+                        </div>
                         <div class="settings-cards admin-controls" id="admin-controls">
                             <div class="settings-card admin-card">
                                 <div class="settings-card-row admin-option-row">
@@ -248,6 +262,27 @@
                                             <input type="checkbox" id="manual-upload-enabled-admin">
                                             <span class="toggle-slider"></span>
                                         </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-card admin-card">
+                                <div class="settings-card-row admin-option-row">
+                                    <div class="settings-card-header">
+                                        <i class="fa-solid fa-earth-americas"></i>
+                                        <h3>Server Timezone</h3>
+                                    </div>
+                                    <span>Set the display timezone for the server.</span>
+                                    <div class="settings-select-container">
+                                        <select id="server-timezone-select" class="settings-select">
+                                            <option value="UTC">UTC</option>
+                                            <option value="Asia/Colombo">Asia/Colombo</option>
+                                            <option value="Asia/Kolkata">Asia/Kolkata</option>
+                                            <option value="Asia/Tokyo">Asia/Tokyo</option>
+                                            <option value="Europe/London">Europe/London</option>
+                                            <option value="Europe/Paris">Europe/Paris</option>
+                                            <option value="America/New_York">America/New_York</option>
+                                            <option value="America/Los_Angeles">America/Los_Angeles</option>
+                                        </select>
                                     </div>
                                 </div>
                             </div>

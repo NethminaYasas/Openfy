@@ -116,12 +116,14 @@ class UserQueueUpdate(BaseModel):
     current_index: int = 0
 
 
-class AdminManualUploadSettingUpdate(BaseModel):
-    manual_audio_upload_enabled: bool
+class SystemSettingsUpdate(BaseModel):
+    manual_audio_upload_enabled: bool | None = None
+    timezone: str | None = None
 
 
 class SystemSettingsOut(BaseModel):
     manual_audio_upload_enabled: bool
+    timezone: str = "UTC"
 
 
 class UserOut(BaseModel):

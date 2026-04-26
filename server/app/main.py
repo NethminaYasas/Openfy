@@ -82,7 +82,7 @@ from .schemas import (
     UserLibraryStateUpdate,
     UserPlayerStateUpdate,
     UserQueueUpdate,
-    AdminManualUploadSettingUpdate,
+    SystemSettingsUpdate,
     SystemSettingsOut,
 )
 from .settings import settings
@@ -601,9 +601,15 @@ def _startup():
 
 
 def _get_user(db: Session, auth_hash: str) -> "User | None":
-    return db.execute(
+    user = db.execute(
         select(User).where(User.auth_hash == auth_hash)
     ).scalar_one_or_none()
+    if user:
+        now = datetime.utcnow()
+        if not user.last_active_at or (now - user.last_active_at).total_seconds() > 60:
+            user.last_active_at = now
+            db.commit()
+    return user
 
 
 def _ensure_liked_songs(db: Session, user_hash: str) -> Playlist:
@@ -1875,34 +1881,94 @@ def update_user_queue(
 
 
 # Admin endpoints
-@app.get("/admin/settings/manual-upload", response_model=SystemSettingsOut)
-def get_admin_manual_upload_setting(
+@app.get("/admin/stats")
+def get_admin_stats(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Get server statistics (admin only)"""
     admin_user = _require_user(db, x_auth_hash)
     if not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
+    
+    total_users = db.scalar(select(func.count(User.id)))
+    
+    # Online users: active in last 5 minutes
+    five_mins_ago = datetime.utcnow() - timedelta(minutes=5)
+    online_users = db.scalar(select(func.count(User.id)).where(User.last_active_at >= five_mins_ago))
+    
+    # Storage used: sum of all track files
+    music_dir = settings.music_dir
+    total_bytes = 0
+    if music_dir.exists():
+        # Iterate over all files in music directory
+        for f in music_dir.rglob('*'):
+            if f.is_file():
+                try:
+                    total_bytes += f.stat().st_size
+                except Exception:
+                    continue
+                
     return {
-        "manual_audio_upload_enabled": _get_app_setting_bool(
-            db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
-        )
+        "total_users": total_users,
+        "online_users": online_users,
+        "total_storage_bytes": total_bytes
     }
 
 
-@app.put("/admin/settings/manual-upload", response_model=SystemSettingsOut)
-def update_admin_manual_upload_setting(
-    payload: AdminManualUploadSettingUpdate,
+@app.get("/admin/settings", response_model=SystemSettingsOut)
+def get_admin_settings(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Get system-wide settings (admin only)"""
     admin_user = _require_user(db, x_auth_hash)
     if not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    enabled = _set_app_setting_bool(
-        db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, payload.manual_audio_upload_enabled
-    )
-    return {"manual_audio_upload_enabled": enabled}
+    
+    manual_enabled = _get_app_setting_bool(db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True)
+    timezone_row = db.get(AppSetting, "timezone")
+    return {
+        "manual_audio_upload_enabled": manual_enabled,
+        "timezone": timezone_row.value if timezone_row else "UTC"
+    }
+
+
+@app.put("/admin/settings", response_model=SystemSettingsOut)
+def update_admin_settings(
+    payload: SystemSettingsUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update system-wide settings (admin only)"""
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    res = {}
+    if payload.manual_audio_upload_enabled is not None:
+        res["manual_audio_upload_enabled"] = _set_app_setting_bool(
+            db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, payload.manual_audio_upload_enabled
+        )
+    else:
+        res["manual_audio_upload_enabled"] = _get_app_setting_bool(
+            db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
+        )
+        
+    if payload.timezone is not None:
+        tz_row = db.get(AppSetting, "timezone")
+        if not tz_row:
+            tz_row = AppSetting(key="timezone", value=payload.timezone)
+            db.add(tz_row)
+        else:
+            tz_row.value = payload.timezone
+        db.commit()
+        res["timezone"] = payload.timezone
+    else:
+        tz_row = db.get(AppSetting, "timezone")
+        res["timezone"] = tz_row.value if tz_row else "UTC"
+        
+    return res
 
 
 @app.get("/admin/users")
@@ -1933,6 +1999,7 @@ def list_all_users(
         )
         .outerjoin(track_counts_subq, User.auth_hash == track_counts_subq.c.user_hash)
         .order_by(User.created_at.desc())
+        .limit(50)
     )
     if q:
         stmt = stmt.where(User.name.ilike(f"%{q}%"))
@@ -2008,7 +2075,7 @@ def list_all_tracks(
             | (Track.artists.any(Artist.name.ilike(f"%{q}%")))
             | (Album.title.ilike(f"%{q}%"))
         )
-    stmt = stmt.order_by(Track.created_at.desc())
+    stmt = stmt.order_by(Track.created_at.desc()).limit(50)
 
     results = db.execute(stmt).all()
     result = []
