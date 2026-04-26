@@ -147,7 +147,6 @@ def _download_with_yt_music(
             from SpotiFLAC.appleDL import AppleMusicDownloader
 
             ensure_dirs()
-            is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
             _append_log(db, job, f"Starting download to {settings.downloads_dir}")
 
             downloader = AppleMusicDownloader()
@@ -161,7 +160,7 @@ def _download_with_yt_music(
                     raise Exception("Could not extract Spotify metadata for strict verification")
                 if not expected_track_info.get("duration_ms"):
                     raise Exception("Spotify duration metadata missing; refusing non-verifiable download")
-                _append_log(db, job, f"Spotify track detected, searching for audio source...")
+                _append_log(db, job, "Spotify track detected, searching for audio source...")
 
                 # Run download with timeout to prevent hanging
                 def do_download():
@@ -193,7 +192,7 @@ def _download_with_yt_music(
                     raise Exception("Could not extract Apple Music metadata for strict verification")
                 if not expected_track_info.get("duration_ms"):
                     raise Exception("Apple Music duration metadata missing; refusing non-verifiable download")
-                _append_log(db, job, f"Apple Music track detected, searching for audio source...")
+                _append_log(db, job, "Apple Music track detected, searching for audio source...")
 
                 def do_download():
                     return downloader.download_by_apple_music_url(

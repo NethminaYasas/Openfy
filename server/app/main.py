@@ -5,11 +5,12 @@ from pathlib import Path
 import json
 import time
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from collections import defaultdict
 from time import monotonic
 from threading import Lock
+from contextlib import asynccontextmanager
 
 from fastapi import (
     FastAPI,
@@ -28,7 +29,6 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     Response,
-    JSONResponse,
 )
 from PIL import Image
 from sqlalchemy.orm import Session, selectinload
@@ -37,19 +37,6 @@ from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
 import logging
-
-# Configure logging for security events
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# In-memory rate limiting store: {identifier: [(timestamp, count), ...]}
-_rate_limit_store: dict[str, list] = defaultdict(list)
-_stream_token_store: dict[str, tuple[str, str, float]] = {}
-_stream_token_lock = Lock()
-_STREAM_TOKEN_TTL_SECONDS = 120
 
 from .db import Base, engine, get_db, SessionLocal
 from .models import (
@@ -62,7 +49,6 @@ from .models import (
     User,
     TrackPlay,
     AppSetting,
-    track_artist,
 )
 from .schemas import (
     TrackOut,
@@ -90,6 +76,19 @@ from .services.storage import ensure_dirs, store_upload, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
 
+# Configure logging for security events
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# In-memory rate limiting store: {identifier: [(timestamp, count), ...]}
+_rate_limit_store: dict[str, list] = defaultdict(list)
+_stream_token_store: dict[str, tuple[str, str, float]] = {}
+_stream_token_lock = Lock()
+_STREAM_TOKEN_TTL_SECONDS = 120
+
 # Global variable to track last track update
 last_track_update = 0
 MANUAL_AUDIO_UPLOAD_SETTING_KEY = "manual_audio_upload_enabled"
@@ -98,7 +97,6 @@ MANUAL_AUDIO_UPLOAD_SETTING_KEY = "manual_audio_upload_enabled"
 def update_track_timestamp():
     """Update the global track update timestamp"""
     global last_track_update
-    import time
 
     last_track_update = int(time.time() * 1000)  # Milliseconds since epoch
 
@@ -195,25 +193,15 @@ def _validate_stream_token(token: str, track_id: str) -> str | None:
         return user_hash
 
 
-# Auto-migration: add queue_data column to users table if missing
-def _migrate():
-    from sqlalchemy import text
-    from .db import engine
-    with engine.begin() as conn:
-        # Check if queue_data column exists
-        try:
-            conn.execute(text("SELECT queue_data FROM users LIMIT 1"))
-        except Exception:
-            # Column doesn't exist, add it
-            conn.execute(text("ALTER TABLE users ADD COLUMN queue_data TEXT"))
-            print("Migration: Added queue_data column to users table")
-    # Create all tables (for new installations)
-    Base.metadata.create_all(bind=engine)
-
-_migrate()
 
 
-app = FastAPI(title=settings.app_name)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _startup()
+    yield
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 static_dir = Path("/app/client")
 if not static_dir.exists():
@@ -306,7 +294,6 @@ async def add_track_update_timestamp(request: Request, call_next):
         raise
 
 
-@app.on_event("startup")
 def _startup():
     ensure_dirs()
     # Ensure collages directory exists
@@ -478,6 +465,13 @@ def _startup():
                 )
                 conn.commit()
 
+            if "queue_data" not in ucols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN queue_data TEXT")
+                )
+                conn.commit()
+                conn.commit()
+
             conn.execute(
                 text(
                     "CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(128) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
@@ -605,8 +599,12 @@ def _get_user(db: Session, auth_hash: str) -> "User | None":
         select(User).where(User.auth_hash == auth_hash)
     ).scalar_one_or_none()
     if user:
-        now = datetime.utcnow()
-        if not user.last_active_at or (now - user.last_active_at).total_seconds() > 60:
+        # Use naive UTC to stay compatible with SQLite's offset-naive datetime storage
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        last = user.last_active_at
+        if last is not None and hasattr(last, 'tzinfo') and last.tzinfo is not None:
+            last = last.replace(tzinfo=None)
+        if not last or (now - last).total_seconds() > 60:
             user.last_active_at = now
             db.commit()
     return user
@@ -781,7 +779,7 @@ def get_track(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    user = _require_user(db, x_auth_hash)
+    _require_user(db, x_auth_hash)
     stmt = (
         select(Track)
         .options(selectinload(Track.artists), selectinload(Track.album))
@@ -885,8 +883,8 @@ def stream_track(
                     elif curr_idx >= len(tids) and track_id in tids:
                         qdata["current_index"] = tids.index(track_id)
                         user.queue_data = json.dumps(qdata)
-                except Exception:
-                    pass # Best effort
+                except Exception:  # nosec B110 – best-effort queue sync
+                    pass
 
             db.commit()  # Single atomic commit
         except Exception:
@@ -931,8 +929,8 @@ def stream_track(
                     elif curr_idx >= len(tids) and track_id in tids:
                         qdata["current_index"] = tids.index(track_id)
                         user.queue_data = json.dumps(qdata)
-                except Exception:
-                    pass # Best effort
+                except Exception:  # nosec B110 – best-effort queue sync
+                    pass
 
             db.commit()  # Single atomic commit
         except Exception:
@@ -1040,12 +1038,12 @@ def upload_track_file(
     finally:
         try:
             file.file.close()
-        except Exception:
+        except Exception:  # nosec B110 – best-effort file handle cleanup
             pass
         if tmp_path.exists():
             try:
                 tmp_path.unlink()
-            except Exception:
+            except Exception:  # nosec B110 – best-effort temp file cleanup
                 pass
 
 
@@ -1259,8 +1257,8 @@ def get_playlist_cover(
                         img = img.resize((tile_size, tile_size), Image.Resampling.LANCZOS)
                         collage.paste(img, pos)
                     continue
-                except Exception:
-                    pass  # fall through to gray block
+                except Exception:  # nosec B110 – fall through to gray block if image fails
+                    pass
         # Missing artwork — leave gray (already the background)
 
     collage.save(out_path, format="JPEG", quality=85)
@@ -1448,7 +1446,7 @@ def add_track_to_playlist(
                 )
             ).scalar_one_or_none()
             if existing:
-                log_error(f"Race condition: track already exists, returning it")
+                log_error("Race condition: track already exists, returning it")
                 return existing
             raise HTTPException(status_code=409, detail="Database conflict when adding track")
         except Exception as e:
@@ -1586,7 +1584,6 @@ def create_download(
         raise HTTPException(
             status_code=403, detail="Uploads are disabled for your account"
         )
-    from .services.spotiflac import queue_download
 
     return queue_download(db, payload.query, payload.source or "auto", user.auth_hash)
 
@@ -1847,7 +1844,6 @@ def get_user_queue(
     if not user.queue_data:
         return {"queue": [], "current_index": 0}
 
-    import json
     try:
         data = json.loads(user.queue_data)
         return {
@@ -1871,7 +1867,6 @@ def update_user_queue(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
 
-    import json
     user.queue_data = json.dumps({
         "track_ids": payload.track_ids,
         "current_index": payload.current_index
@@ -1894,7 +1889,7 @@ def get_admin_stats(
     total_users = db.scalar(select(func.count(User.id)))
     
     # Online users: active in last 5 minutes
-    five_mins_ago = datetime.utcnow() - timedelta(minutes=5)
+    five_mins_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
     online_users = db.scalar(select(func.count(User.id)).where(User.last_active_at >= five_mins_ago))
     
     # Storage used: sum of all track files
@@ -1906,7 +1901,7 @@ def get_admin_stats(
             if f.is_file():
                 try:
                     total_bytes += f.stat().st_size
-                except Exception:
+                except Exception:  # nosec B112 – skip unreadable files in size tally
                     continue
                 
     return {

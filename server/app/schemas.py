@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ArtistBase(BaseModel):
@@ -11,8 +11,7 @@ class ArtistOut(ArtistBase):
     id: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AlbumBase(BaseModel):
@@ -26,8 +25,7 @@ class AlbumOut(AlbumBase):
     artwork_path: str | None = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TrackBase(BaseModel):
@@ -55,8 +53,7 @@ class TrackOut(TrackBase):
     artists: List[ArtistOut] = Field(default_factory=list)  # full many-to-many list
     album: AlbumOut | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TrackOutAdmin(TrackOut):
@@ -86,8 +83,7 @@ class PlaylistOut(BaseModel):
     created_at: datetime
     user: Optional['UserOutPublic'] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserSignup(BaseModel):
@@ -139,8 +135,7 @@ class UserOut(BaseModel):
     repeat_state: str = "off"
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserOutPublic(BaseModel):
@@ -155,16 +150,14 @@ class UserOutPublic(BaseModel):
     repeat_state: str = "off"
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PlaylistTrackOut(BaseModel):
     track: TrackOut
     position: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DownloadRequest(BaseModel):
@@ -182,5 +175,4 @@ class DownloadJobOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

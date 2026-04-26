@@ -1202,49 +1202,56 @@
                             scrollPositions[rowKey] = 0;
                         }
 
-                        // Compute card width dynamically
-                        const sampleCard = trackRow.querySelector('.track-row-card');
-                        const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
-                        const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
+                        // Compute card width at click time (not at init time) so it works
+                        // correctly even when the library panel was minimized during init.
+                        function getCardWidth() {
+                            const card = trackRow.querySelector('.track-row-card');
+                            const gap = parseFloat(getComputedStyle(trackRow).gap) || 16;
+                            const w = card ? card.offsetWidth : 0;
+                            // Fall back to a fixed default only if still hidden (offsetWidth=0)
+                            return (w > 0 ? w : 160) + gap;
+                        }
 
                         // Button visibility variables
                         let showPrevBtn = false;
                         let showNextBtn = false;
 
                         // Initialize previous button click
-                        prevBtn.addEventListener('click', (e) => {
+                        prevBtn.onclick = (e) => {
                             e.preventDefault();
+                            const step = getCardWidth() * 2;
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - cardWidth * 2);
+                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - step);
                             trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
-                        });
+                        };
 
                         // Initialize next button click
-                        nextBtn.addEventListener('click', (e) => {
+                        nextBtn.onclick = (e) => {
                             e.preventDefault();
+                            const step = getCardWidth() * 2;
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + cardWidth * 2);
+                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + step);
                             trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
-                        });
+                        };
 
                         // Get the wrapper element
                         const wrapper = prevBtn.parentElement;
 
                         // Show buttons when hovering over the track row wrapper
-                        wrapper.addEventListener('mouseenter', () => {
+                        wrapper.onmouseenter = () => {
                             showPrevBtn = true;
                             showNextBtn = true;
                             updateProximityVisibility();
-                        });
+                        };
 
                         // Hide buttons when mouse leaves the wrapper
-                        wrapper.addEventListener('mouseleave', () => {
+                        wrapper.onmouseleave = () => {
                             showPrevBtn = false;
                             showNextBtn = false;
                             updateProximityVisibility();
-                        });
+                        };
 
                         function updateProximityVisibility() {
                             prevBtn.classList.toggle('visible', showPrevBtn);
@@ -1253,11 +1260,6 @@
                             // Add specific classes for animations
                             prevBtn.classList.toggle('prev-visible', showPrevBtn);
                             nextBtn.classList.toggle('next-visible', showNextBtn);
-
-                            // Debug logging
-                            if (showPrevBtn || showNextBtn) {
-                                console.log('Buttons visibility:', { showPrevBtn, showNextBtn });
-                            }
                         }
 
                         function updateButtonStates() {
@@ -1384,49 +1386,55 @@
                             scrollPositions[rowKey] = 0;
                         }
 
-                        // Compute card width dynamically
-                        const sampleCard = trackRow.querySelector('.track-row-card');
-                        const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
-                        const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
+                        // Compute card width at click time (not at init time) so it works
+                        // correctly even when the library panel was minimized during init.
+                        function getCardWidth() {
+                            const card = trackRow.querySelector('.track-row-card');
+                            const gap = parseFloat(getComputedStyle(trackRow).gap) || 16;
+                            const w = card ? card.offsetWidth : 0;
+                            return (w > 0 ? w : 160) + gap;
+                        }
 
                         // Button visibility variables
                         let showPrevBtn = false;
                         let showNextBtn = false;
 
                         // Initialize previous button click
-                        prevBtn.addEventListener('click', (e) => {
+                        prevBtn.onclick = (e) => {
                             e.preventDefault();
+                            const step = getCardWidth() * 2;
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - cardWidth * 2);
+                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - step);
                             trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
-                        });
+                        };
 
                         // Initialize next button click
-                        nextBtn.addEventListener('click', (e) => {
+                        nextBtn.onclick = (e) => {
                             e.preventDefault();
+                            const step = getCardWidth() * 2;
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + cardWidth * 2);
+                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + step);
                             trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
-                        });
+                        };
 
                         // Get the wrapper element
                         const wrapper = prevBtn.parentElement;
 
                         // Show buttons when hovering over the track row wrapper
-                        wrapper.addEventListener('mouseenter', () => {
+                        wrapper.onmouseenter = () => {
                             showPrevBtn = true;
                             showNextBtn = true;
                             updateProximityVisibility();
-                        });
+                        };
 
                         // Hide buttons when mouse leaves the wrapper
-                        wrapper.addEventListener('mouseleave', () => {
+                        wrapper.onmouseleave = () => {
                             showPrevBtn = false;
                             showNextBtn = false;
                             updateProximityVisibility();
-                        });
+                        };
 
                         function updateProximityVisibility() {
                             prevBtn.classList.toggle('visible', showPrevBtn);
@@ -1435,11 +1443,6 @@
                             // Add specific classes for animations
                             prevBtn.classList.toggle('prev-visible', showPrevBtn);
                             nextBtn.classList.toggle('next-visible', showNextBtn);
-
-                            // Debug logging
-                            if (showPrevBtn || showNextBtn) {
-                                console.log('Buttons visibility:', { showPrevBtn, showNextBtn });
-                            }
                         }
 
                         function updateButtonStates() {
@@ -1567,49 +1570,55 @@
                             scrollPositions[rowKey] = 0;
                         }
 
-                        // Compute card width dynamically
-                        const sampleCard = trackRow.querySelector('.track-row-card');
-                        const computedGap = parseFloat(getComputedStyle(trackRow).gap) || 16;
-                        const cardWidth = (sampleCard ? sampleCard.offsetWidth : 160) + computedGap;
+                        // Compute card width at click time (not at init time) so it works
+                        // correctly even when the library panel was minimized during init.
+                        function getCardWidth() {
+                            const card = trackRow.querySelector('.track-row-card');
+                            const gap = parseFloat(getComputedStyle(trackRow).gap) || 16;
+                            const w = card ? card.offsetWidth : 0;
+                            return (w > 0 ? w : 160) + gap;
+                        }
 
                         // Button visibility variables
                         let showPrevBtn = false;
                         let showNextBtn = false;
 
                         // Initialize previous button click
-                        prevBtn.addEventListener('click', (e) => {
+                        prevBtn.onclick = (e) => {
                             e.preventDefault();
+                            const step = getCardWidth() * 2;
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - cardWidth * 2);
+                            scrollPositions[rowKey] = Math.max(0, scrollPositions[rowKey] - step);
                             trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
-                        });
+                        };
 
                         // Initialize next button click
-                        nextBtn.addEventListener('click', (e) => {
+                        nextBtn.onclick = (e) => {
                             e.preventDefault();
+                            const step = getCardWidth() * 2;
                             const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + cardWidth * 2);
+                            scrollPositions[rowKey] = Math.min(maxScroll, scrollPositions[rowKey] + step);
                             trackRow.style.transform = `translateX(-${scrollPositions[rowKey]}px)`;
                             updateButtonStates();
-                        });
+                        };
 
                         // Get the wrapper element
                         const wrapper = prevBtn.parentElement;
 
                         // Show buttons when hovering over the track row wrapper
-                        wrapper.addEventListener('mouseenter', () => {
+                        wrapper.onmouseenter = () => {
                             showPrevBtn = true;
                             showNextBtn = true;
                             updateProximityVisibility();
-                        });
+                        };
 
                         // Hide buttons when mouse leaves the wrapper
-                        wrapper.addEventListener('mouseleave', () => {
+                        wrapper.onmouseleave = () => {
                             showPrevBtn = false;
                             showNextBtn = false;
                             updateProximityVisibility();
-                        });
+                        };
 
                         function updateProximityVisibility() {
                             prevBtn.classList.toggle('visible', showPrevBtn);
@@ -1618,11 +1627,6 @@
                             // Add specific classes for animations
                             prevBtn.classList.toggle('prev-visible', showPrevBtn);
                             nextBtn.classList.toggle('next-visible', showNextBtn);
-
-                            // Debug log
-                            if (showPrevBtn || showNextBtn) {
-                                console.log('Buttons visibility:', { showPrevBtn, showNextBtn });
-                            }
                         }
 
                         function updateButtonStates() {

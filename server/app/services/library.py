@@ -8,7 +8,7 @@ from typing import Iterable
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3
 from sqlalchemy.orm import Session
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 
 from ..models import Artist, Album, Track, track_artist
@@ -69,7 +69,7 @@ def _extract_artwork(path: Path) -> tuple[bytes, str] | None:
             apic_list = id3.getall("APIC")
             if apic_list:
                 return apic_list[0].data, ".jpg"
-        except Exception:
+        except Exception:  # nosec B110 – ID3 tag read failure, fall through to mutagen generic
             pass
 
     audio = MutagenFile(path)

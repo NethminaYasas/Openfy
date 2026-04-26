@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session as SASession
 
 from .settings import settings
 
@@ -16,7 +16,6 @@ def _create_engine():
 engine = _create_engine()
 # Ensure all tables are created for this engine
 Base.metadata.create_all(bind=engine)
-from sqlalchemy.orm import Session as SASession
 
 class SafeSession(SASession):
     def execute(self, statement, *args, **kwargs):

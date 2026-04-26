@@ -106,7 +106,7 @@ def test_get_track_playlists_invalid_auth(client: TestClient):
 def test_get_track_playlists_returns_empty_for_nonexistent_track(client: TestClient, user_and_auth):
     """Track ID that doesn't exist returns empty list (track not found is not an error)."""
     auth = user_and_auth["auth_hash"]
-    resp = client.get(f"/tracks/00000000-0000-0000-0000-000000000000/playlists", headers={"x-auth-hash": auth})
+    resp = client.get("/tracks/00000000-0000-0000-0000-000000000000/playlists", headers={"x-auth-hash": auth})
     assert resp.status_code == 200
     assert resp.json() == []
 
@@ -160,11 +160,9 @@ def test_get_track_playlists_excludes_liked_songs(client: TestClient, db: Sessio
 
 def test_get_track_playlists_only_returns_owned_playlists(client: TestClient, db: Session, user_and_auth):
     """Endpoint only returns playlists belonging to the authenticated user."""
-    user1 = user_and_auth["user"]
     auth1 = user_and_auth["auth_hash"]
 
     user2 = create_unique_user(db, name_suffix="_2")
-    auth2 = user2.auth_hash
 
     track = Track(title="Secret", file_path="/secret.mp3", user_hash=user2.auth_hash)
     db.add(track)
@@ -247,7 +245,7 @@ def test_manual_upload_toggle_off_blocks_regular_user_upload(client: TestClient,
     user = create_unique_user(db, name_suffix="_regular_upoff", is_admin=0)
 
     toggle_resp = client.put(
-        "/admin/settings/manual-upload",
+        "/admin/settings",
         headers={"x-auth-hash": admin.auth_hash},
         json={"manual_audio_upload_enabled": False},
     )
@@ -268,7 +266,7 @@ def test_manual_upload_toggle_off_blocks_admin_upload_too(client: TestClient, db
     admin = create_unique_user(db, name_suffix="_admin_selfblock", is_admin=1)
 
     toggle_resp = client.put(
-        "/admin/settings/manual-upload",
+        "/admin/settings",
         headers={"x-auth-hash": admin.auth_hash},
         json={"manual_audio_upload_enabled": False},
     )
@@ -356,7 +354,6 @@ def test_delete_track_idempotent(client: TestClient, db: Session, user_and_auth)
 
 def test_delete_track_not_owned(client: TestClient, db: Session, user_and_auth):
     """User cannot delete track from playlist they don't own."""
-    user1 = user_and_auth["user"]
     auth1 = user_and_auth["auth_hash"]
 
     user2 = create_unique_user(db, name_suffix="_2")
