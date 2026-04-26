@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="icon" href="/static/images/logo.png">
     <title>Openfy - Web Player</title>
-    <link rel="stylesheet" href="/static/styles.css?v=24">
+    <link rel="stylesheet" href="/static/styles.css?v=31">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
@@ -138,7 +138,6 @@
             <div class="page" id="page-playlist">
                 <div class="playlist-gradient" id="playlist-gradient"></div>
                 <div class="playlist-header-section">
-                    <button class="back-btn" id="playlist-back"><i class="fa-solid fa-chevron-left"></i></button>
                     <div class="playlist-header-main">
                         <div class="playlist-mosaic" id="playlist-mosaic"></div>
                         <div class="playlist-header-info">
@@ -162,9 +161,8 @@
                 <div class="playlist-songs-container">
                     <div class="playlist-songs-header">
                         <span class="ps-col-num">#</span>
+                        <span class="ps-col-art"></span>
                         <span class="ps-col-title">Title</span>
-                        <span class="ps-col-album">Album</span>
-                        <span class="ps-col-date">Date added</span>
                         <span class="ps-col-duration"><i class="fa-regular fa-clock"></i></span>
                     </div>
                     <div class="playlist-songs-list" id="playlist-songs-list"></div>
@@ -534,6 +532,6 @@
         </div>
     </div>
 
-    <script src="/static/script.js?v=13"></script>
+    <script src="/static/script.js?v=19"></script>
 </body>
 </html>

@@ -4103,7 +4103,7 @@ input:checked + .toggle-slider:before {
 
 .playlist-songs-header {
     display: grid;
-    grid-template-columns: 40px 40px 1fr 1fr 1fr 60px;
+    grid-template-columns: 40px 40px 1fr 60px;
     align-items: center;
     padding: 0.75rem 1rem;
     border-bottom: 1px solid #282828;
@@ -4117,11 +4117,16 @@ input:checked + .toggle-slider:before {
     z-index: 10;
 }
 
-.ps-col-num { width: 40px; text-align: center; }
-.ps-col-title { min-width: 0; }
-.ps-col-album { min-width: 0; }
-.ps-col-date { min-width: 0; }
-.ps-col-duration { width: 60px; text-align: right; }
+.ps-col-num { grid-column: 1; width: 40px; text-align: center; }
+.ps-col-art { grid-column: 2; width: 40px; }
+.ps-col-title { grid-column: 3; min-width: 0; text-align: left; }
+.ps-col-duration {
+    grid-column: 4;
+    width: 60px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
 
 .playlist-songs-list {
     display: flex;
@@ -4131,7 +4136,7 @@ input:checked + .toggle-slider:before {
 /* Song Row */
 .playlist-song-row {
     display: grid;
-    grid-template-columns: 40px 40px 1fr 1fr 1fr 60px;
+    grid-template-columns: 40px 40px 1fr 60px;
     align-items: center;
     padding: 0.5rem 1rem;
     border-radius: 4px;
@@ -4139,6 +4144,7 @@ input:checked + .toggle-slider:before {
     color: #fff;
     cursor: pointer;
     transition: background 0.2s;
+    column-gap: 12px;
 }
 
 .playlist-song-row:hover {
@@ -4146,27 +4152,14 @@ input:checked + .toggle-slider:before {
 }
 
 .ps-row-num {
+    grid-column: 1;
     width: 40px;
     text-align: center;
     color: #b3b3b3;
 }
 
-.playlist-song-row:hover .ps-row-num {
-    display: none;
-}
-
-.ps-row-play-icon {
-    display: none;
-    width: 40px;
-    text-align: center;
-    color: #fff;
-}
-
-.playlist-song-row:hover .ps-row-play-icon {
-    display: block;
-}
-
 .ps-row-art {
+    grid-column: 2;
     width: 40px;
     height: 40px;
     border-radius: 4px;
@@ -4181,6 +4174,7 @@ input:checked + .toggle-slider:before {
 }
 
 .ps-row-title {
+    grid-column: 3;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -4202,23 +4196,12 @@ input:checked + .toggle-slider:before {
     text-overflow: ellipsis;
 }
 
-.ps-row-album {
-    color: #b3b3b3;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.ps-row-date {
-    color: #b3b3b3;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 .ps-row-duration {
+    grid-column: 4;
     color: #b3b3b3;
-    text-align: right;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
 }
 
 /* Empty State */

@@ -656,9 +656,21 @@
         }
 
         // Build 2x2 mosaic from track artwork
-        function buildMosaic(tracks) {
+        function buildMosaic(tracks, playlist) {
             var mosaic = document.getElementById('playlist-mosaic');
             mosaic.innerHTML = '';
+
+            // Liked Songs shows heart icon, not collage
+            if (playlist && playlist.is_liked) {
+                var item = document.createElement('div');
+                item.className = 'playlist-mosaic-item';
+                item.style.gridColumn = '1 / -1';
+                item.style.gridRow = '1 / -1';
+                item.style.background = 'linear-gradient(135deg, #450a5c 0%, #1e3a8a 50%, #450a5c 100%)';
+                item.innerHTML = '<i class="fa-solid fa-heart" style="font-size: 4rem; color: #1ed760;"></i>';
+                mosaic.appendChild(item);
+                return;
+            }
 
             if (!tracks || tracks.length === 0) {
                 // Empty playlist - show placeholder with music note
@@ -2908,10 +2920,14 @@
                     ownerName + ' • ' + formatTotalDuration(tracks);
 
                 // Build mosaic and extract color
-                buildMosaic(tracks);
+                buildMosaic(tracks, pl);
 
                 // Get first artwork for color extraction
-                if (tracks.length > 0 && tracks[0].track && tracks[0].track.artwork) {
+                if (pl && pl.is_liked) {
+                    // Liked Songs uses a purple gradient like in the library
+                    document.getElementById('playlist-gradient').style.background =
+                        'linear-gradient(180deg, #4a1a6b 0%, #121212 300px)';
+                } else if (tracks.length > 0 && tracks[0].track && tracks[0].track.album && tracks[0].track.album.artwork_path) {
                     var artUrl = withBase('/tracks/' + tracks[0].track.id + '/artwork?v=' + Date.now());
                     var color = await extractDominantColor(artUrl);
                     var hex = rgbToHex(color);
@@ -2940,23 +2956,18 @@
 
                         var track = pt.track;
                         var artistName = getArtistDisplay(track) || 'Unknown Artist';
-                        var albumName = track.album || '—';
-                        var dateAdded = pt.added_at ? formatDateAdded(pt.added_at) : '—';
                         var duration = formatDuration(track.duration);
 
-                        var artworkUrl = track.artwork ?
+                        var artworkUrl = (track.album && track.album.artwork_path) ?
                             withBase('/tracks/' + track.id + '/artwork?v=' + (track.updated_at || '')) : '';
 
                         row.innerHTML =
                             '<span class="ps-row-num">' + (i + 1) + '</span>' +
-                            '<span class="ps-row-play-icon"><i class="fa-solid fa-play"></i></span>' +
                             '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +
                             '<span class="ps-row-title">' +
                             '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
                             '<span class="ps-row-title-artist">' + artistName + '</span>' +
                             '</span>' +
-                            '<span class="ps-row-album">' + albumName + '</span>' +
-                            '<span class="ps-row-date">' + dateAdded + '</span>' +
                             '<span class="ps-row-duration">' + duration + '</span>';
 
                         // Click on title starts playback
@@ -3022,10 +3033,6 @@
                 // Small delay between downloads
                 await new Promise(function(resolve) { setTimeout(resolve, 500); });
             }
-        });
-
-        document.getElementById('playlist-back').addEventListener('click', function() {
-            setActivePage("home");
         });
 
         document.getElementById("new-playlist-btn").addEventListener("click", async function() {
