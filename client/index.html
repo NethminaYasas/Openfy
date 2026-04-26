@@ -136,18 +136,38 @@
             </div>
 
             <div class="page" id="page-playlist">
-                <div class="section">
-                    <div class="playlist-header">
-                        <div class="playlist-cover" id="playlist-cover"></div>
-                        <div class="playlist-info">
+                <div class="playlist-gradient" id="playlist-gradient"></div>
+                <div class="playlist-header-section">
+                    <button class="back-btn" id="playlist-back"><i class="fa-solid fa-chevron-left"></i></button>
+                    <div class="playlist-header-main">
+                        <div class="playlist-mosaic" id="playlist-mosaic"></div>
+                        <div class="playlist-header-info">
                             <p class="playlist-type" id="playlist-type">Playlist</p>
                             <h1 id="playlist-name"></h1>
                             <p class="playlist-meta" id="playlist-meta"></p>
                         </div>
                     </div>
                 </div>
-                <div class="section">
-                    <div class="playlist-tracks" id="playlist-tracks"></div>
+                <div class="playlist-actions" id="playlist-actions">
+                    <button class="playlist-play-btn" id="playlist-play-btn">
+                        <i class="fa-solid fa-play"></i>
+                    </button>
+                    <button class="playlist-shuffle-btn" id="playlist-shuffle-btn">
+                        <i class="fa-solid fa-shuffle"></i>
+                    </button>
+                    <button class="playlist-download-btn" id="playlist-download-btn">
+                        <i class="fa-solid fa-download"></i>
+                    </button>
+                </div>
+                <div class="playlist-songs-container">
+                    <div class="playlist-songs-header">
+                        <span class="ps-col-num">#</span>
+                        <span class="ps-col-title">Title</span>
+                        <span class="ps-col-album">Album</span>
+                        <span class="ps-col-date">Date added</span>
+                        <span class="ps-col-duration"><i class="fa-regular fa-clock"></i></span>
+                    </div>
+                    <div class="playlist-songs-list" id="playlist-songs-list"></div>
                 </div>
             </div>
 
