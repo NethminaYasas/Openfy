@@ -591,6 +591,190 @@
             return (track.artist && track.artist.name) ? track.artist.name : "Unknown";
         }
 
+        // Extract average color from image URL using canvas
+        function extractDominantColor(imageUrl) {
+            return new Promise(function(resolve) {
+                var img = new Image();
+                img.crossOrigin = 'Anonymous';
+                img.onload = function() {
+                    var canvas = document.createElement('canvas');
+                    var ctx = canvas.getContext('2d');
+
+                    // Scale down for performance
+                    var size = 50;
+                    canvas.width = size;
+                    canvas.height = size;
+
+                    ctx.drawImage(img, 0, 0, size, size);
+
+                    var imageData = ctx.getImageData(0, 0, size, size);
+                    var data = imageData.data;
+
+                    var r = 0, g = 0, b = 0;
+                    var count = 0;
+
+                    for (var i = 0; i < data.length; i += 4) {
+                        // Skip transparent pixels
+                        if (data[i + 3] > 128) {
+                            r += data[i];
+                            g += data[i + 1];
+                            b += data[i + 2];
+                            count++;
+                        }
+                    }
+
+                    if (count === 0) {
+                        resolve('#535353');
+                        return;
+                    }
+
+                    r = Math.round(r / count);
+                    g = Math.round(g / count);
+                    b = Math.round(b / count);
+
+                    resolve('rgb(' + r + ', ' + g + ', ' + b + ')');
+                };
+
+                img.onerror = function() {
+                    resolve('#535353');
+                };
+
+                img.src = imageUrl;
+            });
+        }
+
+        // Convert RGB string to hex
+        function rgbToHex(rgb) {
+            var match = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            if (!match) return '#535353';
+
+            var r = parseInt(match[1]).toString(16).padStart(2, '0');
+            var g = parseInt(match[2]).toString(16).padStart(2, '0');
+            var b = parseInt(match[3]).toString(16).padStart(2, '0');
+
+            return '#' + r + g + b;
+        }
+
+        // Build 2x2 mosaic from track artwork
+        function buildMosaic(tracks) {
+            var mosaic = document.getElementById('playlist-mosaic');
+            mosaic.innerHTML = '';
+
+            if (!tracks || tracks.length === 0) {
+                // Empty playlist - show placeholder with music note
+                var item = document.createElement('div');
+                item.className = 'playlist-mosaic-item';
+                item.style.gridColumn = '1 / -1';
+                item.style.gridRow = '1 / -1';
+                item.innerHTML = '<i class="fa-solid fa-music"></i>';
+                mosaic.appendChild(item);
+                return;
+            }
+
+            // Get up to 4 unique artwork URLs
+            var artworks = [];
+            tracks.forEach(function(pt) {
+                if (pt.track && pt.track.artwork && artworks.indexOf(pt.track.artwork) === -1) {
+                    artworks.push(pt.track.artwork);
+                }
+                if (artworks.length >= 4) return;
+            });
+
+            // Handle different playlist sizes
+            if (tracks.length === 1) {
+                // Single song - fill entire mosaic
+                var item = document.createElement('div');
+                item.className = 'playlist-mosaic-item';
+                item.style.gridColumn = '1 / -1';
+                item.style.gridRow = '1 / -1';
+                if (artworks.length > 0) {
+                    var img = document.createElement('img');
+                    img.src = withBase('/tracks/' + tracks[0].track.id + '/artwork?v=' + Date.now());
+                    item.appendChild(img);
+                }
+                mosaic.appendChild(item);
+                return;
+            }
+
+            if (tracks.length === 2) {
+                // 2 songs - duplicate in both rows
+                for (var i = 0; i < 4; i++) {
+                    var item = document.createElement('div');
+                    item.className = 'playlist-mosaic-item';
+                    var artIndex = i < 2 ? 0 : 1;
+                    if (artworks[artIndex]) {
+                        var img = document.createElement('img');
+                        img.src = withBase('/tracks/' + tracks[artIndex].track.id + '/artwork?v=' + Date.now());
+                        item.appendChild(img);
+                    }
+                    mosaic.appendChild(item);
+                }
+                return;
+            }
+
+            if (tracks.length === 3) {
+                // 3 songs - 3 thumbnails + 1 placeholder
+                for (var i = 0; i < 3; i++) {
+                    var item = document.createElement('div');
+                    item.className = 'playlist-mosaic-item';
+                    if (artworks[i]) {
+                        var img = document.createElement('img');
+                        img.src = withBase('/tracks/' + tracks[i].track.id + '/artwork?v=' + Date.now());
+                        item.appendChild(img);
+                    }
+                    mosaic.appendChild(item);
+                }
+                // Placeholder for 4th
+                var placeholder = document.createElement('div');
+                placeholder.className = 'playlist-mosaic-item';
+                placeholder.style.background = '#282828';
+                mosaic.appendChild(placeholder);
+                return;
+            }
+
+            // 4+ songs - standard 2x2
+            for (var i = 0; i < 4; i++) {
+                var item = document.createElement('div');
+                item.className = 'playlist-mosaic-item';
+                if (artworks[i]) {
+                    var img = document.createElement('img');
+                    img.src = withBase('/tracks/' + tracks[i].track.id + '/artwork?v=' + Date.now());
+                    item.appendChild(img);
+                }
+                mosaic.appendChild(item);
+            }
+        }
+
+        // Format total duration from tracks
+        function formatTotalDuration(tracks) {
+            if (!tracks || tracks.length === 0) return '0 songs';
+
+            var totalMs = 0;
+            tracks.forEach(function(pt) {
+                if (pt.track && pt.track.duration) {
+                    totalMs += pt.track.duration;
+                }
+            });
+
+            var totalMinutes = Math.floor(totalMs / 60000);
+            var hours = Math.floor(totalMinutes / 60);
+            var minutes = totalMinutes % 60;
+
+            if (hours === 0) {
+                return tracks.length + ' songs, ' + minutes + ' min';
+            }
+            return tracks.length + ' songs, ' + hours + ' hr ' + minutes + ' min';
+        }
+
+        // Format date added
+        function formatDateAdded(dateStr) {
+            if (!dateStr) return '—';
+
+            var date = new Date(dateStr);
+            var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return months[date.getMonth()] + ' ' + date.getDate() + ', ' + date.getFullYear();
+        }
+
         function seededColor(seed) {
             var hash = 0;
             for (var i = 0; i < seed.length; i++) { hash = seed.charCodeAt(i) + ((hash << 5) - hash); }
@@ -2725,76 +2909,137 @@
             try {
                 var pl = await api("/playlists/" + playlistId);
                 var tracks = await api("/playlists/" + playlistId + "/tracks");
-                document.getElementById("playlist-name").textContent = pl.name;
-                document.getElementById("playlist-type").textContent = pl.is_liked ? "Playlist" : "Playlist";
-                document.getElementById("playlist-meta").textContent = tracks.length + " songs";
-                var cover = document.getElementById("playlist-cover");
 
-                if (pl.is_liked) {
-                    // Liked Songs: gradient + heart
-                    cover.style.background = "linear-gradient(135deg,#450af5,#c4efd9)";
-                    cover.innerHTML = '<i class="fa-solid fa-heart"></i>';
+                // Get playlist owner info
+                var ownerName = pl.user ? pl.user.username : 'User';
+
+                // Update header
+                document.getElementById('playlist-name').textContent = pl.name;
+                document.getElementById('playlist-type').textContent = pl.is_public ? 'Public Playlist' : 'Private Playlist';
+                document.getElementById('playlist-meta').innerHTML =
+                    '<div class="playlist-meta-avatar"></div>' +
+                    ownerName + ' • ' + formatTotalDuration(tracks);
+
+                // Build mosaic and extract color
+                buildMosaic(tracks);
+
+                // Get first artwork for color extraction
+                if (tracks.length > 0 && tracks[0].track && tracks[0].track.artwork) {
+                    var artUrl = withBase('/tracks/' + tracks[0].track.id + '/artwork?v=' + Date.now());
+                    var color = await extractDominantColor(artUrl);
+                    var hex = rgbToHex(color);
+                    document.getElementById('playlist-gradient').style.background =
+                        'linear-gradient(180deg, ' + hex + ' 0%, #121212 300px)';
                 } else {
-                    // Regular playlist: try loading collage image
-                    var img = document.createElement("img");
-                    img.src = withBase("/playlists/" + playlistId + "/cover?v=" + Date.now());
-                    img.style.width = "100%";
-                    img.style.height = "100%";
-                    img.style.objectFit = "cover";
-                    img.onerror = function() {
-                        // Collage not available (<4 tracks, no artwork, etc.)
-                        cover.style.background = "#282828";
-                        cover.innerHTML = '<svg class="playlist-cover-icon" viewBox="292 128 156 156" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Playlist"><title>Playlist icon</title><desc>A music note/playlist icon</desc><g transform="translate(297, 133) scale(6.667)"><path fill="currentColor" d="M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z"/></g></svg>';
-                    };
-                    cover.style.background = "transparent";
-                    cover.innerHTML = "";
-                    cover.appendChild(img);
+                    document.getElementById('playlist-gradient').style.background =
+                        'linear-gradient(180deg, #535353 0%, #121212 300px)';
                 }
-                var container = document.getElementById("playlist-tracks");
-                container.innerHTML = "";
-                tracks.forEach(function(pt, i) {
-                    var row = document.createElement("div");
-                    row.className = "playlist-track-row";
-                    var artSpan = document.createElement("span");
-                    artSpan.className = "pt-art";
-                    var artImg = document.createElement("img");
-                    artImg.src = withBase("/tracks/" + pt.track.id + "/artwork?v=" + encodeURIComponent(pt.track.updated_at || ""));
-                    artImg.alt = pt.track.title || "";
-                    artImg.onerror = function() { artImg.style.display = "none"; artSpan.style.background = "#282828"; };
-                    artSpan.appendChild(artImg);
 
-                    var num = document.createElement("span");
-                    num.className = "pt-num";
-                    num.textContent = String(i + 1);
+                // Build song list
+                var container = document.getElementById('playlist-songs-list');
+                container.innerHTML = '';
 
-                    var title = document.createElement("span");
-                    title.className = "pt-title";
-                    title.textContent = pt.track.title || "";
+                if (tracks.length === 0) {
+                    container.innerHTML =
+                        '<div class="playlist-empty-state">' +
+                        '<i class="fa-solid fa-music"></i>' +
+                        '<p>No songs yet</p>' +
+                        '<span>Add songs to get started</span>' +
+                        '</div>';
+                } else {
+                    tracks.forEach(function(pt, i) {
+                        var row = document.createElement('div');
+                        row.className = 'playlist-song-row';
 
-                    var artist = document.createElement("span");
-                    artist.className = "pt-artist";
-                    artist.textContent = getArtistDisplay(pt.track) || "";
+                        var track = pt.track;
+                        var artistName = getArtistDisplay(track) || 'Unknown Artist';
+                        var albumName = track.album || '—';
+                        var dateAdded = pt.added_at ? formatDateAdded(pt.added_at) : '—';
+                        var duration = formatDuration(track.duration);
 
-                    var duration = document.createElement("span");
-                    duration.className = "pt-duration";
-                    duration.textContent = formatDuration(pt.track.duration);
+                        var artworkUrl = track.artwork ?
+                            withBase('/tracks/' + track.id + '/artwork?v=' + (track.updated_at || '')) : '';
 
-                    row.appendChild(num);
-                    row.appendChild(artSpan);
-                    row.appendChild(title);
-                    row.appendChild(artist);
-                    row.appendChild(duration);
+                        row.innerHTML =
+                            '<span class="ps-row-num">' + (i + 1) + '</span>' +
+                            '<span class="ps-row-play-icon"><i class="fa-solid fa-play"></i></span>' +
+                            '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +
+                            '<span class="ps-row-title">' +
+                            '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
+                            '<span class="ps-row-title-artist">' + artistName + '</span>' +
+                            '</span>' +
+                            '<span class="ps-row-album">' + albumName + '</span>' +
+                            '<span class="ps-row-date">' + dateAdded + '</span>' +
+                            '<span class="ps-row-duration">' + duration + '</span>';
 
-                    title.addEventListener("click", function() {
-                        setQueueFromList(tracks.map(function(t) { return t.track; }), i);
-                        if (currentQueue.length) playTrack(currentQueue[0]);
+                        // Click on title starts playback
+                        row.addEventListener('click', function() {
+                            setQueueFromList(tracks.map(function(t) { return t.track; }), i);
+                            if (currentQueue.length) playTrack(currentQueue[0]);
+                        });
+
+                        container.appendChild(row);
                     });
-                    title.style.cursor = "pointer";
-                    container.appendChild(row);
-                });
+                }
+
+                // Store tracks for play button
+                window.currentPlaylistTracks = tracks;
+
                 setActivePage("playlist");
             } catch (err) { console.error(err); }
         }
+
+        // Playlist action button handlers
+        document.getElementById('playlist-play-btn').addEventListener('click', function() {
+            var tracks = window.currentPlaylistTracks;
+            if (!tracks || tracks.length === 0) return;
+
+            // Clear queue and add playlist tracks
+            currentQueue = tracks.map(function(t) { return t.track; });
+            if (currentQueue.length) {
+                playTrack(currentQueue[0]);
+            }
+        });
+
+        document.getElementById('playlist-shuffle-btn').addEventListener('click', function() {
+            this.classList.toggle('active');
+            // If enabling shuffle and playback is active, randomize the queue
+            if (this.classList.contains('active') && currentQueue.length > 0) {
+                // Fisher-Yates shuffle from current position
+                var currentIndex = currentQueueIndex;
+                for (var i = currentQueue.length - 1; i > currentIndex; i--) {
+                    var j = Math.floor(Math.random() * (i - currentIndex + 1)) + currentIndex;
+                    var _ref = [currentQueue[j], currentQueue[i]];
+                    currentQueue[i] = _ref[0];
+                    currentQueue[j] = _ref[1];
+                }
+            }
+        });
+
+        document.getElementById('playlist-download-btn').addEventListener('click', async function() {
+            var tracks = window.currentPlaylistTracks;
+            if (!tracks || tracks.length === 0) return;
+
+            // Download each track - triggers browser download
+            for (var i = 0; i < tracks.length; i++) {
+                var track = tracks[i].track;
+                var url = withBase('/tracks/' + track.id + '/file');
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = (track.title || 'track') + '.mp3';
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                // Small delay between downloads
+                await new Promise(function(resolve) { setTimeout(resolve, 500); });
+            }
+        });
+
+        document.getElementById('playlist-back').addEventListener('click', function() {
+            setActivePage("home");
+        });
 
         document.getElementById("new-playlist-btn").addEventListener("click", async function() {
             try { await api("/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "My Playlist" }) }); loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
