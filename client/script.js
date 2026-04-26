@@ -4680,15 +4680,12 @@
                     const rowKey = `${idPrefix}-${rowIndex}`;
                     if (!(rowKey in scrollPositions)) {
                         scrollPositions[rowKey] = 0;
+                        trackRow.style.transform = 'translateX(0)';
                     }
 
-                    // Reset scroll position to 0 when layout changes
-                    scrollPositions[rowKey] = 0;
-                    trackRow.style.transform = 'translateX(0)';
-
                     const maxScroll = Math.max(0, trackRow.scrollWidth - rowContainer.clientWidth);
-                    const isAtStart = true; // Always at start after reset
-                    const isAtEnd = maxScroll <= 0;
+                    const isAtStart = scrollPositions[rowKey] <= 0;
+                    const isAtEnd = scrollPositions[rowKey] >= maxScroll;
 
                     // Remove all visibility classes first
                     prevBtn.classList.remove('hidden', 'visible', 'prev-visible', 'next-visible');
