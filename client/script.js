@@ -630,53 +630,110 @@
         }
 
         // Extract average color from image URL using canvas
-        function extractDominantColor(imageUrl) {
+        function rgbToHsl(r, g, b) {
+            r /= 255, g /= 255, b /= 255;
+            var max = Math.max(r, g, b), min = Math.min(r, g, b);
+            var h, s, l = (max + min) / 2;
+            if (max == min) {
+                h = s = 0;
+            } else {
+                var d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return { h: h * 360, s: s, l: l };
+        }
+
+        function hslToRgb(h, s, l) {
+            h /= 360;
+            var r, g, b;
+            if (s == 0) {
+                r = g = b = l;
+            } else {
+                var hue2rgb = function(p, q, t) {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1 / 6) return p + (q - p) * 6 * t;
+                    if (t < 1 / 2) return q;
+                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                    return p;
+                };
+                var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                var p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1 / 3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1 / 3);
+            }
+            return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255), l: l };
+        }
+
+        function extractVibrantColors(imageUrl) {
             return new Promise(function(resolve) {
                 var img = new Image();
                 img.crossOrigin = 'Anonymous';
                 img.onload = function() {
                     var canvas = document.createElement('canvas');
                     var ctx = canvas.getContext('2d');
-
-                    // Scale down for performance
                     var size = 50;
                     canvas.width = size;
                     canvas.height = size;
-
                     ctx.drawImage(img, 0, 0, size, size);
+                    var data = ctx.getImageData(0, 0, size, size).data;
 
-                    var imageData = ctx.getImageData(0, 0, size, size);
-                    var data = imageData.data;
-
-                    var r = 0, g = 0, b = 0;
-                    var count = 0;
-
-                    for (var i = 0; i < data.length; i += 4) {
-                        // Skip transparent pixels
-                        if (data[i + 3] > 128) {
-                            r += data[i];
-                            g += data[i + 1];
-                            b += data[i + 2];
-                            count++;
+                    var colorBucket = [];
+                    for (var i = 0; i < data.length; i += 16) {
+                        if (data[i + 3] > 200) {
+                            var r = data[i], g = data[i+1], b = data[i+2];
+                            var hsl = rgbToHsl(r, g, b);
+                            // Weight: high saturation and balanced lightness are vibrant
+                            var weight = hsl.s * (1 - Math.abs(hsl.l - 0.5) * 2);
+                            colorBucket.push({ r, g, b, h: hsl.h, s: hsl.s, l: hsl.l, weight: weight });
                         }
                     }
 
-                    if (count === 0) {
-                        resolve('#535353');
+                    if (colorBucket.length === 0) {
+                        resolve(['#282828', '#121212']);
                         return;
                     }
 
-                    r = Math.round(r / count);
-                    g = Math.round(g / count);
-                    b = Math.round(b / count);
+                    colorBucket.sort((a, b) => b.weight - a.weight);
 
-                    resolve('rgb(' + r + ', ' + g + ', ' + b + ')');
+                    var color1 = colorBucket[0];
+                    var color2 = null;
+
+                    // Find an analogous color (hue difference < 40 degrees) for smooth blending
+                    for (var i = 1; i < colorBucket.length; i++) {
+                        var c = colorBucket[i];
+                        var hueDiff = Math.abs(c.h - color1.h);
+                        if (hueDiff > 2 && hueDiff < 40) {
+                            color2 = c;
+                            break;
+                        }
+                    }
+
+                    if (!color2) color2 = colorBucket[Math.min(5, colorBucket.length - 1)];
+
+                    // Normalize vibrancy: cap lightness and saturation for Spotify-like atmospheric look
+                    var pairs = [color1, color2].map(c => {
+                        var h = c.h, s = c.s, l = c.l;
+                        // Spotify gradients are very muted and dark.
+                        // Cap lightness to ~25% and saturation to ~40% to ensure an atmospheric, non-bright look.
+                        var targetL = Math.min(Math.max(l, 0.15), 0.25);
+                        var targetS = Math.min(s, 0.4);
+                        return hslToRgb(h, targetS, targetL);
+                    }).sort((a, b) => b.l - a.l);
+
+                    resolve([
+                        `rgb(${pairs[0].r}, ${pairs[0].g}, ${pairs[0].b})`,
+                        `rgb(${pairs[1].r}, ${pairs[1].g}, ${pairs[1].b})`
+                    ]);
                 };
-
-                img.onerror = function() {
-                    resolve('#535353');
-                };
-
+                img.onerror = () => resolve(['#282828', '#121212']);
                 img.src = imageUrl;
             });
         }
@@ -3273,13 +3330,15 @@
                     document.getElementById('playlist-shuffle-btn').classList.remove('active');
                 }
 
-                // Gradient background: Liked Songs uses purple, others use static gray since cover provides visual
                 if (pl && pl.is_liked) {
                     document.getElementById('playlist-gradient').style.background =
-                        'linear-gradient(180deg, #4a1a6b 0%, #121212 300px)';
+                        'linear-gradient(180deg, #4a1a6b 0%, #121212 100%)';
                 } else {
-                    document.getElementById('playlist-gradient').style.background =
-                        'linear-gradient(180deg, #282828 0%, #121212 300px)';
+                    const coverUrl = withBase("/playlists/" + pl.id + "/cover?v=" + Date.now());
+                    extractVibrantColors(coverUrl).then(colors => {
+                        document.getElementById('playlist-gradient').style.background =
+                            `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
+                    });
                 }
 
                 // Build song list

@@ -4029,8 +4029,8 @@ input:checked + .toggle-slider:before {
     top: 0;
     left: 0;
     right: 0;
-    height: 400px;
-    background: linear-gradient(180deg, #535353 0%, #121212 300px);
+    height: 480px;
+    background: linear-gradient(180deg, var(--playlist-color, #535353) 0%, #121212 100%);
     z-index: 0;
 }
 
@@ -4039,6 +4039,21 @@ input:checked + .toggle-slider:before {
     min-height: 100vh;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.playlist-bottom-panel {
+    background-color: rgba(18, 18, 18, 0.3);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 -4px 16px 0 rgba(0, 0, 0, 0.2);
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 5rem;
 }
 
 /* Playlist Header Section */
@@ -4132,10 +4147,10 @@ input:checked + .toggle-slider:before {
 /* Playlist Actions */
 .playlist-actions {
     position: relative;
-    z-index: 1;
+    z-index: 2;
     display: flex;
     gap: 2rem;
-    padding: 0 2rem 2rem;
+    padding: 1.5rem 2rem;
     align-items: center;
 }
 
@@ -4214,6 +4229,7 @@ input:checked + .toggle-slider:before {
     position: relative;
     z-index: 1;
     padding: 0 2rem;
+    flex: 1;
 }
 
 .playlist-songs-header {
@@ -4228,7 +4244,9 @@ input:checked + .toggle-slider:before {
     letter-spacing: 0.1em;
     position: sticky;
     top: 0;
-    background: #121212;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     z-index: 10;
     column-gap: 12px;
 }
