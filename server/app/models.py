@@ -137,6 +137,8 @@ class User(Base):
         String(36), ForeignKey("tracks.id"), nullable=True
     )
     library_minimized: Mapped[bool] = mapped_column(Integer, default=0)
+    shuffle: Mapped[bool] = mapped_column(Integer, default=0)
+    repeat_state: Mapped[str] = mapped_column(String(20), default="off")
     queue_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -157,6 +159,7 @@ class Playlist(Base):
     )
     is_liked: Mapped[bool] = mapped_column(Integer, default=0)
     pinned: Mapped[bool] = mapped_column(Integer, default=0)
+    shuffle: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (

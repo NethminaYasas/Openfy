@@ -80,6 +80,7 @@ from .schemas import (
     UserOutPublic,
     UserUploadPreferenceUpdate,
     UserLibraryStateUpdate,
+    UserPlayerStateUpdate,
     UserQueueUpdate,
     AdminManualUploadSettingUpdate,
     SystemSettingsOut,
@@ -1298,6 +1299,8 @@ def update_playlist(
     # Allow pinned changes for any playlist (including Liked Songs)
     if payload.pinned is not None:
         playlist.pinned = 1 if payload.pinned else 0
+    if payload.shuffle is not None:
+        playlist.shuffle = 1 if payload.shuffle else 0
     db.commit()
     db.refresh(playlist)
     return playlist
@@ -1792,6 +1795,35 @@ def update_library_state(
     db.commit()
     db.refresh(user)
     return {"status": "updated", "library_minimized": bool(user.library_minimized)}
+
+
+@app.get("/user/player-state")
+def get_user_player_state(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get the user's saved player state (shuffle, repeat)"""
+    user = _require_user(db, x_auth_hash)
+    return {
+        "shuffle": bool(user.shuffle),
+        "repeat_state": user.repeat_state or "off"
+    }
+
+
+@app.put("/user/player-state")
+def update_user_player_state(
+    payload: UserPlayerStateUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update the user's saved player state"""
+    user = _require_user(db, x_auth_hash)
+    if payload.shuffle is not None:
+        user.shuffle = 1 if payload.shuffle else 0
+    if payload.repeat_state is not None:
+        user.repeat_state = payload.repeat_state
+    db.commit()
+    return {"status": "updated"}
 
 
 @app.get("/user/queue")

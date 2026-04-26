@@ -1638,7 +1638,8 @@ a {
     content: "1";
 }
 
-#btn-shuffle.active i {
+#btn-shuffle.active i,
+.playlist-shuffle-btn.active i {
     color: #1db954;
 }
 
@@ -4147,18 +4148,6 @@ input:checked + .toggle-slider:before {
 .playlist-shuffle-btn.active {
     color: #1db954;
     position: relative;
-}
-
-.playlist-shuffle-btn.active::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: #1db954;
 }
 
 /* Playlist Songs Container */

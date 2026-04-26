@@ -864,16 +864,6 @@
         }
 
         function setQueueFromList(list, startIndex) {
-            // Auto‑expand queue on first playback after page load
-            if (currentTrackId === null && !showFullQueue) {
-                showFullQueue = true;
-                if (npNextPanel) npNextPanel.classList.add('expanded');
-                const h3 = queueHeader && queueHeader.querySelector('h3');
-                if (h3) h3.textContent = 'QUEUE';
-                if (queueToggle) {
-                    // Icon transition handled via CSS .expanded class
-                }
-            }
 
             const arr = Array.isArray(list) ? list : [];
             if (!arr.length) {
@@ -1707,6 +1697,25 @@
             }
         }
 
+        async function loadUserPlayerState() {
+            if (!authHash) return;
+            try {
+                const data = await api("/user/player-state");
+                if (data) {
+                    if (data.shuffle !== undefined) {
+                        shuffle = !!data.shuffle;
+                        document.getElementById("btn-shuffle").classList.toggle("active", shuffle);
+                    }
+                    if (data.repeat_state) {
+                        repeatState = data.repeat_state;
+                        const btnRepeat = document.getElementById("btn-repeat");
+                        btnRepeat.classList.toggle("active", repeatState === "loop-once");
+                        btnRepeat.classList.toggle("loop-twice", repeatState === "loop-twice");
+                    }
+                }
+            } catch (err) { console.error("Failed to load player state:", err); }
+        }
+
         // Debounced queue save to avoid spamming API
         let queueSaveTimeout = null;
         function scheduleQueueSave() {
@@ -1728,6 +1737,14 @@
             } catch (err) {
                 console.error("Failed to save queue:", err);
             }
+        }
+
+        function savePlayerState() {
+            if (!authHash) return;
+            api("/user/player-state", {
+                method: "PUT",
+                body: JSON.stringify({ shuffle: shuffle, repeat_state: repeatState })
+            }).catch(err => console.error("Failed to save player state:", err));
         }
 
         // Save immediately on page unload using keepalive fetch
@@ -3006,6 +3023,7 @@
                 unshuffleQueue();
             }
             renderNowPlayingQueue();
+            savePlayerState();
         });
 
         btnRepeat.addEventListener("click", function(event) {
@@ -3025,6 +3043,7 @@
                 repeatCount = 0;
                 btnRepeat.classList.remove("active", "loop-twice");
             }
+            savePlayerState();
         });
 
         npLikeBtn.addEventListener("click", async function(event) {
@@ -3247,6 +3266,13 @@
                 // Build cover using server-generated collage (same as library) with mosaic fallback
                 buildPlaylistCover(tracks, pl);
 
+                // Update playlist shuffle button state
+                if (pl.shuffle) {
+                    document.getElementById('playlist-shuffle-btn').classList.add('active');
+                } else {
+                    document.getElementById('playlist-shuffle-btn').classList.remove('active');
+                }
+
                 // Gradient background: Liked Songs uses purple, others use static gray since cover provides visual
                 if (pl && pl.is_liked) {
                     document.getElementById('playlist-gradient').style.background =
@@ -3292,8 +3318,23 @@
                         row.addEventListener('click', function() {
                             setQueueFromList(tracks.map(function(t) { return t.track; }), i);
                             currentPlayingPlaylistId = currentPlaylistId;
+
+                            // Apply playlist's shuffle state to global state
+                            var playlistShuffle = document.getElementById('playlist-shuffle-btn').classList.contains('active');
+                            if (shuffle !== playlistShuffle) {
+                                shuffle = playlistShuffle;
+                                document.getElementById("btn-shuffle").classList.toggle("active", shuffle);
+                                if (shuffle) {
+                                    shuffleQueueOnce();
+                                } else {
+                                    unshuffleQueue();
+                                }
+                                scheduleQueueSave();
+                                savePlayerState();
+                            }
+
                             updateLibraryPlayingState();
-                            if (currentQueue.length) playTrack(currentQueue[0]);
+                            if (currentQueue.length) playTrack(currentQueue[currentIndex]);
                         });
 
                         container.appendChild(row);
@@ -3338,6 +3379,21 @@
             // Start playing this playlist
             currentQueue = tracks.map(function(t) { return t.track; });
             currentPlayingPlaylistId = currentPlaylistId;
+            
+            // Apply playlist's shuffle state to global state
+            var playlistShuffle = document.getElementById('playlist-shuffle-btn').classList.contains('active');
+            shuffle = playlistShuffle;
+            document.getElementById("btn-shuffle").classList.toggle("active", shuffle);
+            
+            if (shuffle) {
+                // If shuffle is on, we randomize the whole queue and start from the first one
+                // Simple shuffle for the initial load
+                for (let i = currentQueue.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [currentQueue[i], currentQueue[j]] = [currentQueue[j], currentQueue[i]];
+                }
+            }
+
             updateLibraryPlayingState();
             playlistPlayBtn.classList.add('playing');
             if (currentQueue.length) {
@@ -3345,18 +3401,30 @@
             }
         });
 
-        document.getElementById('playlist-shuffle-btn').addEventListener('click', function() {
-            this.classList.toggle('active');
-            // If enabling shuffle and playback is active, randomize the queue
-            if (this.classList.contains('active') && currentQueue.length > 0) {
-                // Fisher-Yates shuffle from current position
-                var currentIndex = currentQueueIndex;
-                for (var i = currentQueue.length - 1; i > currentIndex; i--) {
-                    var j = Math.floor(Math.random() * (i - currentIndex + 1)) + currentIndex;
-                    var _ref = [currentQueue[j], currentQueue[i]];
-                    currentQueue[i] = _ref[0];
-                    currentQueue[j] = _ref[1];
+        document.getElementById('playlist-shuffle-btn').addEventListener('click', async function() {
+            var isActive = this.classList.toggle('active');
+            
+            // Persist to server
+            if (currentPlaylistId) {
+                try {
+                    await api("/playlists/" + currentPlaylistId, {
+                        method: "PUT",
+                        body: JSON.stringify({ shuffle: isActive })
+                    });
+                } catch (err) { console.error("Failed to save shuffle state:", err); }
+            }
+
+            // If we are currently playing THIS playlist, sync the global shuffle state
+            if (currentPlayingPlaylistId === currentPlaylistId) {
+                shuffle = isActive;
+                document.getElementById("btn-shuffle").classList.toggle("active", shuffle);
+                if (shuffle) {
+                    shuffleQueueOnce();
+                } else {
+                    unshuffleQueue();
                 }
+                scheduleQueueSave();
+                renderNowPlayingQueue();
             }
         });
 
@@ -3624,6 +3692,7 @@
                 await loadTracks();
                 await loadPlaylists();
                 await loadUserUploads();
+                await loadUserPlayerState();
                 const hasQueue = await loadUserQueue();
                 if (!hasQueue) {
                     await loadLastTrackPaused();
@@ -3662,6 +3731,7 @@
                         await loadTracks();
                         await loadPlaylists();
                         await loadUserUploads();
+                        await loadUserPlayerState();
                         const hasQueue = await loadUserQueue();
                         if (!hasQueue) {
                             await loadLastTrackPaused();
@@ -3712,6 +3782,7 @@
             await loadTracks();
             await loadPlaylists();
             await loadUserUploads();
+            await loadUserPlayerState();
             const hasQueue = await loadUserQueue();
             if (!hasQueue) {
                 await loadLastTrackPaused();
