@@ -356,6 +356,12 @@ def _startup():
                 )
                 conn.commit()
 
+            if "is_public" not in pcols:
+                conn.execute(
+                    text("ALTER TABLE playlists ADD COLUMN is_public INTEGER DEFAULT 0")
+                )
+                conn.commit()
+
             # Ensure unique constraint/index on (user_hash, name) to prevent duplicate playlist names per user
             indexes = [
                 row[1]
@@ -1165,11 +1171,10 @@ def get_playlist(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    if not x_auth_hash:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = _get_user(db, x_auth_hash)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    user = None
+    if x_auth_hash:
+        user = _get_user(db, x_auth_hash)
+
     stmt = (
         select(Playlist)
         .options(selectinload(Playlist.user))
@@ -1178,8 +1183,19 @@ def get_playlist(
     playlist = db.execute(stmt).scalar_one_or_none()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    if playlist.user_hash != user.auth_hash and not user.is_admin:
+
+    # Check access: owner or admin can always access
+    # Public playlists can be accessed without auth
+    # Liked Songs is always private
+    is_owner = user and playlist.user_hash == user.auth_hash
+    is_admin = user and user.is_admin
+    is_public = playlist.is_public and not playlist.is_liked
+
+    if not is_owner and not is_admin and not is_public:
+        if not x_auth_hash:
+            raise HTTPException(status_code=401, detail="Not authenticated")
         raise HTTPException(status_code=403, detail="Not your playlist")
+
     return playlist
 
 
@@ -1191,7 +1207,7 @@ def get_playlist_cover(
 ):
     """
     Return a cached 500x500 JPEG collage of a playlist's first 4 tracks.
-    Requires authentication and playlist ownership (or admin).
+    Public playlists can be accessed without auth, private requires ownership.
     """
     import uuid
 
@@ -1200,11 +1216,25 @@ def get_playlist_cover(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid playlist ID format")
 
-    user = _require_user(db, x_auth_hash)
+    user = None
+    if x_auth_hash:
+        try:
+            user = _get_user(db, x_auth_hash)
+        except:
+            pass
+
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    if playlist.user_hash != user.auth_hash and not user.is_admin:
+
+    # Check access
+    is_owner = user and playlist.user_hash == user.auth_hash
+    is_admin = user and user.is_admin
+    is_public = playlist.is_public and not playlist.is_liked
+
+    if not is_owner and not is_admin and not is_public:
+        if not x_auth_hash:
+            raise HTTPException(status_code=401, detail="Not authenticated")
         raise HTTPException(status_code=403, detail="Not your playlist")
     if playlist.is_liked:
         raise HTTPException(status_code=404, detail="Liked Songs has no collage")
@@ -1305,6 +1335,9 @@ def update_playlist(
         playlist.pinned = 1 if payload.pinned else 0
     if payload.shuffle is not None:
         playlist.shuffle = 1 if payload.shuffle else 0
+    # Allow is_public changes for non-liked playlists (Liked Songs is always private)
+    if payload.is_public is not None and not playlist.is_liked:
+        playlist.is_public = 1 if payload.is_public else 0
     db.commit()
     db.refresh(playlist)
     return playlist
@@ -1316,16 +1349,24 @@ def list_playlist_tracks(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    if not x_auth_hash:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = _get_user(db, x_auth_hash)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid auth hash")
+    user = None
+    if x_auth_hash:
+        user = _get_user(db, x_auth_hash)
+
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    if playlist.user_hash != user.auth_hash and not user.is_admin:
+
+    # Check access
+    is_owner = user and playlist.user_hash == user.auth_hash
+    is_admin = user and user.is_admin
+    is_public = playlist.is_public and not playlist.is_liked
+
+    if not is_owner and not is_admin and not is_public:
+        if not x_auth_hash:
+            raise HTTPException(status_code=401, detail="Not authenticated")
         raise HTTPException(status_code=403, detail="Not your playlist")
+
     stmt = (
         select(PlaylistTrack)
         .options(
@@ -2137,3 +2178,30 @@ def delete_track(
             logger.warning("Failed to delete file for track %s at %s", track_id, safe_delete_target)
 
     return {"status": "deleted", "track": track_title}
+
+
+# Serve index.html for all frontend routes (SPA routing)
+_index_html_cache: str | None = None
+
+def _get_index_html() -> str:
+    global _index_html_cache
+    if _index_html_cache is None:
+        for candidate in [Path(__file__).resolve().parent.parent / "client" / "index.html",
+                          Path(__file__).resolve().parent.parent.parent / "client" / "index.html"]:
+            if candidate.exists():
+                _index_html_cache = candidate.read_text()
+                break
+    return _index_html_cache or "<!DOCTYPE html><html><body><h1>Not Found</h1></body></html>"
+
+
+@app.get("/{path:path}")
+async def serve_frontend(path: str):
+    """Serve index.html for all non-API routes to enable SPA client-side routing"""
+    # Skip API routes
+    if path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+    # Skip static files - let StaticFiles handle them
+    if path.startswith("static/"):
+        raise HTTPException(status_code=404, detail="File not found")
+    # Serve index.html for frontend routes
+    return HTMLResponse(content=_get_index_html())

@@ -555,7 +555,81 @@
             }
         }
 
-        function setActivePage(pageId) {
+        // URL Routing
+
+        function getFullUrl() {
+            return window.location.href;
+        }
+
+        function setUrl(path) {
+            const baseUrl = window.location.origin + window.location.pathname;
+            if (window.location.pathname !== path) {
+                history.pushState(null, '', path);
+            }
+        }
+
+        function navigateFromUrl() {
+            const path = window.location.pathname;
+            const hash = window.location.hash;
+
+            if (path === '/' || path === '' || path === '/home') {
+                setActivePage('home');
+            } else if (path === '/library') {
+                setActivePage('library');
+            } else if (path === '/settings') {
+                setActivePage('settings');
+            } else if (path === '/profile') {
+                setActivePage('profile');
+            } else if (path === '/admin') {
+                setActivePage('admin');
+            } else if (path.startsWith('/playlist/')) {
+                const playlistId = path.split('/playlist/')[1];
+                if (playlistId) {
+                    openPlaylistById(playlistId);
+                } else {
+                    setActivePage('home');
+                }
+            } else {
+                setActivePage('home');
+            }
+        }
+
+        // Handle browser back/forward
+        window.addEventListener('popstate', navigateFromUrl);
+
+        // Store intended URL before showing auth overlay
+        let intendedUrl = null;
+        function saveIntendedUrl() {
+            const path = window.location.pathname;
+            if (path !== '/' && path !== '' && path !== '/home' && path !== '/index.html') {
+                intendedUrl = path;
+                localStorage.setItem('openfy_intended_url', path);
+            } else {
+                intendedUrl = null;
+                localStorage.removeItem('openfy_intended_url');
+            }
+        }
+        saveIntendedUrl();
+
+        function getAndClearIntendedUrl() {
+            const url = localStorage.getItem('openfy_intended_url');
+            localStorage.removeItem('openfy_intended_url');
+            return url;
+        }
+
+        async function openPlaylistById(playlistId) {
+            currentPlaylistId = playlistId;
+            try {
+                var pl = await api("/playlists/" + playlistId);
+                openPlaylist(playlistId);
+                setActivePage("playlist", true);
+            } catch (err) {
+                console.error("Failed to open playlist:", err);
+                setActivePage("home");
+            }
+        }
+
+        function setActivePage(pageId, updateUrl = true) {
             Object.values(pages).forEach(function(p) { p.classList.remove("active"); });
             var target = pages[pageId] || pages.home;
             target.classList.add("active");
@@ -564,9 +638,29 @@
                 loadUserUploads();
                 refreshManualUploadSetting();
             }
+            if (pageId === "profile" && currentUser) {
+                populateProfilePage();
+            }
             // Add/remove page-specific classes on main container for styling
             document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
             document.getElementById('app-main').classList.toggle('playlist-page', pageId === 'playlist');
+
+            // Update URL based on page
+            if (updateUrl) {
+                if (pageId === 'home') {
+                    setUrl('/');
+                } else if (pageId === 'library') {
+                    setUrl('/library');
+                } else if (pageId === 'settings') {
+                    setUrl('/settings');
+                } else if (pageId === 'profile') {
+                    setUrl('/profile');
+                } else if (pageId === 'admin') {
+                    setUrl('/admin');
+                } else if (pageId === 'playlist' && currentPlaylistId) {
+                    setUrl('/playlist/' + currentPlaylistId);
+                }
+            }
 
             // Notify gradient manager about page navigation
             if (gradientManager) {
@@ -3291,7 +3385,7 @@
 
                 // Update header
                 document.getElementById('playlist-name').textContent = pl.name;
-                document.getElementById('playlist-type').textContent = pl.is_public ? 'Public Playlist' : 'Private Playlist';
+                document.getElementById('playlist-type').textContent = Boolean(pl.is_public) ? 'Public Playlist' : 'Private Playlist';
                 document.getElementById('playlist-meta').innerHTML =
                     '<div class="playlist-meta-avatar"></div>' +
                     ownerName + ' • ' + formatTotalDuration(tracks);
@@ -3305,6 +3399,14 @@
                 } else {
                     document.getElementById('playlist-shuffle-btn').classList.remove('active');
                 }
+
+                // Store playlist data for public toggle and update button
+                window.currentPlaylistData = pl;
+                const isOwner = currentUser && pl.user && pl.user.auth_hash === authHash;
+                // Convert to boolean - is_public and is_liked could be 0/1 from database
+                const isPublic = Boolean(pl.is_public);
+                const isLiked = Boolean(pl.is_liked);
+                updatePlaylistMenu(isPublic, isOwner, isLiked);
 
                 if (pl && pl.is_liked) {
                     document.getElementById('playlist-gradient').style.background =
@@ -3480,24 +3582,131 @@
             }
         });
 
-        document.getElementById('playlist-download-btn').addEventListener('click', async function() {
-            var tracks = window.currentPlaylistTracks;
-            if (!tracks || tracks.length === 0) return;
+        // Playlist menu button and dropdown
+        var playlistMenuBtn = document.getElementById("playlist-menu-btn");
+        var playlistMenuDropdown = document.getElementById("playlist-menu-dropdown");
+        var playlistVisibilityItem = document.getElementById("playlist-visibility-item");
+        var playlistVisibilityIcon = document.getElementById("playlist-visibility-icon");
+        var playlistVisibilityText = document.getElementById("playlist-visibility-text");
 
-            // Download each track - triggers browser download
-            for (var i = 0; i < tracks.length; i++) {
-                var track = tracks[i].track;
-                var url = withBase('/tracks/' + track.id + '/file');
-                var a = document.createElement('a');
-                a.href = url;
-                a.download = (track.title || 'track') + '.mp3';
-                a.target = '_blank';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+        // Make button visible by default
+        if (playlistMenuBtn) {
+            playlistMenuBtn.classList.remove("hidden");
+        }
 
-                // Small delay between downloads
-                await new Promise(function(resolve) { setTimeout(resolve, 500); });
+        // Playlist menu button - open full context menu
+        if (playlistMenuBtn) {
+            playlistMenuBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // Get current playlist data
+                const playlistData = window.currentPlaylistData;
+                if (!playlistData) return;
+
+                // Show the context menu to the right of the button
+                const menuRect = playlistMenuBtn.getBoundingClientRect();
+                const menuWidth = 180;
+                const menuHeight = 200;
+                let x = menuRect.right + 5;
+                let y = menuRect.top;
+
+                // Adjust if near edges
+                if (x + menuWidth > window.innerWidth) x = menuRect.left - menuWidth - 5;
+                if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
+
+                contextMenu.style.left = x + "px";
+                contextMenu.style.top = y + "px";
+
+                // Update menu items for the current playlist
+                const pinSpan = ctxPin.querySelector("span");
+                pinSpan.textContent = playlistData.pinned ? "Unpin" : "Pin";
+                const pinIcon = ctxPin.querySelector("svg .pin-path");
+                if (pinIcon) {
+                    if (playlistData.pinned) {
+                        pinIcon.setAttribute("d", "M8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                        pinIcon.setAttribute("fill", "#1ed760");
+                    } else {
+                        pinIcon.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
+                        pinIcon.setAttribute("fill", "#b3b3b3");
+                    }
+                }
+
+                // Disable options for Liked Songs
+                if (playlistData.is_liked) {
+                    ctxRename.classList.add("disabled");
+                    ctxRemove.classList.add("disabled");
+                    ctxPin.classList.remove("disabled");
+                } else {
+                    ctxRename.classList.remove("disabled");
+                    ctxRemove.classList.remove("disabled");
+                    ctxPin.classList.remove("disabled");
+                }
+
+                // Show playlist items, hide track-specific items
+                ctxPin.style.display = '';
+                ctxRename.style.display = '';
+                ctxRemove.style.display = '';
+                ctxTrackAddPlaylist.style.display = 'none';
+                ctxTrackAddQueue.style.display = 'none';
+                ctxPlaylistSubmenu.classList.remove('visible');
+                ctxSubmenuItems.innerHTML = '';
+
+                // Set current context
+                currentContextPlaylist = playlistData;
+                currentContextTrack = null;
+
+                // Show the context menu overlay
+                contextMenuOverlay.style.display = "block";
+            };
+        }
+
+        // Update visibility option in menu
+        function updatePlaylistMenu(isPublic, isOwner, isLiked) {
+            // Always show the button for now (for testing)
+            // TODO: Re-enable ownership check after testing
+            playlistMenuBtn.classList.remove("hidden");
+
+            // Only show visibility toggle for own playlists (not Liked Songs)
+            if (isLiked || !isOwner) {
+                playlistVisibilityItem.style.display = "none";
+            } else {
+                playlistVisibilityItem.style.display = "flex";
+                if (isPublic) {
+                    playlistVisibilityIcon.className = "fa-solid fa-lock";
+                    playlistVisibilityText.textContent = "Make Private";
+                } else {
+                    playlistVisibilityIcon.className = "fa-solid fa-globe";
+                    playlistVisibilityText.textContent = "Make Public";
+                }
+            }
+        }
+
+        // Toggle visibility when clicking the menu item
+        playlistVisibilityItem.addEventListener('click', async function() {
+            if (!currentPlaylistId || !currentUser) return;
+
+            // Get current state from the playlist data
+            const currentPlaylist = window.currentPlaylistData;
+            if (!currentPlaylist) return;
+
+            const newPublicState = !currentPlaylist.is_public;
+
+            try {
+                await api("/playlists/" + currentPlaylistId, {
+                    method: "PUT",
+                    body: JSON.stringify({ is_public: newPublicState })
+                });
+                currentPlaylist.is_public = newPublicState;
+                // Update the "Public/Private Playlist" text
+                document.getElementById('playlist-type').textContent = newPublicState ? 'Public Playlist' : 'Private Playlist';
+                // Update menu
+                const isOwner = currentUser && currentPlaylist.user && currentPlaylist.user.auth_hash === authHash;
+                updatePlaylistMenu(newPublicState, isOwner, false);
+                // Close menu
+                playlistMenuDropdown.classList.remove("visible");
+            } catch (err) {
+                console.error("Failed to toggle public state:", err);
             }
         });
 
@@ -3763,6 +3972,14 @@
 
                 // Start the update checker
                 startUpdateChecker();
+
+                // Handle URL routing on initial load
+                const urlToNavigate = getAndClearIntendedUrl();
+                if (urlToNavigate) {
+                    navigateFromUrl();
+                } else {
+                    setActivePage('home');
+                }
             } catch (err) { document.getElementById("signin-status").textContent = err.message; }
         });
 
@@ -3804,6 +4021,14 @@
 
                         // Start the update checker
                         startUpdateChecker();
+
+                        // Handle URL routing on initial load
+                        const urlToNavigate = getAndClearIntendedUrl();
+                        if (urlToNavigate) {
+                            navigateFromUrl();
+                        } else {
+                            setActivePage('home');
+                        }
 
                         return true;
                     }
@@ -5645,17 +5870,20 @@
         });
 
 
-        // Initialize page state - this will properly set the home-page class
-        setActivePage('home');
+        // Initialize page state - navigate based on URL after auth check
         (async function() {
             var ok = await tryAutoLogin();
             if (!ok) {
                 authOverlay.style.display = "flex";
                 appMain.style.display = "none";
+                // Save intended URL for after login
+                saveIntendedUrl();
             } else {
-                loadTracks();
-                loadMostPlayed();
-                loadPlaylists();
-                loadUserUploads();
+                await loadTracks();
+                await loadMostPlayed();
+                await loadPlaylists();
+                await loadUserUploads();
             }
+            // Navigate to the URL (or home if no specific URL)
+            navigateFromUrl();
         })();

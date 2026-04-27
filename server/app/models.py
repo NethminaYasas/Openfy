@@ -161,6 +161,7 @@ class Playlist(Base):
     is_liked: Mapped[bool] = mapped_column(Integer, default=0)
     pinned: Mapped[bool] = mapped_column(Integer, default=0)
     shuffle: Mapped[bool] = mapped_column(Integer, default=0)
+    is_public: Mapped[bool] = mapped_column(Integer, default=0)  # 0 = private, 1 = public
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (

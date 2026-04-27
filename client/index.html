@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="icon" href="/static/images/logo.png">
     <title>Openfy - Web Player</title>
-    <link rel="stylesheet" href="/static/styles.css?v=35">
+    <link rel="stylesheet" href="/static/styles.css?v=38">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap" rel="stylesheet">
@@ -162,9 +162,15 @@
                         <button class="playlist-shuffle-btn" id="playlist-shuffle-btn">
                             <i class="fa-solid fa-shuffle"></i>
                         </button>
-                        <button class="playlist-download-btn" id="playlist-download-btn">
-                            <i class="fa-solid fa-download"></i>
+                        <button type="button" class="playlist-menu-btn" id="playlist-menu-btn" title="More options">
+                            <i class="fa-solid fa-ellipsis"></i>
                         </button>
+                        <div class="playlist-menu-dropdown" id="playlist-menu-dropdown" style="display: none;">
+                            <div class="playlist-menu-item" id="playlist-visibility-item">
+                                <i class="fa-solid fa-globe" id="playlist-visibility-icon"></i>
+                                <span id="playlist-visibility-text">Make Public</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="playlist-songs-container">
                         <div class="playlist-songs-header">
@@ -518,7 +524,7 @@
                 <span>Rename</span>
             </div>
             <div class="context-menu-item" id="ctx-remove">
-                <i class="fa-solid fa-trash"></i> <span>Remove</span>
+                <div class="context-menu-delete-icon"></div> <span>Delete</span>
             </div>
             <div class="context-menu-item has-submenu" id="ctx-track-add-playlist">
                 <i class="fa-solid fa-plus"></i>
@@ -612,6 +618,6 @@
         </div>
     </div>
 
-    <script src="/static/script.js?v=24"></script>
+    <script src="/static/script.js?v=33"></script>
 </body>
 </html>

@@ -72,6 +72,7 @@ class PlaylistUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     pinned: bool | None = None
     shuffle: bool | None = None
+    is_public: bool | None = None
 
 
 class PlaylistOut(BaseModel):
@@ -81,6 +82,7 @@ class PlaylistOut(BaseModel):
     is_liked: bool = False
     pinned: bool = False
     shuffle: bool = False
+    is_public: bool = False
     created_at: datetime
     user: Optional['UserOutPublic'] = None
 
