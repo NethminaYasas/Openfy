@@ -4384,6 +4384,9 @@
         }
 
         function showContextMenu(e, playlist) {
+            // Close any existing context menu first
+            hideContextMenu();
+
             currentContextPlaylist = playlist;
             currentContextTrack = null; // clear track context
             // Position menu near mouse
@@ -5008,6 +5011,20 @@
                 hideContextMenu();
             }
         });
+
+        // Global right-click handler in CAPTURE phase - runs BEFORE element handlers
+        document.addEventListener("contextmenu", function(e) {
+            // Check if target is a valid context menu item
+            var validTarget = e.target.closest('.track-card, .lib-item, .playlist-song-row, .np-queue-item');
+            if (validTarget) {
+                // On valid targets: close any existing menu, then let element handler show new one
+                hideContextMenu();
+                return;
+            }
+            // On empty space: prevent browser menu and close any menu
+            e.preventDefault();
+            hideContextMenu();
+        }, true);
 
         // Rename modal handlers
         function hideRenameModal() {
