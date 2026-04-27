@@ -41,12 +41,18 @@
             this.isHome = document.getElementById('app-main')?.classList.contains('home-page') || false;
             if (this.isHome) {
               this.show();
-              // Check if there's an active track and emit track changed event
-              setTimeout(() => {
-                if (this._hasActiveTrack()) {
-                  this._emitTrackChangedEvent();
-                }
-              }, 100);
+              // If track info was stored before init, fire the event now
+              if (window.__lastTrackForGradient) {
+                const track = window.__lastTrackForGradient;
+                const event = new CustomEvent('trackChanged', {
+                  detail: {
+                    artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
+                    title: track.title,
+                    artist: getArtistDisplay(track)
+                  }
+                });
+                document.dispatchEvent(event);
+              }
             }
           }
 
@@ -201,8 +207,9 @@
 
           _emitTrackChangedEvent() {
             // Use stored track info if available
-            if (this.currentTrackInfo && this.currentTrackInfo.title) {
-              const { artworkUrl, title, artist } = this.currentTrackInfo;
+            const track = this.currentTrackInfo || window.__lastTrackForGradient;
+            if (track && track.title) {
+              const { artworkUrl, title, artist } = track;
 
               // Emit event with stored info
               const event = new CustomEvent('trackChanged', {
@@ -281,7 +288,8 @@
 
         // Helper to emit track change event for gradient updates
         function emitTrackChanged(track) {
-            if (!gradientManager) return;
+            // Store track info for gradient manager to pick up if not yet initialized
+            window.__lastTrackForGradient = track;
             const event = new CustomEvent('trackChanged', {
                 detail: {
                     artworkUrl: withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")),
@@ -339,6 +347,9 @@
         let currentPlaylistId = null;
         let userPlaylists = [];
 
+
+        // Store last track info for gradient manager to pick up on init
+        window.__lastTrackForGradient = null;
         const tracksGrid = document.getElementById("tracks-grid");
         const mostPlayedGrid = document.getElementById("most-played-grid");
         const uploadsGrid = document.getElementById("uploads-grid");
@@ -4006,13 +4017,13 @@
                         await loadPlaylists();
                         await loadUserUploads();
                         await loadUserPlayerState();
+                        // Set home-page class and init gradient BEFORE loading last track
+                        document.getElementById('app-main').classList.add('home-page');
+                        initGradient();
                         const hasQueue = await loadUserQueue();
                         if (!hasQueue) {
                             await loadLastTrackPaused();
                         }
-                        // Set home-page class for successful auto-login (home page)
-                        document.getElementById('app-main').classList.add('home-page');
-                        initGradient();
 
                         // Refresh upload toggle to reflect server-stored preference
                         if (window.refreshUploadState) window.refreshUploadState();
