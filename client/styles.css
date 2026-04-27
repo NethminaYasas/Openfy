@@ -1309,6 +1309,11 @@ a {
     display: block;
 }
 
+#page-home {
+    position: relative;
+    z-index: 1;
+}
+
 /* Add padding under home page content so track cards can be shown over it */
 #page-home .section {
     padding-bottom: 3rem;

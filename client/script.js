@@ -4012,6 +4012,7 @@
                         }
                         // Set home-page class for successful auto-login (home page)
                         document.getElementById('app-main').classList.add('home-page');
+                        initGradient();
 
                         // Refresh upload toggle to reflect server-stored preference
                         if (window.refreshUploadState) window.refreshUploadState();
@@ -4071,6 +4072,7 @@
             }
             // Ensure home-page class is present when returning to main app (home page)
             document.getElementById('app-main').classList.add('home-page');
+            initGradient();
 
             // Refresh upload toggle to reflect server-stored preference
             if (window.refreshUploadState) window.refreshUploadState();
