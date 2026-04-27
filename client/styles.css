@@ -186,6 +186,7 @@ body {
 .main.home-page .main-content {
     padding-left: 0;
     padding-right: 0;
+    padding-top: 0; /* Prevent gap between gradient and main content top */
 }
 
 .main.playlist-page .main-content {
@@ -1309,10 +1310,7 @@ a {
     display: block;
 }
 
-#page-home {
-    position: relative;
-    z-index: 1;
-}
+/* Gradient is now a direct child of .main-content; #page-home no longer needs position:relative for gradient */
 
 /* Add padding under home page content so track cards can be shown over it */
 #page-home .section {
