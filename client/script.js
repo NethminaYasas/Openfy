@@ -383,7 +383,7 @@
         const manualUploadStatus = document.getElementById("manual-upload-status");
         const adminManualUploadToggle = document.getElementById("manual-upload-enabled-admin");
 
-        const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist"), admin: document.getElementById("page-admin"), settings: document.getElementById("page-settings") };
+        const pages = { home: document.getElementById("page-home"), library: document.getElementById("page-library"), playlist: document.getElementById("page-playlist"), admin: document.getElementById("page-admin"), settings: document.getElementById("page-settings"), profile: document.getElementById("page-profile") };
         const btnPlay = document.getElementById("btn-play");
         const btnPrev = document.getElementById("btn-prev");
         const btnNext = document.getElementById("btn-next");
@@ -3580,7 +3580,12 @@
         document.getElementById("profile-btn").addEventListener("click", function() {
             if (!currentUser) return;
             userDropdown.classList.remove("visible");
-            showProfileModal();
+            populateProfilePage();
+            setActivePage("profile");
+        });
+
+        document.getElementById("profile-back-home").addEventListener("click", function() {
+            setActivePage("home");
         });
 
         document.getElementById("settings-btn").addEventListener("click", function() {
@@ -3877,61 +3882,75 @@
             }
         });
 
-        // Profile Modal functionality
-        const profileModalOverlay = document.getElementById("profile-modal-overlay");
-        const profileUsername = document.getElementById("profile-username");
-        const profileAuthHash = document.getElementById("profile-auth-hash");
-        const profileMemberSince = document.getElementById("profile-member-since");
-        const profileCopyHashBtn = document.getElementById("profile-copy-hash-btn");
-        const profileCloseBtn = document.getElementById("profile-close-btn");
+        // Profile Page functionality
+        const profilePageUsername = document.getElementById("profile-page-username");
+        const profilePageAuthHash = document.getElementById("profile-page-auth-hash");
+        const profilePageMemberSince = document.getElementById("profile-page-member-since");
+        const profilePageCopyHashBtn = document.getElementById("profile-page-copy-hash-btn");
+        const profileLikedCount = document.getElementById("profile-liked-count");
+        const profileUploadsCount = document.getElementById("profile-uploads-count");
+        const profilePlaylistsCount = document.getElementById("profile-playlists-count");
 
-        function showProfileModal() {
+        async function populateProfilePage() {
             if (!currentUser) return;
-            profileUsername.textContent = currentUser.name || "N/A";
-            profileAuthHash.textContent = authHash || "N/A";
+            profilePageUsername.textContent = currentUser.name || "N/A";
+            profilePageAuthHash.textContent = authHash || "N/A";
             // Format date to show only YYYY-MM-DD
             const createdAt = currentUser.created_at || "N/A";
             if (createdAt !== "N/A") {
                 try {
                     const date = new Date(createdAt);
-                    profileMemberSince.textContent = date.toISOString().split('T')[0];
+                    profilePageMemberSince.textContent = date.toISOString().split('T')[0];
                 } catch (e) {
-                    profileMemberSince.textContent = createdAt;
+                    profilePageMemberSince.textContent = createdAt;
                 }
             } else {
-                profileMemberSince.textContent = "N/A";
+                profilePageMemberSince.textContent = "N/A";
             }
-            profileModalOverlay.style.display = "flex";
-        }
 
-        function hideProfileModal() {
-            profileModalOverlay.style.display = "none";
+            // Get stats
+            const regularPlaylists = userPlaylists.filter(pl => !pl.is_liked);
+            profilePlaylistsCount.textContent = regularPlaylists.length;
+
+            // Get liked songs count
+            const likedPlaylist = userPlaylists.find(pl => pl.is_liked);
+            if (likedPlaylist) {
+                try {
+                    const likedTracks = await api("/playlists/" + likedPlaylist.id + "/tracks");
+                    profileLikedCount.textContent = likedTracks.length || 0;
+                } catch (e) {
+                    profileLikedCount.textContent = "0";
+                }
+            } else {
+                profileLikedCount.textContent = "0";
+            }
+
+            // Get uploads count from library tracks
+            try {
+                const libraryTracks = await api("/tracks");
+                const userTracks = libraryTracks.filter(t => t.user_hash === authHash);
+                profileUploadsCount.textContent = userTracks.length || 0;
+            } catch (e) {
+                profileUploadsCount.textContent = "0";
+            }
         }
 
         function copyProfileHashToClipboard() {
-            const hash = profileAuthHash.textContent;
+            const hash = profilePageAuthHash.textContent;
             navigator.clipboard.writeText(hash).then(function() {
-                const originalHTML = profileCopyHashBtn.innerHTML;
-                profileCopyHashBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
-                profileCopyHashBtn.classList.add("copied");
+                const originalHTML = profilePageCopyHashBtn.innerHTML;
+                profilePageCopyHashBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                profilePageCopyHashBtn.classList.add("copied");
                 setTimeout(function() {
-                    profileCopyHashBtn.innerHTML = originalHTML;
-                    profileCopyHashBtn.classList.remove("copied");
+                    profilePageCopyHashBtn.innerHTML = originalHTML;
+                    profilePageCopyHashBtn.classList.remove("copied");
                 }, 2000);
             }).catch(function(err) {
                 alert("Failed to copy: " + err.message);
             });
         }
 
-        profileCopyHashBtn.addEventListener("click", copyProfileHashToClipboard);
-        profileCloseBtn.addEventListener("click", hideProfileModal);
-
-        // Close modal on overlay click
-        profileModalOverlay.addEventListener("click", function(event) {
-            if (event.target === profileModalOverlay) {
-                hideProfileModal();
-            }
-        });
+        profilePageCopyHashBtn.addEventListener("click", copyProfileHashToClipboard);
 
         // Playlist context menu and modals
         const contextMenuOverlay = document.getElementById("context-menu-overlay");
