@@ -3,7 +3,7 @@ import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUpload
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
 import { playTrack, setQueueFromList, loadTrackPaused, renderNowPlayingQueue, setCurrentPlayingPlaylistId, getCurrentTrackId, getCurrentIndex, getCurrentPlayingPlaylistId } from './audio-player.js';
 import { getGradientManager } from './gradient-manager.js';
-import { saveScrollPositions, restoreScrollPositions, resetPlaylistScroll } from './scroll-manager.js';
+import { saveScrollPositions, restoreScrollPositions } from './scroll-manager.js';
 
 export const pages = {
   home: null,
@@ -35,14 +35,8 @@ export function setUrl(path) {
 }
 
 export function setActivePage(pageId, updateUrl = true) {
-  // Determine the currently active page before switching
-  const currentPageEl = document.querySelector('.page.active');
-  const isLeavingPlaylist = currentPageEl && currentPageEl.id === 'page-playlist';
-
-  // Save scroll positions only if leaving a non-playlist page (playlist scroll never persists)
-  if (!isLeavingPlaylist) {
-    saveScrollPositions();
-  }
+  // Save current page's scroll before switching (includes playlist if leaving one)
+  saveScrollPositions();
 
   ['home', 'library', 'playlist', 'admin', 'settings', 'profile'].forEach(function(key) {
     var p = pages[key];
@@ -89,13 +83,9 @@ if (pageId === "library" && state.authHash) {
     document.dispatchEvent(event);
   }
 
-  // Restore/reset scroll after DOM updates — ensures content is rendered before applying scroll
+  // Restore scroll after DOM updates — ensures content is rendered before applying scroll
   requestAnimationFrame(() => {
-    if (pageId === 'playlist') {
-      resetPlaylistScroll();
-    } else {
-      restoreScrollPositions();
-    }
+    restoreScrollPositions();
   });
 }
 
