@@ -35,8 +35,14 @@ export function setUrl(path) {
 }
 
 export function setActivePage(pageId, updateUrl = true) {
-  // Save current page's scroll before switching (includes playlist if leaving one)
-  saveScrollPositions();
+  // Determine currently active page EXACTLY before switching pageId
+  const currentActivePage = document.querySelector('.page.active');
+  const isLeavingPlaylist = currentActivePage && currentActivePage.id === 'page-playlist';
+
+  // Only save scroll if leaving a non-playlist page (playlist scroll never persists to global)
+  if (!isLeavingPlaylist) {
+    saveScrollPositions();
+  }
 
   ['home', 'library', 'playlist', 'admin', 'settings', 'profile'].forEach(function(key) {
     var p = pages[key];

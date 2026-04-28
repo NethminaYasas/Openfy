@@ -1,81 +1,50 @@
 /**
  * Scroll Manager Module
  *
- * Handles scroll position persistence across SPA navigation.
+ * Handles scroll position persistence for the main content window.
  * - Main content: global scroll position saved/restored via sessionStorage
- * - Playlist songs list: per-playlist scroll position saved/restored via sessionStorage
+ * - Playlist page: scroll always resets to top (no persistence)
  */
 
-import { state } from './state.js';
-
-const SCROLL_KEYS = {
-  MAIN: 'openfy:mainScroll',
-  PLAYLIST: (playlistId) => `openfy:playlistScroll:${playlistId}`
-};
+const SCROLL_KEY_MAIN = 'openfy:mainScroll';
 
 /**
- * Save current scroll positions to sessionStorage
- * Called before page navigation
- * - Saves main-content global scroll
- * - If on playlist page, also saves that playlist's songs list scroll using the
- *   currently displayed playlist's ID (from window.currentPlaylistData, which
- *   hasn't been overwritten yet if navigation is to a new playlist)
+ * Save current main-content scroll position to sessionStorage
+ * Called before page navigation (only when leaving non-playlist pages)
  */
 export function saveScrollPositions() {
   try {
     const mainContent = document.querySelector('.main-content');
-
     if (mainContent) {
-      sessionStorage.setItem(SCROLL_KEYS.MAIN, mainContent.scrollTop);
-    }
-
-    // If currently on a playlist page, also save the playlist's scroll position
-    // Use window.currentPlaylistData.id to get the ID of the playlist currently shown
-    // (state.currentPlaylistId may have already been updated to the NEW playlist
-    // if navigateFromUrl() called setActivePage() after setting state)
-    const onPlaylistPage = document.querySelector('.page#page-playlist.active');
-    if (onPlaylistPage && window.currentPlaylistData && window.currentPlaylistData.id) {
-      const playlistId = window.currentPlaylistData.id;
-      const playlistScrollKey = SCROLL_KEYS.PLAYLIST(playlistId);
-      if (mainContent) {
-        sessionStorage.setItem(playlistScrollKey, mainContent.scrollTop);
-      }
+      sessionStorage.setItem(SCROLL_KEY_MAIN, mainContent.scrollTop);
     }
   } catch (e) {
-    // sessionStorage unavailable (private mode, etc.) — fail silently
     console.warn('Scroll positions not saved:', e.message);
   }
 }
 
 /**
- * Restore saved scroll positions from sessionStorage
+ * Restore main-content scroll position from sessionStorage
  * Called after page content is fully rendered
- * - Restores main-content global scroll when on any page
- * - If on a playlist page AND this playlist has a saved scroll, restores that playlist's scroll
+ * - On playlist pages: always resets to top (no persistence)
+ * - On other pages: restores the saved global scroll position
  */
 export function restoreScrollPositions() {
   try {
     const mainContent = document.querySelector('.main-content');
-
     if (!mainContent) return;
 
     const onPlaylistPage = document.querySelector('.page#page-playlist.active');
-
-    if (onPlaylistPage && state.currentPlaylistId) {
-      // On playlist: restore per-playlist scroll if exists; otherwise fall through to global
-      const playlistScrollKey = SCROLL_KEYS.PLAYLIST(state.currentPlaylistId);
-      const saved = sessionStorage.getItem(playlistScrollKey);
-      if (saved !== null) {
-        mainContent.scrollTop = parseInt(saved, 10);
-        return;
-      }
-      // No playlist-specific scroll saved: fall through to global scroll (don't reset to 0)
+    if (onPlaylistPage) {
+      // Playlist page: always start at top
+      mainContent.scrollTop = 0;
+      return;
     }
 
-    // Non-playlist pages OR playlist with no saved scroll: use global main scroll
-    const savedGlobal = sessionStorage.getItem(SCROLL_KEYS.MAIN);
-    if (savedGlobal !== null) {
-      mainContent.scrollTop = parseInt(savedGlobal, 10);
+    // Non-playlist pages: restore saved global scroll
+    const saved = sessionStorage.getItem(SCROLL_KEY_MAIN);
+    if (saved !== null) {
+      mainContent.scrollTop = parseInt(saved, 10);
     }
   } catch (e) {
     console.warn('Scroll positions not restored:', e.message);
