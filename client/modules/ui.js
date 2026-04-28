@@ -35,8 +35,12 @@ export function setUrl(path) {
 }
 
 export function setActivePage(pageId, updateUrl = true) {
-  // Save scroll positions before switching (except when navigating TO playlist — playlist scroll is always reset)
-  if (pageId !== 'playlist') {
+  // Determine the currently active page before switching
+  const currentPageEl = document.querySelector('.page.active');
+  const isLeavingPlaylist = currentPageEl && currentPageEl.id === 'page-playlist';
+
+  // Save scroll positions only if leaving a non-playlist page (playlist scroll never persists)
+  if (!isLeavingPlaylist) {
     saveScrollPositions();
   }
 

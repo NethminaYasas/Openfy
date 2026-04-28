@@ -7,8 +7,7 @@
  */
 
 const SCROLL_KEYS = {
-  MAIN: 'openfy:mainScroll',
-  LIB_BOX: 'openfy:libBoxScroll'
+  MAIN: 'openfy:mainScroll'
 };
 
 /**
@@ -18,13 +17,8 @@ const SCROLL_KEYS = {
 export function saveScrollPositions() {
   try {
     const mainContent = document.querySelector('.main-content');
-    const libBox = document.querySelector('.lib-box');
-
     if (mainContent) {
       sessionStorage.setItem(SCROLL_KEYS.MAIN, mainContent.scrollTop);
-    }
-    if (libBox) {
-      sessionStorage.setItem(SCROLL_KEYS.LIB_BOX, libBox.scrollTop);
     }
   } catch (e) {
     // sessionStorage unavailable (private mode, etc.) — fail silently
@@ -39,18 +33,10 @@ export function saveScrollPositions() {
 export function restoreScrollPositions() {
   try {
     const mainContent = document.querySelector('.main-content');
-    const libBox = document.querySelector('.lib-box');
-
     if (mainContent) {
       const saved = sessionStorage.getItem(SCROLL_KEYS.MAIN);
       if (saved !== null) {
         mainContent.scrollTop = parseInt(saved, 10);
-      }
-    }
-    if (libBox) {
-      const saved = sessionStorage.getItem(SCROLL_KEYS.LIB_BOX);
-      if (saved !== null) {
-        libBox.scrollTop = parseInt(saved, 10);
       }
     }
   } catch (e) {
@@ -59,12 +45,12 @@ export function restoreScrollPositions() {
 }
 
 /**
- * Reset playlist songs list to top
- * Called when a playlist page is opened
+ * Reset playlist page scroll to top
+ * Called when a playlist page is opened (main-content is the scroll container)
  */
 export function resetPlaylistScroll() {
-  const container = document.querySelector('.playlist-songs-container');
-  if (container) {
-    container.scrollTop = 0;
+  const mainContent = document.querySelector('.main-content');
+  if (mainContent) {
+    mainContent.scrollTop = 0;
   }
 }
