@@ -13,20 +13,35 @@
 </head>
 <body>
     <div class="auth-overlay" id="auth-overlay">
+        <div class="auth-bg-gradient"></div>
         <div class="auth-box">
             <div class="auth-logo"><img src="/static/images/logo.png" alt="Openfy"></div>
-            <h2>Log in to Openfy</h2>
+            <h2 class="auth-title">Log in to Openfy</h2>
             <div class="auth-form" id="auth-signin">
-                <input type="text" id="signin-hash" placeholder="Auth Hash" autocomplete="off" />
-                <button class="auth-btn" id="signin-btn">Log In</button>
+                <div class="input-wrapper">
+                    <i class="fa-solid fa-key input-icon"></i>
+                    <input type="text" id="signin-hash" placeholder="Enter your Auth Hash" autocomplete="off" />
+                </div>
+                <button class="auth-btn" id="signin-btn">
+                    <span class="btn-text">Log In</span>
+                    <span class="btn-loader" style="display:none;"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                </button>
                 <p class="auth-status" id="signin-status"></p>
             </div>
-            <div class="auth-divider"><span>or</span></div>
-            <div class="auth-form" id="auth-signup">
-                <input type="text" id="signup-name" placeholder="Username" autocomplete="off" />
-                <button class="auth-btn auth-btn-outline" id="signup-btn">Sign Up</button>
+            <p class="auth-switch">Don't have an account? <a href="#" id="show-signup">Sign up</a></p>
+            <div class="auth-form" id="auth-signup" style="display:none;">
+                <div class="input-wrapper">
+                    <i class="fa-solid fa-user input-icon"></i>
+                    <input type="text" id="signup-name" placeholder="Choose a username" autocomplete="off" />
+                </div>
+                <button class="auth-btn auth-btn-outline" id="signup-btn">
+                    <span class="btn-text">Sign Up</span>
+                    <span class="btn-loader" style="display:none;"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                </button>
                 <p class="auth-status" id="signup-status"></p>
             </div>
+            <p class="auth-switch" id="back-to-signin" style="display:none;">Already have an account? <a href="#" id="show-signin">Log in</a></p>
+            <p class="auth-hint"><i class="fa-solid fa-info-circle"></i> Your Auth Hash is your password. Save it securely!</p>
         </div>
     </div>
 

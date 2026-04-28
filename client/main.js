@@ -9,6 +9,31 @@ import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, app
 
 const MAX_QUEUE_CAPACITY = 20;
 
+// Auth helper functions
+function showAuthStatus(elementId, message, type = "error") {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.textContent = message;
+  el.className = "auth-status " + type;
+}
+
+function clearAuthStatus(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.textContent = "";
+  el.className = "auth-status";
+}
+
+function setButtonLoading(btn, loading) {
+  if (!btn) return;
+  btn.classList.toggle("loading", loading);
+  btn.disabled = loading;
+  const text = btn.querySelector(".btn-text");
+  const loader = btn.querySelector(".btn-loader");
+  if (text) text.style.visibility = loading ? "hidden" : "visible";
+  if (loader) loader.style.display = loading ? "inline-block" : "none";
+}
+
 window.addEventListener('popstate', navigateFromUrl);
 
 document.addEventListener('DOMContentLoaded', async function() {
@@ -323,9 +348,14 @@ function initEventListeners() {
 
   document.getElementById("signup-btn").addEventListener("click", async function() {
     var name = document.getElementById("signup-name").value.trim();
-    if (!name || !name.trim()) return;
+    if (!name) { showAuthStatus("signup-status", "Please enter a username.", "error"); return; }
+    
+    var btn = document.getElementById("signup-btn");
+    setButtonLoading(btn, true);
+    clearAuthStatus("signup-status");
+    
     try {
-      var user = await signUp(name.trim());
+      var user = await signUp(name);
       setAuth(user.auth_hash, user);
       updateAdminButtonVisibility();
       localStorage.setItem("openfy_auth", user.auth_hash);
@@ -333,12 +363,18 @@ function initEventListeners() {
       if (window.refreshUploadState) window.refreshUploadState();
       await refreshManualUploadSetting();
       if (window.refreshLibraryState) window.refreshLibraryState();
-    } catch (err) { alert("Failed: " + err.message); }
+    } catch (err) { showAuthStatus("signup-status", err.message || "Sign up failed.", "error"); }
+    finally { setButtonLoading(btn, false); }
   });
 
   document.getElementById("signin-btn").addEventListener("click", async function() {
     var hash = document.getElementById("signin-hash").value.trim();
-    if (!hash) { document.getElementById("signin-status").textContent = "Enter your auth hash."; return; }
+    if (!hash) { showAuthStatus("signin-status", "Please enter your auth hash.", "error"); return; }
+    
+    var btn = document.getElementById("signin-btn");
+    setButtonLoading(btn, true);
+    clearAuthStatus("signin-status");
+    
     try {
       var user = await signIn(hash);
       setAuth(user.auth_hash, user);
@@ -389,7 +425,35 @@ function initEventListeners() {
       } else {
         setActivePage('home');
       }
-    } catch (err) { document.getElementById("signin-status").textContent = err.message; }
+    } catch (err) { showAuthStatus("signin-status", err.message || "Login failed. Check your hash.", "error"); }
+    finally { setButtonLoading(btn, false); }
+  });
+
+  // Enter key support for auth inputs
+  document.getElementById("signin-hash").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("signin-btn").click();
+  });
+  document.getElementById("signup-name").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("signup-btn").click();
+  });
+
+  // Toggle between signin and signup forms
+  document.getElementById("show-signup")?.addEventListener("click", function(e) {
+    e.preventDefault();
+    document.getElementById("auth-signin").style.display = "none";
+    document.getElementById("auth-signup").style.display = "flex";
+    document.querySelector(".auth-switch").style.display = "none";
+    document.getElementById("back-to-signin").style.display = "block";
+    clearAuthStatus("signin-status");
+  });
+
+  document.getElementById("show-signin")?.addEventListener("click", function(e) {
+    e.preventDefault();
+    document.getElementById("auth-signup").style.display = "none";
+    document.getElementById("auth-signin").style.display = "flex";
+    document.querySelector(".auth-switch").style.display = "block";
+    document.getElementById("back-to-signin").style.display = "none";
+    clearAuthStatus("signup-status");
   });
 
   document.getElementById("new-playlist-btn").addEventListener("click", async function() {
