@@ -598,7 +598,6 @@ export async function openPlaylist(playlistId) {
       document.getElementById('playlist-shuffle-btn').classList.remove('active');
     }
 
-    window.currentPlaylistData = pl;
     const isOwner = state.currentUser && pl.user && pl.user.auth_hash === state.authHash;
     const isPublic = Boolean(pl.is_public);
     const isLiked = Boolean(pl.is_liked);
@@ -700,6 +699,7 @@ export async function openPlaylist(playlistId) {
     }
 
     setActivePage("playlist");
+    window.currentPlaylistData = pl;
   } catch (err) { console.error(err); }
 }
 
