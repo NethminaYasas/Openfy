@@ -62,18 +62,17 @@ export function restoreScrollPositions() {
     const onPlaylistPage = document.querySelector('.page#page-playlist.active');
 
     if (onPlaylistPage && state.currentPlaylistId) {
-      // On playlist: try to restore per-playlist scroll; if none, start at top
+      // On playlist: restore per-playlist scroll if exists; otherwise fall through to global
       const playlistScrollKey = SCROLL_KEYS.PLAYLIST(state.currentPlaylistId);
       const saved = sessionStorage.getItem(playlistScrollKey);
       if (saved !== null) {
         mainContent.scrollTop = parseInt(saved, 10);
-      } else {
-        mainContent.scrollTop = 0;
+        return;
       }
-      return;
+      // No playlist-specific scroll saved: fall through to global scroll (don't reset to 0)
     }
 
-    // Non-playlist pages: use global main scroll
+    // Non-playlist pages OR playlist with no saved scroll: use global main scroll
     const savedGlobal = sessionStorage.getItem(SCROLL_KEYS.MAIN);
     if (savedGlobal !== null) {
       mainContent.scrollTop = parseInt(savedGlobal, 10);
