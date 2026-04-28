@@ -9,6 +9,80 @@ import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, app
 
 const MAX_QUEUE_CAPACITY = 20;
 
+// Gradient animation for auth page
+function animateAuthGradient() {
+  const gradientEl = document.getElementById('auth-bg-gradient');
+  if (!gradientEl) return;
+  
+  // First: fade in the green gradient
+  let startTime = performance.now();
+  const fadeInDuration = 300; // 300ms fade-in
+  
+  function fadeInGradient(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / fadeInDuration, 1);
+    
+    gradientEl.style.opacity = progress;
+    
+    if (progress < 1) {
+      requestAnimationFrame(fadeInGradient);
+    } else {
+      // After fade-in completes, start color transition
+      startColorTransition();
+    }
+  }
+  
+  function startColorTransition() {
+    const colors = [
+      { r: 29, g: 185, b: 84 },   // green
+      { r: 120, g: 185, b: 29 },  // yellow-green
+      { r: 185, g: 185, b: 29 },  // yellow
+      { r: 185, g: 120, b: 29 },  // orange
+      { r: 220, g: 38, b: 38 }    // red
+    ];
+    
+    const duration = 4000; // 4 seconds for color transition
+    startTime = performance.now();
+    
+    function updateGradient(currentTime) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Calculate which segment
+      const segment = progress * (colors.length - 1);
+      const index = Math.floor(segment);
+      const localProgress = segment - index;
+      
+      if (index >= colors.length - 1) {
+        applyGradientColor(gradientEl, colors[colors.length - 1]);
+        return;
+      }
+      
+      const start = colors[index];
+      const end = colors[index + 1];
+      
+      const r = Math.round(start.r + (end.r - start.r) * localProgress);
+      const g = Math.round(start.g + (end.g - start.g) * localProgress);
+      const b = Math.round(start.b + (end.b - start.b) * localProgress);
+      
+      applyGradientColor(gradientEl, { r, g, b });
+      
+      if (progress < 1) {
+        requestAnimationFrame(updateGradient);
+      }
+    }
+    
+    requestAnimationFrame(updateGradient);
+  }
+  
+  // Start the fade-in animation
+  requestAnimationFrame(fadeInGradient);
+}
+
+function applyGradientColor(element, color) {
+  element.style.background = `radial-gradient(ellipse at 50% 30%, rgba(${color.r}, ${color.g}, ${color.b}, 0.15) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(${color.r}, ${color.g}, ${color.b}, 0.08) 0%, transparent 50%)`;
+}
+
 // Auth helper functions
 function showAuthStatus(elementId, message, type = "error") {
   const el = document.getElementById(elementId);
@@ -68,6 +142,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   const ok = await tryAutoLogin();
   if (!ok) {
     document.getElementById("auth-overlay").style.display = "flex";
+    animateAuthGradient();
     document.getElementById("app-main").style.display = "none";
     saveIntendedUrl();
   } else {
@@ -340,6 +415,7 @@ function initEventListeners() {
     stopUpdateChecker();
     document.title = "Openfy - Web Player";
     document.getElementById("auth-overlay").style.display = "flex";
+    animateAuthGradient();
     document.getElementById("user-dropdown").classList.remove("visible");
     document.getElementById("app-main").style.display = "none";
     document.getElementById('app-main').classList.remove('home-page');

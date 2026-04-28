@@ -1913,12 +1913,7 @@ a {
     background: radial-gradient(ellipse at 50% 30%, rgba(29, 185, 84, 0.15) 0%, transparent 60%),
                 radial-gradient(ellipse at 80% 80%, rgba(29, 185, 84, 0.08) 0%, transparent 50%);
     pointer-events: none;
-    animation: gradientPulse 4s ease-in-out infinite alternate;
-}
-
-@keyframes gradientPulse {
-    0% { opacity: 0.6; }
-    100% { opacity: 1; }
+    opacity: 0;
 }
 
 .auth-box {
