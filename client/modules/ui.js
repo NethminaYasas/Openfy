@@ -177,7 +177,7 @@ export function buildTrackCard(track, list, index) {
     setCurrentPlayingPlaylistId(null);
     if (window.updateLibraryPlayingState) window.updateLibraryPlayingState();
     setQueueFromList(list, index);
-    if (state.currentQueue.length) playTrack(state.currentQueue[0]);
+    if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
   });
 
   card.addEventListener("contextmenu", function(e) {
@@ -674,7 +674,7 @@ export async function openPlaylist(playlistId) {
           }
 
           if (window.updateLibraryPlayingState) window.updateLibraryPlayingState();
-          if (state.currentQueue.length) playTrack(state.currentQueue[0]);
+          if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
         });
 
         container.appendChild(row);
@@ -948,7 +948,7 @@ export function renderSearchDropdown(results) {
     btn.addEventListener("click", function(ev) {
       ev.preventDefault();
       setQueueFromList(items, index);
-      if (state.currentQueue.length) playTrack(state.currentQueue[0]);
+      if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
       hideSearchDropdown();
       document.getElementById("search-input").blur();
     });

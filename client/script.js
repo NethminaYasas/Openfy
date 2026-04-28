@@ -1010,8 +1010,8 @@
             }
 
             const idx = Math.max(0, Math.min((startIndex | 0), arr.length - 1));
-            currentQueue = arr.slice(idx, idx + MAX_QUEUE_CAPACITY);
-            currentIndex = 0;
+            currentQueue = arr.slice(0, MAX_QUEUE_CAPACITY);
+            currentIndex = idx;
             queueOriginal = null;
             shuffleQueueOnce();
             renderNowPlayingQueue();
@@ -1197,7 +1197,7 @@
                 currentPlayingPlaylistId = null;
                 updateLibraryPlayingState();
                 setQueueFromList(list, index);
-                if (currentQueue.length) playTrack(currentQueue[0]);
+                if (currentQueue.length) playTrack(currentQueue[currentIndex]);
             });
 
             // Right-click context menu for track
@@ -2205,7 +2205,7 @@
                 btn.addEventListener("click", function(ev) {
                     ev.preventDefault();
                     setQueueFromList(items, index);
-                    if (currentQueue.length) playTrack(currentQueue[0]);
+                    if (currentQueue.length) playTrack(currentQueue[currentIndex]);
                     hideSearchDropdown();
                     searchInput.blur();
                 });
