@@ -7,19 +7,16 @@ class GradientManager {
   constructor({
     primaryId = 'home-gradient',
     secondaryId = 'home-gradient-2',
-    fadeMs = 6000,
     fadeInMs = 300,
     gradientOpacity = 0.25
   } = {}) {
     this.primaryDiv = document.getElementById(primaryId);
     this.secondaryDiv = document.getElementById(secondaryId);
-    this.fadeMs = fadeMs;
     this.fadeInMs = fadeInMs;
     this.gradientOpacity = gradientOpacity;
     this.current = null;
     this.next = null;
     this.rafId = null;
-    this.fadeTimeout = null;
     this.isHome = false;
     this.isActive = false;
     this.currentTrackInfo = null;
@@ -58,7 +55,6 @@ class GradientManager {
     document.removeEventListener('trackChanged', this.onTrackChange);
     document.removeEventListener('pageNavigated', this.onPageNav);
     this._cancelRaf();
-    this._clearFadeTimeout();
     this.isActive = false;
   }
 
@@ -159,7 +155,6 @@ class GradientManager {
         this.current = this.next;
         this.next = null;
         this._cancelRaf();
-        this._resetFadeTimer();
       }
     };
     this.rafId = requestAnimationFrame(step);
@@ -201,31 +196,14 @@ class GradientManager {
       this.primaryDiv.style.opacity = this.gradientOpacity.toString();
       this.secondaryDiv.style.opacity = '0';
     }
-    this._clearFadeTimeout();
   }
 
   hide() {
     this.isActive = false;
-    this._clearFadeTimeout();
     this.primaryDiv.classList.add('hidden');
     this.secondaryDiv.classList.add('hidden');
     this.primaryDiv.style.opacity = '0';
     this.secondaryDiv.style.opacity = '0';
-  }
-
-  _clearFadeTimeout() {
-    if (this.fadeTimeout) {
-      clearTimeout(this.fadeTimeout);
-      this.fadeTimeout = null;
-    }
-  }
-
-  _resetFadeTimer() {
-    this.fadeTimeout = setTimeout(() => {
-      if (this.isActive && this.current) {
-        this.primaryDiv.style.opacity = '0';
-      }
-    }, this.fadeMs);
   }
 
   _cancelRaf() {
