@@ -6,6 +6,8 @@
  * - Playlist songs list: per-playlist scroll position saved/restored via sessionStorage
  */
 
+import { state } from './state.js';
+
 const SCROLL_KEYS = {
   MAIN: 'openfy:mainScroll',
   PLAYLIST: (playlistId) => `openfy:playlistScroll:${playlistId}`
