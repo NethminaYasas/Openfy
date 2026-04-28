@@ -410,8 +410,9 @@ export function setQueueFromList(list, startIndex) {
   }
 
   const idx = Math.max(0, Math.min((startIndex | 0), arr.length - 1));
-  state.currentQueue = arr.slice(idx, idx + MAX_QUEUE_CAPACITY);
-  state.currentIndex = 0;
+  // Take full queue up to MAX_QUEUE_CAPACITY, starting from beginning
+  state.currentQueue = arr.slice(0, MAX_QUEUE_CAPACITY);
+  state.currentIndex = idx;
   state.queueOriginal = null;
   shuffleQueueOnce();
   renderNowPlayingQueue();

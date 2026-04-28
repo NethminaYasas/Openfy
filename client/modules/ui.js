@@ -41,10 +41,14 @@ export function setActivePage(pageId, updateUrl = true) {
   var target = pages[pageId] || pages.home;
   if (target && target.classList) target.classList.add("active");
   document.querySelectorAll(".nav-link").forEach(function(link) { link.classList.toggle("active", link.dataset.page === pageId); });
-  if (pageId === "library" && state.authHash) {
-    loadUserUploads();
-    refreshManualUploadSetting();
-  }
+if (pageId === "library" && state.authHash) {
+      loadUserUploads();
+      refreshManualUploadSetting();
+      const manualSection = document.getElementById("manual-upload-section");
+      if (manualSection) {
+        manualSection.style.display = state.manualAudioUploadEnabled ? "block" : "none";
+      }
+    }
   if (pageId === "profile" && state.currentUser) {
     populateProfilePage();
   }

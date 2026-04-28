@@ -184,7 +184,8 @@ export async function refreshManualUploadSetting() {
   }
   try {
     const data = await api("/system/settings");
-    state.manualAudioUploadEnabled = !!data.manual_audio_upload_enabled;
+    const enabled = !!data.manual_audio_upload_enabled;
+    state.manualAudioUploadEnabled = enabled;
   } catch (err) {
     console.error("Failed to load system settings:", err);
     state.manualAudioUploadEnabled = true;

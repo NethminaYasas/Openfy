@@ -70,6 +70,14 @@ async function tryAutoLogin() {
     await uiLoadUserUploads();
     await loadUserPlayerState();
     
+    const btnShuffle = document.getElementById("btn-shuffle");
+    const btnRepeat = document.getElementById("btn-repeat");
+    if (btnShuffle) btnShuffle.classList.toggle("active", state.shuffle);
+    if (btnRepeat) {
+      btnRepeat.classList.toggle("active", state.repeatState === "loop-once");
+      btnRepeat.classList.toggle("loop-twice", state.repeatState === "loop-twice");
+    }
+    
     document.getElementById('app-main').classList.add('home-page');
     initGradient();
     
@@ -345,9 +353,28 @@ function initEventListeners() {
       await loadPlaylists();
       await uiLoadUserUploads();
       await loadUserPlayerState();
+      const btnShuffleSignin = document.getElementById("btn-shuffle");
+      const btnRepeatSignin = document.getElementById("btn-repeat");
+      if (btnShuffleSignin) btnShuffleSignin.classList.toggle("active", state.shuffle);
+      if (btnRepeatSignin) {
+        btnRepeatSignin.classList.toggle("active", state.repeatState === "loop-once");
+        btnRepeatSignin.classList.toggle("loop-twice", state.repeatState === "loop-twice");
+      }
       const hasQueue = await loadUserQueue();
       if (!hasQueue) {
-        await loadLastTrackPaused();
+        const lastTrack = await loadLastTrackPaused();
+        if (lastTrack) {
+          audioPlayer.src = "";
+          audioPlayer.pause();
+          document.getElementById("btn-play").classList.remove("playing");
+          document.getElementById("progress-container").classList.remove("active");
+          loadTrackPaused(lastTrack, true);
+        }
+      } else {
+        const currentTrack = state.currentQueue[state.currentIndex];
+        if (currentTrack) {
+          loadTrackPaused(currentTrack, true);
+        }
       }
 
       if (window.refreshUploadState) window.refreshUploadState();
@@ -1464,7 +1491,7 @@ async function handleSearch() {
 }
 
 async function handleDownloadFromLink() {
-  if (!state.currentUser || (!state.currentUser.is_admin && !state.currentUser.upload_enabled)) {
+  if (!state.currentUser || (!state.currentUser.is_admin && !state.manualAudioUploadEnabled)) {
     alert("Uploads are disabled for your account.");
     return;
   }
@@ -1589,7 +1616,7 @@ async function handleManualUpload() {
     alert("Manual audio file uploads are currently disabled by admin.");
     return;
   }
-  if (!state.currentUser || (!state.currentUser.is_admin && !state.currentUser.upload_enabled)) {
+  if (!state.currentUser) {
     alert("Uploads are disabled for your account.");
     return;
   }
