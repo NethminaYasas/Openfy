@@ -705,6 +705,25 @@ function initContextMenuHandlers() {
   window.hideContextMenu = hideContextMenu;
   window.showTrackContextMenu = showTrackContextMenu;
 
+  // Playlist menu button click handler
+  const playlistMenuBtn = document.getElementById("playlist-menu-btn");
+  if (playlistMenuBtn) {
+    playlistMenuBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const playlistData = window.currentPlaylistData;
+      if (!playlistData) return;
+
+      const rect = playlistMenuBtn.getBoundingClientRect();
+      const fakeEvent = {
+        clientX: rect.right + 5,
+        clientY: rect.top
+      };
+      window.showContextMenu(fakeEvent, playlistData);
+    });
+  }
+
   function showContextMenu(e, playlist) {
     hideContextMenu();
     state.currentContextPlaylist = playlist;

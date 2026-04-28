@@ -3605,70 +3605,20 @@
             playlistMenuBtn.classList.remove("hidden");
         }
 
-        // Playlist menu button - open full context menu
+        // Playlist menu button - open playlist context menu
         if (playlistMenuBtn) {
             playlistMenuBtn.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
 
-                // Get current playlist data
                 const playlistData = window.currentPlaylistData;
                 if (!playlistData) return;
 
-                // Show the context menu to the right of the button
-                const menuRect = playlistMenuBtn.getBoundingClientRect();
-                const menuWidth = 180;
-                const menuHeight = 200;
-                let x = menuRect.right + 5;
-                let y = menuRect.top;
-
-                // Adjust if near edges
-                if (x + menuWidth > window.innerWidth) x = menuRect.left - menuWidth - 5;
-                if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
-
-                contextMenu.style.left = x + "px";
-                contextMenu.style.top = y + "px";
-
-                // Update menu items for the current playlist
-                const pinSpan = ctxPin.querySelector("span");
-                pinSpan.textContent = playlistData.pinned ? "Unpin" : "Pin";
-                const pinIcon = ctxPin.querySelector("svg .pin-path");
-                if (pinIcon) {
-                    if (playlistData.pinned) {
-                        pinIcon.setAttribute("d", "M8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
-                        pinIcon.setAttribute("fill", "#1ed760");
-                    } else {
-                        pinIcon.setAttribute("d", "M11.609 1.858a1.22 1.22 0 0 0-1.727 0L5.92 5.82l-2.867.768 6.359 6.359.768-2.867 3.962-3.963a1.22 1.22 0 0 0 0-1.726zM8.822 .797a2.72 2.72 0 0 1 3.847 0l2.534 2.533a2.72 2.72 0 0 1 0 3.848l-3.678 3.678-1.337 4.988-4.486-4.486L1.28 15.78a.75.75 0 0 1-1.06-1.06l4.422-4.422L.156 5.812l4.987-1.337z");
-                        pinIcon.setAttribute("fill", "#b3b3b3");
-                    }
-                }
-
-                // Disable options for Liked Songs
-                if (playlistData.is_liked) {
-                    ctxRename.classList.add("disabled");
-                    ctxRemove.classList.add("disabled");
-                    ctxPin.classList.remove("disabled");
-                } else {
-                    ctxRename.classList.remove("disabled");
-                    ctxRemove.classList.remove("disabled");
-                    ctxPin.classList.remove("disabled");
-                }
-
-                // Show playlist items, hide track-specific items
-                ctxPin.style.display = '';
-                ctxRename.style.display = '';
-                ctxRemove.style.display = '';
-                ctxTrackAddPlaylist.style.display = 'none';
-                ctxTrackAddQueue.style.display = 'none';
-                ctxPlaylistSubmenu.classList.remove('visible');
-                ctxSubmenuItems.innerHTML = '';
-
-                // Set current context
-                currentContextPlaylist = playlistData;
-                currentContextTrack = null;
-
-                // Show the context menu overlay
-                contextMenuOverlay.style.display = "block";
+                const fakeEvent = {
+                    clientX: playlistMenuBtn.getBoundingClientRect().right + 5,
+                    clientY: playlistMenuBtn.getBoundingClientRect().top
+                };
+                showContextMenu(fakeEvent, playlistData);
             };
         }
 
