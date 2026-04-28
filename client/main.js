@@ -994,6 +994,10 @@ function initContextMenuHandlers() {
     hideContextMenu();
     try {
       await togglePlaylistPin(targetId, !isPinned);
+      // Update current playlist data to reflect new pin state immediately
+      if (window.currentPlaylistData && window.currentPlaylistData.id === targetId) {
+        window.currentPlaylistData.pinned = !isPinned;
+      }
       await loadPlaylists();
     } catch (err) {
       alert("Failed to update pin: " + err.message);
