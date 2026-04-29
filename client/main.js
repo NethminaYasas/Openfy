@@ -603,17 +603,21 @@ function initEventListeners() {
 
     if (sourceIndex === null || sourceIndex === undefined) return;
 
-    // Get ALL items in queue panel
-    const allItems = Array.from(npQueueNext.querySelectorAll(".np-queue-item"));
-    const draggedEl = state.draggedElement;
+    // Get all non-dragging items to find drop target
+    const siblings = Array.from(npQueueNext.querySelectorAll(".np-queue-item:not(.dragging)"));
+    if (siblings.length === 0) return;
 
-    // Find position by counting items BEFORE the dragged element
+    // Use getInsertBeforeElement to find where the item should be inserted
+    const insertBeforeEl = getInsertBeforeElement(npQueueNext);
+
+    // Calculate target position in DOM
     let newPositionInDom = -1;
-    allItems.forEach((item, idx) => {
-      if (item === draggedEl) {
-        newPositionInDom = idx;
-      }
-    });
+    if (insertBeforeEl) {
+      newPositionInDom = siblings.indexOf(insertBeforeEl);
+    } else {
+      // Dropped at end (after all items)
+      newPositionInDom = siblings.length;
+    }
 
     if (newPositionInDom < 0) {
       return;
@@ -631,6 +635,10 @@ function initEventListeners() {
     if (actualToIndex !== actualFromIndex) {
       reorderQueue(actualFromIndex, actualToIndex);
     }
+
+    // Clean up drag state
+    state.dragSourceIndex = null;
+    state.draggedElement = null;
   });
 
   document.getElementById('np-playlist-removal-menu');

@@ -417,12 +417,7 @@ export function setQueueFromList(list, startIndex) {
   // Take full queue up to MAX_QUEUE_CAPACITY, starting from beginning
   state.currentQueue = arr.slice(0, MAX_QUEUE_CAPACITY);
   state.currentIndex = idx;
-  // If shuffle is on, save this order as original so it can be restored
-  if (state.shuffle) {
-    state.queueOriginal = arr.slice(0, MAX_QUEUE_CAPACITY);
-  } else {
-    state.queueOriginal = null;
-  }
+  state.queueOriginal = null;
   renderNowPlayingQueue();
   scheduleQueueSave();
 }
@@ -438,7 +433,7 @@ export function reorderQueue(fromIndex, toIndex) {
   if (!trackToMove) return;
 
   const [track] = state.currentQueue.splice(fromIndex, 1);
-  const insertAt = toIndex > fromIndex ? toIndex : toIndex;
+  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
   state.currentQueue.splice(insertAt, 0, track);
 
   if (prevCurrentIndex >= 0 && prevCurrentIndex < state.currentQueue.length) {
