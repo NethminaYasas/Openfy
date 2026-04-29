@@ -894,7 +894,7 @@ function initContextMenuHandlers() {
     if (playlist.is_liked) {
       ctxRename.classList.add("disabled");
       ctxRemove.classList.add("disabled");
-      ctxPin.classList.remove("disabled");
+      ctxPin.classList.add("disabled");
     } else {
       ctxRename.classList.remove("disabled");
       ctxRemove.classList.remove("disabled");

@@ -4379,12 +4379,11 @@
                 }
             }
 
-            // Disable only Rename and Remove for Liked Songs; Pin remains enabled
+            // Disable Rename, Remove, and Pin for Liked Songs (system-managed)
             if (playlist.is_liked) {
                 ctxRename.classList.add("disabled");
                 ctxRemove.classList.add("disabled");
-                // Ensure Pin is enabled (remove disabled if present)
-                ctxPin.classList.remove("disabled");
+                ctxPin.classList.add("disabled");
             } else {
                 ctxRename.classList.remove("disabled");
                 ctxRemove.classList.remove("disabled");
