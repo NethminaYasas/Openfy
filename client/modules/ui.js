@@ -558,13 +558,9 @@ export function updateTrackRowScrollButtons() {
       } else {
         if (isAtStart) {
           prevBtn.classList.add('hidden');
-        } else {
-          prevBtn.classList.add('visible', 'prev-visible');
         }
         if (isAtEnd) {
           nextBtn.classList.add('hidden');
-        } else {
-          nextBtn.classList.add('visible', 'next-visible');
         }
       }
     });
