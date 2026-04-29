@@ -5,7 +5,7 @@ export const state = {
   isAdmin: false,
   currentPlaylistId: null,
   userPlaylists: [],
-  
+
   currentQueue: [],
   currentIndex: -1,
   currentTrackId: null,
@@ -14,7 +14,10 @@ export const state = {
   repeatCount: 0,
   shuffle: false,
   queueOriginal: null,
-  
+
+  // Track if a queue save is pending to prevent race conditions
+  pendingQueueSave: null,
+
   scrollPositions: {},
   manualAudioUploadEnabled: true,
   

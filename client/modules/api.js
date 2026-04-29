@@ -113,6 +113,25 @@ export async function saveQueueToServer() {
       track_ids: state.currentQueue.map(t => t.id),
       current_index: state.currentIndex
     };
+    console.log('saveQueueToServer payload:', payload);
+    await api("/user/queue", {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  } catch (err) {
+    console.error("Failed to save queue:", err);
+  }
+}
+
+// Save with pre-captured data to prevent race conditions
+export async function saveQueueToServerWithData(trackIds, currentIndex) {
+  if (!state.authHash) return;
+  try {
+    const payload = {
+      track_ids: trackIds,
+      current_index: currentIndex
+    };
+    console.log('saveQueueToServerWithData payload:', payload);
     await api("/user/queue", {
       method: "PUT",
       body: JSON.stringify(payload)

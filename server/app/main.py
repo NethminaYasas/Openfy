@@ -879,24 +879,9 @@ def stream_track(
             db.add(TrackPlay(track_id=track_id, user_hash=user.auth_hash))
             # Update user's last played track
             user.last_track_id = track_id
-            
-            # Sync queue index if track is in the current queue
-            if user.queue_data:
-                try:
-                    import json
-                    qdata = json.loads(user.queue_data)
-                    tids = qdata.get("track_ids", [])
-                    curr_idx = qdata.get("current_index", 0)
-                    # If current index track doesn't match streamed track, find it in queue
-                    if 0 <= curr_idx < len(tids) and tids[curr_idx] != track_id:
-                        if track_id in tids:
-                            qdata["current_index"] = tids.index(track_id)
-                            user.queue_data = json.dumps(qdata)
-                    elif curr_idx >= len(tids) and track_id in tids:
-                        qdata["current_index"] = tids.index(track_id)
-                        user.queue_data = json.dumps(qdata)
-                except Exception:  # nosec B110 – best-effort queue sync
-                    pass
+
+            # Don't modify queue_data - keep queue order as saved by user
+            # (Removed automatic queue reordering that was causing issues)
 
             db.commit()  # Single atomic commit
         except Exception:
@@ -927,22 +912,8 @@ def stream_track(
             # Update user's last played track
             user.last_track_id = track_id
 
-            # Sync queue index if track is in the current queue
-            if user.queue_data:
-                try:
-                    import json
-                    qdata = json.loads(user.queue_data)
-                    tids = qdata.get("track_ids", [])
-                    curr_idx = qdata.get("current_index", 0)
-                    if 0 <= curr_idx < len(tids) and tids[curr_idx] != track_id:
-                        if track_id in tids:
-                            qdata["current_index"] = tids.index(track_id)
-                            user.queue_data = json.dumps(qdata)
-                    elif curr_idx >= len(tids) and track_id in tids:
-                        qdata["current_index"] = tids.index(track_id)
-                        user.queue_data = json.dumps(qdata)
-                except Exception:  # nosec B110 – best-effort queue sync
-                    pass
+            # Don't modify queue_data - keep queue order as saved by user
+            # (Removed automatic queue reordering that was causing issues)
 
             db.commit()  # Single atomic commit
         except Exception:
@@ -2021,6 +1992,9 @@ def update_user_queue(
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    import logging
+    logging.warning(f"[QUEUE SAVE] user={user.auth_hash[:8]}, track_ids={payload.track_ids}, current_index={payload.current_index}")
 
     user.queue_data = json.dumps({
         "track_ids": payload.track_ids,

@@ -599,29 +599,48 @@ function initEventListeners() {
 
   npQueueNext.addEventListener("drop", function(ev) {
     ev.preventDefault();
-    const transferData = ev.dataTransfer ? ev.dataTransfer.getData("text/plain") : "";
-    const transferIndex = Number.parseInt(transferData, 10);
-    const sourceIndex = Number.isInteger(state.dragSourceIndex)
-      ? state.dragSourceIndex
-      : (Number.isInteger(transferIndex) ? transferIndex : null);
-    if (sourceIndex === null) return;
+    console.log('>>> DROP EVENT fired!');
+    const sourceIndex = state.dragSourceIndex;
+    
+    if (sourceIndex === null || sourceIndex === undefined) return;
 
+    // Get ALL items in queue panel
     const allItems = Array.from(npQueueNext.querySelectorAll(".np-queue-item"));
-    let movedEl = state.draggedElement;
-    if (!movedEl || !npQueueNext.contains(movedEl)) {
-      movedEl = npQueueNext.querySelector('.np-queue-item[data-index="' + sourceIndex + '"]');
+    const draggedEl = state.draggedElement;
+
+    
+
+    // Find position by counting items BEFORE the dragged element
+    let newPositionInDom = -1;
+    allItems.forEach((item, idx) => {
+      if (item === draggedEl) {
+        newPositionInDom = idx;
+      }
+    });
+
+    
+
+    if (newPositionInDom < 0) {
+      console.log('>>> ERROR: dragged element not found!');
+      return;
     }
-    if (!movedEl) return;
 
-    const newVisualIndex = allItems.indexOf(movedEl);
-    if (newVisualIndex === -1) return;
+    // Calculate the actual queue index (after current track)
+    // currentIndex is the playing track. Visible queue starts at currentIndex + 1
+    // DOM index 0 = queue index currentIndex + 1
+    const queueStartIndex = state.currentIndex + 1;
+    const newQueueIndex = queueStartIndex + newPositionInDom;
 
-    const nextIndex = state.currentIndex + 1;
-    const toIndex = nextIndex + newVisualIndex;
+    
 
-    if (toIndex === sourceIndex) return;
+    const actualFromIndex = sourceIndex;
+    const actualToIndex = newQueueIndex;
 
-    reorderQueue(sourceIndex, toIndex);
+    
+
+    if (actualToIndex !== actualFromIndex) {
+      reorderQueue(actualFromIndex, actualToIndex);
+    }
   });
 
   document.getElementById('np-playlist-removal-menu');
@@ -635,9 +654,14 @@ function updateDragPosition() {
 
   if (insertBeforeEl === state.lastInsertBeforeEl) return;
 
+  // Get all siblings BEFORE moving - their current data-index values
   const siblings = Array.from(npQueueNext.querySelectorAll('.np-queue-item:not(.dragging)'));
   const beforeRects = new Map();
-  siblings.forEach(el => beforeRects.set(el, el.getBoundingClientRect()));
+  const oldIndices = new Map();
+  siblings.forEach(el => {
+    oldIndices.set(el, el.dataset.index);
+    beforeRects.set(el, el.getBoundingClientRect());
+  });
 
   if (insertBeforeEl) {
     if (state.draggedElement.nextSibling !== insertBeforeEl) {
@@ -648,6 +672,9 @@ function updateDragPosition() {
       npQueueNext.appendChild(state.draggedElement);
     }
   }
+
+  // Don't update the queue array here - that happens on drop
+  // Just do visual feedback
 
   siblings.forEach(el => {
     const before = beforeRects.get(el);
