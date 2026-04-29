@@ -4,12 +4,9 @@ export async function api(url, opts) {
   opts = opts || {};
   const headers = Object.assign({}, apiHeaders(), opts.headers || {});
   if (opts.body && typeof opts.body === "string" && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-  console.log("API request:", url, "Headers:", headers);
   const res = await fetch(withBase(url), Object.assign({}, opts, { headers: headers }));
-  console.log("API response status:", res.status);
   if (!res.ok) {
     const text = await res.text();
-    console.log("API error body:", text);
     throw new Error(text || ("HTTP " + res.status));
   }
   const ct = res.headers.get("content-type") || "";
@@ -113,7 +110,6 @@ export async function saveQueueToServer() {
       track_ids: state.currentQueue.map(t => t.id),
       current_index: state.currentIndex
     };
-    console.log('saveQueueToServer payload:', payload);
     await api("/user/queue", {
       method: "PUT",
       body: JSON.stringify(payload)
@@ -131,7 +127,6 @@ export async function saveQueueToServerWithData(trackIds, currentIndex) {
       track_ids: trackIds,
       current_index: currentIndex
     };
-    console.log('saveQueueToServerWithData payload:', payload);
     await api("/user/queue", {
       method: "PUT",
       body: JSON.stringify(payload)
@@ -205,7 +200,6 @@ export async function checkForTrackUpdates() {
   try {
     var response = await api("/tracks/updates?since=" + state.lastTrackUpdate);
     if (response.has_updates) {
-      console.log("New tracks detected, refreshing...");
       state.lastTrackUpdate = response.timestamp;
       return true;
     }
@@ -283,24 +277,21 @@ export async function loadTrackPlaylists(trackId) {
 }
 
 export async function tryAutoLogin() {
-  if (!state.authHash) { console.log("No auth hash stored"); return null; }
+  if (!state.authHash) { return null; }
   try {
     var url = withBase("/auth/me");
-    console.log("Auto-login fetching:", url, "with hash:", state.authHash);
     var res = await fetch(url, { headers: { "x-auth-hash": state.authHash } });
-    console.log("Auto-login response status:", res.status);
     if (res.ok) {
       var user = await res.json();
-      console.log("Auto-login user:", user);
       if (user && user.name) {
         return user;
       }
     } else {
-      var errText = await res.text();
-      console.log("Auto-login failed:", res.status, errText);
+      // Invalid hash - clear it
+      state.authHash = null;
     }
   } catch (err) {
-    console.error("Auto-login error:", err);
+    // Silent fail
   }
   return null;
 }
