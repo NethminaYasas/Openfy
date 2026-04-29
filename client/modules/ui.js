@@ -1,6 +1,8 @@
 import { state, withBase } from './state.js';
 import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting } from './api.js';
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
+
+let renderLibraryId = 0;
 import { playTrack, setQueueFromList, loadTrackPaused, renderNowPlayingQueue, setCurrentPlayingPlaylistId, getCurrentTrackId, getCurrentIndex, getCurrentPlayingPlaylistId } from './audio-player.js';
 import { getGradientManager } from './gradient-manager.js';
 import { saveScrollPositions, restoreScrollPositions } from './scroll-manager.js';
@@ -757,9 +759,12 @@ function updatePlaylistMenu(isPublic, isOwner, isLiked) {
 }
 
 export function renderLibrary() {
+  renderLibraryId++;
+  const currentRenderId = renderLibraryId;
+
   const libBox = document.getElementById("lib-box");
   if (!libBox) return;
-  
+
   libBox.innerHTML = "";
   state.userPlaylists.sort(function(a, b) {
     if (a.is_liked && !b.is_liked) return -1;
@@ -789,6 +794,7 @@ export function renderLibrary() {
       img.style.height = "100%";
       img.style.objectFit = "cover";
       img.onerror = function() {
+        if (renderLibraryId !== currentRenderId) return;
         img.style.display = "none";
         cover.style.background = "#282828";
         cover.appendChild(createPlaylistIconSvg());
@@ -798,6 +804,7 @@ export function renderLibrary() {
         img,
         "/playlists/" + pl.id + "/cover?v=" + Date.now(),
         function() {
+          if (renderLibraryId !== currentRenderId) return;
           img.style.display = "none";
           cover.style.background = "#282828";
           cover.appendChild(createPlaylistIconSvg());

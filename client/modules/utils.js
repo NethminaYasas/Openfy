@@ -209,8 +209,8 @@ export function createArtCanvas(title, artist) {
 
 export function createPlaylistIconSvg() {
   var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.className = "lib-item-icon";
-  svg.setAttribute("viewBox", "292 128 156 156");
+  svg.setAttribute("class", "lib-item-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", "Playlist");
@@ -220,15 +220,12 @@ export function createPlaylistIconSvg() {
   title.textContent = "Playlist icon";
   var desc = document.createElementNS("http://www.w3.org/2000/svg", "desc");
   desc.textContent = "A music note/playlist icon";
-  var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  g.setAttribute("transform", "translate(297, 133) scale(6.667)");
   var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path.setAttribute("fill", "currentColor");
-  path.setAttribute("d", "M6 3h15v15.167a3.5 3.5 0 1 1-3.5-3.5H19V5H8v13.167a3.5 3.5 0 1 1-3.5-3.5H6zm0 13.667H4.5a1.5 1.5 0 1 0 1.5 1.5zm13 0h-1.5a1.5 1.5 0 1 0 1.5 1.5z");
-  g.appendChild(path);
+  path.setAttribute("d", "M3 3h18v2H3V3zm0 4h12v2H3V7zm0 4h18v2H3v-2zm0 4h12v2H3v-2zm0 4h18v2H3v-2z");
   svg.appendChild(title);
   svg.appendChild(desc);
-  svg.appendChild(g);
+  svg.appendChild(path);
   return svg;
 }
 

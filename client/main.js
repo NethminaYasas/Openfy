@@ -599,16 +599,13 @@ function initEventListeners() {
 
   npQueueNext.addEventListener("drop", function(ev) {
     ev.preventDefault();
-    console.log('>>> DROP EVENT fired!');
     const sourceIndex = state.dragSourceIndex;
-    
+
     if (sourceIndex === null || sourceIndex === undefined) return;
 
     // Get ALL items in queue panel
     const allItems = Array.from(npQueueNext.querySelectorAll(".np-queue-item"));
     const draggedEl = state.draggedElement;
-
-    
 
     // Find position by counting items BEFORE the dragged element
     let newPositionInDom = -1;
@@ -618,10 +615,7 @@ function initEventListeners() {
       }
     });
 
-    
-
     if (newPositionInDom < 0) {
-      console.log('>>> ERROR: dragged element not found!');
       return;
     }
 
@@ -631,12 +625,8 @@ function initEventListeners() {
     const queueStartIndex = state.currentIndex + 1;
     const newQueueIndex = queueStartIndex + newPositionInDom;
 
-    
-
     const actualFromIndex = sourceIndex;
     const actualToIndex = newQueueIndex;
-
-    
 
     if (actualToIndex !== actualFromIndex) {
       reorderQueue(actualFromIndex, actualToIndex);
@@ -1064,9 +1054,10 @@ function initContextMenuHandlers() {
 
   ctxRename.addEventListener("click", function() {
     if (!state.currentContextPlaylist || state.currentContextPlaylist.is_liked) return;
-    state.pendingActionPlaylistId = state.currentContextPlaylist.id;
+    var targetId = state.currentContextPlaylist.id;
     var targetName = state.currentContextPlaylist.name;
     hideContextMenu();
+    state.pendingActionPlaylistId = targetId;
     document.getElementById("rename-input").value = targetName;
     document.getElementById("rename-modal-overlay").style.display = "flex";
     setTimeout(function() { document.getElementById("rename-input").focus(); }, 100);
@@ -1074,9 +1065,10 @@ function initContextMenuHandlers() {
 
   ctxRemove.addEventListener("click", function() {
     if (!state.currentContextPlaylist || state.currentContextPlaylist.is_liked) return;
-    state.pendingActionPlaylistId = state.currentContextPlaylist.id;
+    var targetId = state.currentContextPlaylist.id;
     var targetName = state.currentContextPlaylist.name;
     hideContextMenu();
+    state.pendingActionPlaylistId = targetId;
     document.getElementById("confirm-message").textContent = 'Delete playlist "' + targetName + '"?';
     document.getElementById("confirm-modal-overlay").style.display = "flex";
   });
@@ -1143,6 +1135,7 @@ function initContextMenuHandlers() {
 
   renameCancelBtn.addEventListener("click", function() {
     renameModalOverlay.style.display = "none";
+    state.pendingActionPlaylistId = null;
   });
 
   renameConfirmBtn.addEventListener("click", async function() {
@@ -1168,6 +1161,7 @@ function initContextMenuHandlers() {
 
   confirmCancelBtn.addEventListener("click", function() {
     confirmModalOverlay.style.display = "none";
+    state.pendingActionPlaylistId = null;
   });
 
   confirmDeleteBtn.addEventListener("click", async function() {

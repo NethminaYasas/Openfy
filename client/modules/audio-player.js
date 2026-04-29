@@ -438,7 +438,7 @@ export function reorderQueue(fromIndex, toIndex) {
   if (!trackToMove) return;
 
   const [track] = state.currentQueue.splice(fromIndex, 1);
-  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
+  const insertAt = toIndex > fromIndex ? toIndex : toIndex;
   state.currentQueue.splice(insertAt, 0, track);
 
   if (prevCurrentIndex >= 0 && prevCurrentIndex < state.currentQueue.length) {
