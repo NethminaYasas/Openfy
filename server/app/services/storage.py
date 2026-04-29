@@ -1,6 +1,7 @@
 import os
 import re
 import secrets
+import time
 from pathlib import Path
 import shutil
 
@@ -53,6 +54,28 @@ def store_upload(
     max_attempts = 1000
     while target.exists() and counter < max_attempts:
         target = dest_dir / f"{stem}_{counter}{suffix}"
+        counter += 1
+
+    shutil.move(str(file_path), str(target))
+    return target
+
+
+def store_avatar(file_path: Path, user_id: str) -> Path:
+    """Store an uploaded avatar file with a unique, user-specific filename in data/avatars/."""
+    avatar_dir = settings.data_dir / "avatars"
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+
+    suffix = file_path.suffix.lower()
+    if not suffix:
+        suffix = ".jpg"
+
+    stem = f"avatar_{user_id}_{int(time.time())}_{secrets.token_hex(8)}"
+    target = avatar_dir / f"{stem}{suffix}"
+
+    counter = 1
+    max_attempts = 100
+    while target.exists() and counter < max_attempts:
+        target = avatar_dir / f"{stem}_{counter}{suffix}"
         counter += 1
 
     shutil.move(str(file_path), str(target))

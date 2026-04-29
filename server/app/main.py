@@ -1,6 +1,7 @@
 import secrets
 import shutil
 import tempfile
+import imghdr
 from pathlib import Path
 import json
 import time
@@ -72,7 +73,7 @@ from .schemas import (
     SystemSettingsOut,
 )
 from .settings import settings
-from .services.storage import ensure_dirs, store_upload, is_audio_file
+from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
 
@@ -476,6 +477,11 @@ def _startup():
                     text("ALTER TABLE users ADD COLUMN queue_data TEXT")
                 )
                 conn.commit()
+
+            if "avatar_path" not in ucols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN avatar_path VARCHAR(512)")
+                )
                 conn.commit()
 
             conn.execute(
@@ -1777,6 +1783,114 @@ def update_upload_preference(
     db.commit()
     db.refresh(user)
     return {"status": "updated", "upload_enabled": bool(user.upload_enabled)}
+
+
+# Avatar upload endpoint
+@app.post("/users/upload-avatar")
+def upload_user_avatar(
+    file: UploadFile = File(...),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Upload a profile picture for the authenticated user."""
+    user = _require_user(db, x_auth_hash)
+
+    # 5 MB limit
+    MAX_SIZE = 5 * 1024 * 1024
+    # Read some bytes to check size + type
+    content = file.file.read(MAX_SIZE + 1)
+    file.file.seek(0)
+
+    if len(content) > MAX_SIZE:
+        raise HTTPException(400, "File too large — maximum 5MB")
+
+    # Validate image type
+    image_type = imghdr.what(None, h=content)
+    if image_type not in ("jpeg", "png", "gif", "webp"):
+        raise HTTPException(400, "Invalid image format — use jpg, png, gif, or webp")
+
+    ext = {
+        "jpeg": ".jpg",
+        "png": ".png",
+        "gif": ".gif",
+        "webp": ".webp",
+    }[image_type]
+
+    # Generate unique filename and store using store_avatar
+    from .services.storage import store_avatar
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(content)
+        tmp.flush()
+        tmp_path = Path(tmp.name)
+
+    avatar_path_obj = store_avatar(tmp_path, user.id)
+    avatar_path_str = str(avatar_path_obj)
+
+    # Delete old avatar
+    if user.avatar_path:
+        old = Path(user.avatar_path)
+        if old.exists() and _is_within_dir(old, settings.data_dir / "avatars"):
+            try:
+                old.unlink()
+            except Exception:
+                pass
+
+    user.avatar_path = avatar_path_str
+    db.commit()
+    db.refresh(user)
+
+    return UserOutPublic.model_validate(user)
+
+
+@app.get("/users/{user_id}/avatar")
+def get_user_avatar(user_id: str, db: Session = Depends(get_db)):
+    """Serve a user's avatar image."""
+    user = db.get(User, user_id)
+    if not user or not user.avatar_path:
+        raise HTTPException(404, "Avatar not found")
+
+    path = Path(user.avatar_path)
+    if not path.exists():
+        raise HTTPException(404, "Avatar not found")
+
+    # Ensure path is inside avatars directory
+    avatars_dir = settings.data_dir / "avatars"
+    if not _is_within_dir(path, avatars_dir):
+        raise HTTPException(403, "Invalid avatar path")
+
+    return FileResponse(
+        path,
+        media_type=f"image/{path.suffix.lstrip('.')}",
+        filename=path.name,
+    )
+
+
+@app.delete("/users/avatar")
+def delete_user_avatar(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Delete the authenticated user's avatar."""
+    user = _require_user(db, x_auth_hash)
+    if not user.avatar_path:
+        raise HTTPException(404, "No avatar to delete")
+
+    path = Path(user.avatar_path)
+    avatars_dir = settings.data_dir / "avatars"
+    if not _is_within_dir(path, avatars_dir):
+        raise HTTPException(403, "Invalid avatar path")
+
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception as e:
+        # Log but continue
+        pass
+
+    user.avatar_path = None
+    db.commit()
+    db.refresh(user)
+    return {"status": "deleted"}
 
 
 @app.get("/user/last-track", response_model=TrackOut | None)

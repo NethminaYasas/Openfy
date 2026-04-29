@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, uploadAvatar } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -98,6 +98,31 @@ function clearAuthStatus(elementId) {
   el.className = "auth-status";
 }
 
+function updateUserAvatarDisplay(avatarPath, user = null) {
+  const userIcon = document.getElementById("user-icon");
+  if (!userIcon) return;
+
+  const userId = user?.id || state.currentUser?.id;
+  if (!userId) return;
+
+  if (avatarPath) {
+    // Show avatar image — remove FA classes to prevent pseudo-element
+    userIcon.classList.add("user-avatar-mode");
+    userIcon.classList.remove("fa-solid", "fa-user");
+    userIcon.innerHTML = "";
+    const img = document.createElement("img");
+    img.src = withBase(`/users/${userId}/avatar?t=${Date.now()}`);
+    img.alt = "Avatar";
+    img.className = "user-avatar-sm";
+    userIcon.appendChild(img);
+  } else {
+    // Revert to default FA icon
+    userIcon.classList.remove("user-avatar-mode");
+    userIcon.classList.add("fa-solid", "fa-user");
+    userIcon.innerHTML = "";
+  }
+}
+
 function setButtonLoading(btn, loading) {
   if (!btn) return;
   btn.classList.toggle("loading", loading);
@@ -164,6 +189,7 @@ async function tryAutoLogin() {
     document.getElementById("app-main").style.display = "flex";
     document.getElementById("top-bar").style.display = "flex";
     document.getElementById("dropdown-username").textContent = user.name;
+    updateUserAvatarDisplay(user.avatar_path, user);
     document.getElementById("np-like-btn").classList.add("hidden");
     await uiLoadTracks();
     await loadPlaylists();
@@ -463,6 +489,7 @@ function initEventListeners() {
       document.getElementById("app-main").style.display = "flex";
       document.getElementById("top-bar").style.display = "flex";
       document.getElementById("dropdown-username").textContent = user.name;
+      updateUserAvatarDisplay(user.avatar_path, user);
       document.getElementById("np-like-btn").classList.add("hidden");
       await uiLoadTracks();
       await loadPlaylists();
@@ -693,6 +720,7 @@ function initHashModalHandlers() {
     document.getElementById("app-main").style.display = "flex";
     document.getElementById("top-bar").style.display = "flex";
     document.getElementById("dropdown-username").textContent = state.currentUser.name;
+    updateUserAvatarDisplay(state.currentUser.avatar_path, state.currentUser);
     await uiLoadTracks();
     await loadPlaylists();
     await uiLoadUserUploads();
@@ -1126,6 +1154,226 @@ function initContextMenuHandlers() {
     } finally {
       state.pendingActionPlaylistId = null;
     }
+  });
+
+  // Avatar Upload Modal Logic
+  const avatarModalOverlay = document.getElementById("avatar-modal-overlay");
+  const avatarFileInput = document.getElementById("avatar-file-input");
+  const avatarSelectBtn = document.getElementById("avatar-select-btn");
+  const avatarUploadBtn = document.getElementById("avatar-upload-btn");
+  const avatarCancelBtn = document.getElementById("avatar-cancel-btn");
+  const avatarRemoveBtn = document.getElementById("avatar-remove-btn");
+  const cropControls = document.getElementById("crop-controls");
+  const cropperCanvas = document.getElementById("avatar-cropper-canvas");
+  const ctx = cropperCanvas ? cropperCanvas.getContext("2d") : null;
+
+  let avatarCropperState = {
+    image: null,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0,
+    isDragging: false,
+    lastX: 0,
+    lastY: 0,
+  };
+
+  function openAvatarModal() {
+    avatarModalOverlay.classList.add("visible");
+    // Show Remove button only if user already has an avatar
+    if (state.currentUser?.avatar_path) {
+      avatarRemoveBtn.style.display = "";
+      // Load existing avatar into cropper
+      loadExistingAvatar();
+    } else {
+      avatarRemoveBtn.style.display = "none";
+      resetAvatarCropper();
+    }
+  }
+
+  function loadExistingAvatar() {
+    if (!state.currentUser?.avatar_path) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = function() {
+      initCropper(img);
+      drawCropper();
+    };
+    img.onerror = function() {
+      console.error("Failed to load current avatar");
+      resetAvatarCropper();
+    };
+    img.src = withBase("/users/" + state.currentUser.id + "/avatar?t=" + Date.now());
+  }
+
+  function closeAvatarModal() {
+    avatarModalOverlay.classList.remove("visible");
+    setTimeout(resetAvatarCropper, 200);
+  }
+
+  function resetAvatarCropper() {
+    avatarCropperState = { image: null, zoom: 1, offsetX: 0, offsetY: 0, isDragging: false, lastX: 0, lastY: 0 };
+    if (avatarFileInput) avatarFileInput.value = "";
+    if (cropControls) cropControls.style.display = "none";
+    if (avatarUploadBtn) avatarUploadBtn.disabled = true;
+    if (ctx && cropperCanvas) {
+      ctx.clearRect(0, 0, cropperCanvas.width, cropperCanvas.height);
+    }
+  }
+
+  function drawCropper() {
+    const { image, zoom, offsetX, offsetY } = avatarCropperState;
+    if (!image || !ctx || !cropperCanvas) return;
+
+    const size = 200;
+    ctx.clearRect(0, 0, size, size);
+
+    // Draw circular clip
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2, true);
+    ctx.clip();
+
+    // Calculate draw dimensions (image sized to cover the square canvas)
+    const displaySize = size * zoom;
+    const dx = size / 2 + offsetX;
+    const dy = size / 2 + offsetY;
+
+    if (image.width > image.height) {
+      const h = displaySize * (image.height / image.width);
+      ctx.drawImage(image, dx - displaySize / 2, dy - h / 2, displaySize, h);
+    } else {
+      const w = displaySize * (image.width / image.height);
+      ctx.drawImage(image, dx - w / 2, dy - displaySize / 2, w, displaySize);
+    }
+    ctx.restore();
+  }
+
+  function initCropper(img) {
+    avatarCropperState.image = img;
+    avatarCropperState.zoom = 1;
+    avatarCropperState.offsetX = 0;
+    avatarCropperState.offsetY = 0;
+
+    // Show crop controls only if not 1:1
+    if (img.width !== img.height) {
+      cropControls.style.display = "flex";
+    } else {
+      cropControls.style.display = "none";
+    }
+
+    avatarUploadBtn.disabled = false;
+    if (cropperCanvas) {
+      cropperCanvas.width = 200;
+      cropperCanvas.height = 200;
+      drawCropper();
+    }
+  }
+
+  // File selection
+  avatarFileInput.addEventListener("change", function() {
+    const file = this.files[0];
+    if (!file) return;
+
+    // Size check
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File too large — maximum 5MB");
+      this.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const img = new Image();
+      img.onload = function() {
+        initCropper(img);
+        drawCropper();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  avatarSelectBtn.addEventListener("click", () => avatarFileInput.click());
+  avatarCancelBtn.addEventListener("click", closeAvatarModal);
+  avatarModalOverlay.addEventListener("click", (e) => {
+    if (e.target === avatarModalOverlay) closeAvatarModal();
+  });
+
+  // Zoom slider
+  document.getElementById("avatar-zoom").addEventListener("input", function(e) {
+    avatarCropperState.zoom = parseFloat(e.target.value);
+    drawCropper();
+  });
+
+  // Drag to pan
+  if (cropperCanvas) {
+    cropperCanvas.addEventListener("mousedown", (e) => {
+      avatarCropperState.isDragging = true;
+      avatarCropperState.lastX = e.clientX;
+      avatarCropperState.lastY = e.clientY;
+    });
+  }
+  window.addEventListener("mousemove", (e) => {
+    if (!avatarCropperState.isDragging) return;
+    const dx = e.clientX - avatarCropperState.lastX;
+    const dy = e.clientY - avatarCropperState.lastY;
+    avatarCropperState.offsetX += dx;
+    avatarCropperState.offsetY += dy;
+    avatarCropperState.lastX = e.clientX;
+    avatarCropperState.lastY = e.clientY;
+    drawCropper();
+  });
+  window.addEventListener("mouseup", () => {
+    avatarCropperState.isDragging = false;
+  });
+
+  // Upload (crop + send)
+  avatarUploadBtn.addEventListener("click", function() {
+    const { image } = avatarCropperState;
+    if (!image || !cropperCanvas || !ctx) return;
+
+    cropperCanvas.toBlob(async function(blob) {
+      const file = new File([blob], "avatar.jpg", { type: "image/jpeg" });
+      try {
+        const result = await uploadAvatar(file);
+        // Update currentUser
+        if (state.currentUser) {
+          state.currentUser.avatar_path = result.avatar_path;
+        }
+        // Update UI avatars
+        updateUserAvatarDisplay(result.avatar_path);
+        closeAvatarModal();
+        // Refresh profile page if visible
+        if (document.getElementById('page-profile').classList.contains('active')) {
+          populateProfilePage();
+        }
+      } catch (err) {
+        alert("Failed to upload avatar: " + err.message);
+      }
+    }, "image/jpeg", 0.9);
+  });
+
+  // Remove avatar handler
+  avatarRemoveBtn.addEventListener("click", async function() {
+    if (!state.currentUser) return;
+    if (!confirm("Remove your profile picture?")) return;
+    try {
+      await api("/users/avatar", { method: "DELETE" });
+      state.currentUser.avatar_path = null;
+      updateUserAvatarDisplay(null);
+      closeAvatarModal();
+      if (document.getElementById('page-profile').classList.contains('active')) {
+        populateProfilePage();
+      }
+    } catch (err) {
+      alert("Failed to remove avatar: " + err.message);
+    }
+  });
+
+  // Edit overlay click handlers (profile page only)
+  document.getElementById("profile-avatar-edit")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openAvatarModal();
   });
 
   ctxTrackAddPlaylist.addEventListener("mouseenter", function() {

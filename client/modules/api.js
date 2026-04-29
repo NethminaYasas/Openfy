@@ -145,6 +145,25 @@ export async function uploadFromFile(file) {
   });
 }
 
+export async function uploadAvatar(file) {
+  if (!state.currentUser) {
+    throw new Error("Not authenticated");
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+  return await api("/users/upload-avatar", {
+    method: "POST",
+    body: formData
+  });
+}
+
+export async function deleteAvatar() {
+  if (!state.currentUser) {
+    throw new Error("Not authenticated");
+  }
+  return await api("/users/avatar", { method: "DELETE" });
+}
+
 export async function downloadFromLink(url) {
   if (!state.currentUser || (!state.currentUser.is_admin && !state.currentUser.upload_enabled)) {
     throw new Error("Uploads are disabled for your account.");

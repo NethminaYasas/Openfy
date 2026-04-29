@@ -589,12 +589,19 @@ export async function openPlaylist(playlistId) {
     var tracks = await api("/playlists/" + playlistId + "/tracks");
 
     var ownerName = pl.user ? pl.user.name : 'User';
+    var ownerAvatar = pl.user?.avatar_path;
+    var ownerId = pl.user?.id;
 
     document.getElementById('playlist-name').textContent = pl.name;
     document.getElementById('playlist-type').textContent = Boolean(pl.is_public) ? 'Public Playlist' : 'Private Playlist';
+
+    const avatarHtml = (ownerAvatar && ownerId)
+      ? `<img src="${withBase('/users/' + ownerId + '/avatar?t=' + Date.now())}" class="playlist-owner-avatar" alt="${ownerName}">`
+      : '<div class="playlist-meta-avatar"></div>';
+
     document.getElementById('playlist-meta').innerHTML =
-      '<div class="playlist-meta-avatar"></div>' +
-      ownerName + ' • ' + formatTotalDuration(tracks);
+      avatarHtml +
+      '<span class="playlist-owner-name">' + ownerName + '</span> • ' + formatTotalDuration(tracks);
 
     buildPlaylistCover(tracks, pl);
 
@@ -854,14 +861,36 @@ export async function loadPlaylists() {
 
 export async function populateProfilePage() {
   if (!state.currentUser) return;
-  
+
+  // Avatar handling (preserve edit overlay)
+  const profileAvatar = document.getElementById('profile-avatar');
+  if (profileAvatar) {
+    // Remove existing icon or img only (not edit overlay)
+    const oldIcon = profileAvatar.querySelector('i.fa-user');
+    if (oldIcon) oldIcon.remove();
+    const oldImg = profileAvatar.querySelector('img.avatar-img');
+    if (oldImg) oldImg.remove();
+
+    if (state.currentUser?.avatar_path) {
+      const img = document.createElement('img');
+      img.src = withBase(`/users/${state.currentUser.id}/avatar?t=${Date.now()}`);
+      img.alt = 'Avatar';
+      img.className = 'avatar-img';
+      profileAvatar.appendChild(img);
+    } else {
+      const icon = document.createElement('i');
+      icon.className = 'fa-solid fa-user';
+      profileAvatar.appendChild(icon);
+    }
+  }
+
   const profilePageUsername = document.getElementById("profile-page-username");
   const profilePageAuthHash = document.getElementById("profile-page-auth-hash");
   const profilePageMemberSince = document.getElementById("profile-page-member-since");
   const profileLikedCount = document.getElementById("profile-liked-count");
   const profileUploadsCount = document.getElementById("profile-uploads-count");
   const profilePlaylistsCount = document.getElementById("profile-playlists-count");
-  
+
   if (profilePageUsername) profilePageUsername.textContent = state.currentUser.name || "N/A";
   if (profilePageAuthHash) profilePageAuthHash.textContent = state.authHash || "N/A";
   

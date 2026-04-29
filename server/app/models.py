@@ -140,6 +140,7 @@ class User(Base):
     shuffle: Mapped[bool] = mapped_column(Integer, default=0)
     repeat_state: Mapped[str] = mapped_column(String(20), default="off")
     queue_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_active_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 

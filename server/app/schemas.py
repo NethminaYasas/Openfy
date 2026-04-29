@@ -136,6 +136,7 @@ class UserOut(BaseModel):
     library_minimized: bool = False
     shuffle: bool = False
     repeat_state: str = "off"
+    avatar_path: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -151,6 +152,7 @@ class UserOutPublic(BaseModel):
     library_minimized: bool = False
     shuffle: bool = False
     repeat_state: str = "off"
+    avatar_path: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
