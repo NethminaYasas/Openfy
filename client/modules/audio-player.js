@@ -417,9 +417,12 @@ export function setQueueFromList(list, startIndex) {
   // Take full queue up to MAX_QUEUE_CAPACITY, starting from beginning
   state.currentQueue = arr.slice(0, MAX_QUEUE_CAPACITY);
   state.currentIndex = idx;
-  state.queueOriginal = null;
-  // Don't automatically shuffle - only shuffle if shuffle was already enabled
-  // shuffleQueueOnce() - REMOVED: this was randomly reordering queue on load!
+  // If shuffle is on, save this order as original so it can be restored
+  if (state.shuffle) {
+    state.queueOriginal = arr.slice(0, MAX_QUEUE_CAPACITY);
+  } else {
+    state.queueOriginal = null;
+  }
   renderNowPlayingQueue();
   scheduleQueueSave();
 }
@@ -546,14 +549,6 @@ export function loadQueueLocal() {
 export function scheduleQueueSave() {
   saveQueueLocal();
   saveQueueToServer();
-}
-
-// Prevent any automatic load - debug
-const originalSetQueueFromList = setQueueFromList;
-function debugSetQueueFromList(list, startIndex) {
-      
-  console.log('>>> Stack trace:', new Error().stack);
-  return originalSetQueueFromList(list, startIndex);
 }
 
 export function getQueue() {
