@@ -151,13 +151,15 @@ function handleTrackEnded() {
     document.getElementById("btn-repeat").classList.remove("active", "loop-twice");
     playTrack(state.currentQueue[state.currentIndex]);
   } else if (state.repeatState === "loop-twice") {
-    if (state.repeatCount < 2) {
-      state.repeatCount++;
-      if (state.repeatCount >= 2) {
-        document.getElementById("btn-repeat").classList.add("loop-twice");
-      }
+    if (state.repeatCount === 0) {
+      state.repeatCount = 1;
+      // Hide the '1' dot after first loop completes (one repeat used, one remains)
+      const btn = document.getElementById("btn-repeat");
+      const dot = btn.querySelector(".repeat-dot");
+      if (dot) dot.style.display = "none";
       playTrack(state.currentQueue[state.currentIndex]);
     } else {
+      // Final loop finished, move to next track
       state.repeatCount = 0;
       document.getElementById("btn-repeat").classList.remove("active", "loop-twice");
       playByIndex(state.currentIndex + 1, false);

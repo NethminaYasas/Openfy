@@ -316,6 +316,9 @@ function initEventListeners() {
       state.repeatCount = 0;
       btnRepeat.classList.add("loop-twice");
       btnRepeat.classList.remove("active");
+      // Ensure dot is visible when entering loop-twice mode
+      const dot = btnRepeat.querySelector(".repeat-dot");
+      if (dot) dot.style.display = "";
     } else {
       state.repeatState = "off";
       state.repeatCount = 0;
