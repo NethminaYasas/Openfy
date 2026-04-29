@@ -892,15 +892,13 @@ export async function populateProfilePage() {
   }
 
   const profilePageUsername = document.getElementById("profile-page-username");
-  const profilePageAuthHash = document.getElementById("profile-page-auth-hash");
   const profilePageMemberSince = document.getElementById("profile-page-member-since");
   const profileLikedCount = document.getElementById("profile-liked-count");
   const profileUploadsCount = document.getElementById("profile-uploads-count");
   const profilePlaylistsCount = document.getElementById("profile-playlists-count");
 
   if (profilePageUsername) profilePageUsername.textContent = state.currentUser.name || "N/A";
-  if (profilePageAuthHash) profilePageAuthHash.textContent = state.authHash || "N/A";
-  
+
   const createdAt = state.currentUser.created_at || "N/A";
   if (createdAt !== "N/A" && profilePageMemberSince) {
     try {
