@@ -188,6 +188,7 @@ export function togglePlay() {
 }
 
 export function playByIndex(index, fromRepeat) {
+      
   if (!state.currentQueue.length) return;
   if (index < 0 || index >= state.currentQueue.length) return;
   state.currentIndex = index;
@@ -197,11 +198,11 @@ export function playByIndex(index, fromRepeat) {
     document.getElementById("btn-repeat").classList.remove("active", "loop-twice");
   }
   playTrack(state.currentQueue[state.currentIndex]);
-  scheduleQueueSave();
+  // Don't save queue on auto play - only save on user actions
+  // This prevents queue reordering when tracks change automatically
 }
 
 export function playTrack(track) {
-  console.log('Playing track:', track.title);
   state.currentTrackId = track.id;
   state.currentStreamToken = null;
   state.currentStreamTokenTrackId = null;
@@ -401,6 +402,7 @@ function hideRemovalMenuIfVisible() {
 }
 
 export function setQueueFromList(list, startIndex) {
+      
   const arr = Array.isArray(list) ? list : [];
   if (!arr.length) {
     state.currentQueue = [];
@@ -416,20 +418,24 @@ export function setQueueFromList(list, startIndex) {
   state.currentQueue = arr.slice(0, MAX_QUEUE_CAPACITY);
   state.currentIndex = idx;
   state.queueOriginal = null;
-  shuffleQueueOnce();
+  // Don't automatically shuffle - only shuffle if shuffle was already enabled
+  // shuffleQueueOnce() - REMOVED: this was randomly reordering queue on load!
   renderNowPlayingQueue();
   scheduleQueueSave();
 }
 
 export function reorderQueue(fromIndex, toIndex) {
+      
   if (!Array.isArray(state.currentQueue) || fromIndex < 0 || fromIndex >= state.currentQueue.length) return;
   if (toIndex < 0 || toIndex > state.currentQueue.length) return;
   if (fromIndex === toIndex) return;
 
-  const insertAt = toIndex;
   const prevCurrentIndex = state.currentIndex;
+  const trackToMove = state.currentQueue[fromIndex];
+  if (!trackToMove) return;
 
   const [track] = state.currentQueue.splice(fromIndex, 1);
+  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
   state.currentQueue.splice(insertAt, 0, track);
 
   if (prevCurrentIndex >= 0 && prevCurrentIndex < state.currentQueue.length) {
@@ -444,9 +450,7 @@ export function reorderQueue(fromIndex, toIndex) {
     }
   }
 
-  state.shuffle = false;
-  const btnShuffle = document.getElementById("btn-shuffle");
-  if (btnShuffle) btnShuffle.classList.remove("active");
+  // Don't reset shuffle state when manually reordering - keep shuffle as-is
   state.queueOriginal = null;
 
   renderNowPlayingQueue();
@@ -506,11 +510,50 @@ function indexOfTrackId(queue, trackId, startFrom) {
   return -1;
 }
 
+// Local storage key
+const QUEUE_STORAGE_KEY = 'openfy_queue';
+const QUEUE_INDEX_KEY = 'openfy_queue_index';
+
+// Save to localStorage only
+function saveQueueLocal() {
+  try {
+    const ids = state.currentQueue.map(t => t.id);
+    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(ids));
+    localStorage.setItem(QUEUE_INDEX_KEY, String(state.currentIndex));
+  } catch (err) {
+    console.error('localStorage save error:', err);
+  }
+}
+
+// Load from localStorage
+export function loadQueueLocal() {
+  try {
+    const idsJson = localStorage.getItem(QUEUE_STORAGE_KEY);
+    const indexStr = localStorage.getItem(QUEUE_INDEX_KEY);
+    if (idsJson) {
+      const ids = JSON.parse(idsJson);
+      const index = parseInt(indexStr, 10) || 0;
+          
+      return { track_ids: ids, current_index: index };
+    }
+  } catch (err) {
+    console.error('localStorage load error:', err);
+  }
+  return null;
+}
+
+// Save queue to both localStorage and server
 export function scheduleQueueSave() {
-  if (state.queueSaveTimeout) clearTimeout(state.queueSaveTimeout);
-  state.queueSaveTimeout = setTimeout(() => {
-    saveQueueToServer();
-  }, 1000);
+  saveQueueLocal();
+  saveQueueToServer();
+}
+
+// Prevent any automatic load - debug
+const originalSetQueueFromList = setQueueFromList;
+function debugSetQueueFromList(list, startIndex) {
+      
+  console.log('>>> Stack trace:', new Error().stack);
+  return originalSetQueueFromList(list, startIndex);
 }
 
 export function getQueue() {
