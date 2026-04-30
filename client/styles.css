@@ -1155,6 +1155,43 @@ a {
     font-size: 0.85rem;
 }
 
+.search-dropdown-header {
+    padding: 0.6rem 0.75rem 0.4rem;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.search-result-remove {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0.3rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color 0.15s ease, background 0.15s ease;
+    width: 24px;
+    height: 24px;
+}
+
+.search-result-remove:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.12);
+}
+
+.recent-search-item {
+    display: flex;
+    align-items: center;
+}
+
 .nav-icon-btn {
     color: #b3b3b3;
     font-size: 1.25rem;

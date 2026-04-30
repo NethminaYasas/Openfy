@@ -1,6 +1,7 @@
 import { state, withBase } from './state.js';
 import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting } from './api.js';
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
+import { addRecentSearch, loadRecentSearches, removeRecentSearch } from './recent-searches.js';
 
 let renderLibraryId = 0;
 import { playTrack, setQueueFromList, loadTrackPaused, renderNowPlayingQueue, setCurrentPlayingPlaylistId, getCurrentTrackId, getCurrentIndex, getCurrentPlayingPlaylistId } from './audio-player.js';
@@ -994,6 +995,112 @@ export function renderSearchDropdown(results) {
       ev.preventDefault();
       setQueueFromList(items, index);
       if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+      addRecentSearch(state.authHash || '', {
+        id: track.id,
+        title: track.title,
+        artist: getArtistDisplay(track)
+      });
+      hideSearchDropdown();
+      document.getElementById("search-input").blur();
+    });
+
+    inner.appendChild(btn);
+  });
+
+  searchDropdown.appendChild(inner);
+}
+
+export function renderRecentSearchDropdown(recentItems) {
+  const searchDropdown = document.getElementById("search-dropdown");
+  if (!searchDropdown) return;
+
+  searchDropdown.innerHTML = "";
+  searchDropdown.style.display = "block";
+
+  const inner = document.createElement("div");
+  inner.className = "search-dropdown-inner";
+
+  if (!recentItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "search-dropdown-empty";
+    empty.textContent = "No recent searches.";
+    inner.appendChild(empty);
+    searchDropdown.appendChild(inner);
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "search-dropdown-header";
+  header.textContent = "Recent Searches";
+  inner.appendChild(header);
+
+  recentItems.forEach(function(item) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "search-result recent-search-item";
+
+    const seed = (item.title + " " + item.artist).trim() || "Openfy";
+    const art = document.createElement("div");
+    art.className = "search-result-art";
+    art.style.setProperty("--sr-color", seededColor(seed));
+
+    const img = document.createElement("img");
+    img.alt = (item.title || "Track") + " artwork";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.src = withBase("/tracks/" + item.id + "/artwork?v=" + Date.now());
+    img.onerror = function() { img.remove(); };
+    art.appendChild(img);
+
+    const meta = document.createElement("div");
+    meta.className = "search-result-meta";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "search-result-title";
+    titleEl.textContent = item.title || "";
+
+    const artistEl = document.createElement("div");
+    artistEl.className = "search-result-artist";
+    artistEl.textContent = item.artist || "Unknown";
+
+    meta.appendChild(titleEl);
+    meta.appendChild(artistEl);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "search-result-remove";
+    removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+    removeBtn.title = "Remove from recent";
+    removeBtn.addEventListener("click", function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      removeRecentSearch(state.authHash || '', item.id);
+      const updatedRecent = loadRecentSearches(state.authHash || '');
+      if (updatedRecent.length) {
+        renderRecentSearchDropdown(updatedRecent);
+      } else {
+        hideSearchDropdown();
+      }
+    });
+
+    btn.appendChild(art);
+    btn.appendChild(meta);
+    btn.appendChild(removeBtn);
+
+    btn.addEventListener("click", async function(ev) {
+      ev.preventDefault();
+      try {
+        const track = await api("/tracks/" + item.id);
+        setQueueFromList([track], 0);
+        if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+      } catch (err) {
+        console.error("Failed to load track:", err);
+      }
+      addRecentSearch(state.authHash || '', {
+        id: item.id,
+        title: item.title,
+        artist: item.artist
+      });
       hideSearchDropdown();
       document.getElementById("search-input").blur();
     });

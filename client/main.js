@@ -4,7 +4,8 @@ import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, crea
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
 import { audioPlayer, togglePlay, playByIndex, playTrack, loadTrackPaused, setQueueFromList, reorderQueue, enforceQueueCapacity, shuffleQueueOnce, unshuffleQueue, scheduleQueueSave, renderNowPlayingQueue, buildQueueItem, getShowFullQueue, setShowFullQueue, getCollapseTimeout, setCollapseTimeout, syncLikeButtonState, updateNowPlaying } from './modules/audio-player.js';
-import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates } from './modules/ui.js';
+import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates } from './modules/ui.js';
+import { loadRecentSearches, addRecentSearch } from './modules/recent-searches.js';
 import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, applyManualUploadUI, loadUsersListUI, loadTracksListUI, initAdminEventListeners } from './modules/admin.js';
 
 const MAX_QUEUE_CAPACITY = 20;
@@ -282,6 +283,18 @@ function initEventListeners() {
     if (ev.key === "Escape") {
       hideSearchDropdown();
       searchInput.blur();
+    }
+  });
+
+  searchInput.addEventListener("focus", function() {
+    const query = this.value.trim();
+    if (!query) {
+      const recentItems = loadRecentSearches(state.authHash || '');
+      if (recentItems.length) {
+        renderRecentSearchDropdown(recentItems);
+      } else {
+        hideSearchDropdown();
+      }
     }
   });
 
@@ -1919,7 +1932,12 @@ async function checkForTrackUpdates() {
 async function handleSearch() {
   var query = document.getElementById("search-input").value.trim();
   if (!query) {
-    hideSearchDropdown();
+    const recentItems = loadRecentSearches(state.authHash || '');
+    if (recentItems.length) {
+      renderRecentSearchDropdown(recentItems);
+    } else {
+      hideSearchDropdown();
+    }
     return;
   }
 
