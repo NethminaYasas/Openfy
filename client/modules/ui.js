@@ -201,6 +201,9 @@ export async function loadMostPlayed() {
 }
 
 export async function loadArtistPage(artistId) {
+    // Scroll to top when visiting artist page
+    window.scrollTo(0, 0);
+
     try {
         const artist = await getArtist(artistId);
         if (!artist) {
@@ -214,10 +217,16 @@ export async function loadArtistPage(artistId) {
         const trackCount = artist.tracks?.length || 0;
         document.getElementById("artist-meta").textContent = `${trackCount} track${trackCount !== 1 ? "s" : ""}`;
 
-        // Set gradient (similar to playlist)
-        if (artist.tracks && artist.tracks.length > 0 && artist.tracks[0].album && artist.tracks[0].album.artwork_path) {
-            const artworkUrl = '/tracks/' + artist.tracks[0].id + '/artwork?v=' + (artist.tracks[0].updated_at || '');
-            fetch(withBase(artworkUrl), { headers: { 'x-auth-hash': state.authHash } })
+        // Show artist image if available
+        const artistImageEl = document.getElementById("artist-image");
+        const artistMosaicEl = document.getElementById("artist-mosaic");
+        if (artist.image_url) {
+            artistImageEl.src = artist.image_url;
+            artistImageEl.style.display = "block";
+            artistMosaicEl.style.display = "none";
+
+            // Extract colors from artist image for gradient
+            fetch(artist.image_url)
                 .then(res => {
                     if (!res.ok) throw new Error("HTTP " + res.status);
                     return res.blob();
@@ -235,8 +244,37 @@ export async function loadArtistPage(artistId) {
                         'linear-gradient(180deg, #282828 0%, #121212 100%)';
                 });
         } else {
+            artistImageEl.style.display = "none";
+            artistMosaicEl.style.display = "grid";
+
+            // Show default gradient for artist page
             document.getElementById('artist-gradient').style.background =
-                'linear-gradient(180deg, #282828 0%, #121212 100%)';
+                'linear-gradient(180deg, #442c68 0%, #121212 100%)';
+
+            // Set gradient from track artwork only when no artist image
+            if (artist.tracks && artist.tracks.length > 0 && artist.tracks[0].album && artist.tracks[0].album.artwork_path) {
+                const artworkUrl = '/tracks/' + artist.tracks[0].id + '/artwork?v=' + (artist.tracks[0].updated_at || '');
+                fetch(withBase(artworkUrl), { headers: { 'x-auth-hash': state.authHash } })
+                    .then(res => {
+                        if (!res.ok) throw new Error("HTTP " + res.status);
+                        return res.blob();
+                    })
+                    .then(blob => {
+                        const objectUrl = URL.createObjectURL(blob);
+                        extractVibrantColors(objectUrl).then(colors => {
+                            document.getElementById('artist-gradient').style.background =
+                                `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
+                            URL.revokeObjectURL(objectUrl);
+                        });
+                    })
+                    .catch(() => {
+                        document.getElementById('artist-gradient').style.background =
+                            'linear-gradient(180deg, #282828 0%, #121212 100%)';
+                    });
+            } else {
+                document.getElementById('artist-gradient').style.background =
+                    'linear-gradient(180deg, #282828 0%, #121212 100%)';
+            }
         }
 
         // Render tracks in playlist-songs-list - simplified for artist
@@ -263,6 +301,9 @@ export async function loadArtistPage(artistId) {
                 songsList.appendChild(row);
             });
         }
+
+        // Mark as loaded to fade in content
+        document.getElementById("page-artist").classList.add("loaded");
     } catch (error) {
         console.error("Failed to load artist:", error);
     }

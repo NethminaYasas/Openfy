@@ -8,6 +8,8 @@ if TYPE_CHECKING:
 
 class ArtistBase(BaseModel):
     name: str
+    image_url: str | None = None
+    spotify_url: str | None = None
 
 
 class ArtistForTrack(BaseModel):
@@ -35,6 +37,7 @@ class TrackForArtist(BaseModel):
     album_id: str | None = None
     duration: float | None = None
     play_count: int = 0
+    play_count_30_days: int = 0
     created_at: datetime
     album: AlbumForTrack | None = None
 

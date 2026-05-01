@@ -48,6 +48,8 @@ class Artist(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    spotify_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     albums = relationship("Album", back_populates="artist")
@@ -90,6 +92,7 @@ class Track(Base):
     track_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     disc_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     play_count: Mapped[int] = mapped_column(Integer, default=0)
+    play_count_30_days: Mapped[int] = mapped_column(Integer, default=0)
     user_hash: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("users.auth_hash"), index=True, nullable=True
     )

@@ -762,6 +762,48 @@ def most_played(
     return tracks
 
 
+def _refresh_30_day_play_counts(db: Session) -> None:
+    """Refresh the play_count_30_days for all tracks based on track_plays from last 30 days."""
+    from datetime import timedelta
+    from sqlalchemy import update
+
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # Get play counts grouped by track_id for last 30 days
+    stmt = (
+        select(TrackPlay.track_id, func.count(TrackPlay.id))
+        .where(TrackPlay.played_at >= cutoff_date)
+        .group_by(TrackPlay.track_id)
+    )
+    results = db.execute(stmt).all()
+
+    # First, reset all 30-day counts to 0
+    db.execute(
+        update(Track).values(play_count_30_days=0)
+    )
+
+    # Then update with actual counts
+    for track_id, count in results:
+        db.execute(
+            update(Track).where(Track.id == track_id).values(play_count_30_days=count)
+        )
+
+    db.commit()
+
+
+@app.get("/tracks/refresh-30day-counts")
+def refresh_30_day_play_counts(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Refresh play counts for the last 30 days (admin only)"""
+    user = _require_user(db, x_auth_hash)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    _refresh_30_day_play_counts(db)
+    return {"status": "success", "message": "30-day play counts refreshed"}
+
+
 @app.get("/tracks/batch", response_model=list[TrackOut])
 def get_tracks_batch(
     ids: str = Query(..., description="Comma-separated track IDs"),
@@ -1060,18 +1102,144 @@ def list_artists(x_auth_hash: str | None = Header(None), db: Session = Depends(g
 @app.get("/artists/{artist_id}", response_model=ArtistOut)
 def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     from app.models import Artist, Track
-    from sqlalchemy import select
+    from sqlalchemy import select, or_
     from sqlalchemy.orm import selectinload
 
     _require_user(db, x_auth_hash)
+
+    # Get artist and include both primary tracks and featured tracks (many-to-many)
     artist = db.execute(
         select(Artist)
         .options(selectinload(Artist.tracks).selectinload(Track.album))
+        .options(selectinload(Artist.many_tracks).selectinload(Track.album))
         .where(Artist.id == artist_id)
     ).scalar_one_or_none()
     if not artist:
         raise HTTPException(status_code=404, detail="Artist not found")
+
+    # Combine primary tracks and featured tracks (remove duplicates)
+    all_track_ids = set()
+    combined_tracks = []
+    for track in artist.tracks:
+        if track.id not in all_track_ids:
+            all_track_ids.add(track.id)
+            combined_tracks.append(track)
+    for track in artist.many_tracks:
+        if track.id not in all_track_ids:
+            all_track_ids.add(track.id)
+            combined_tracks.append(track)
+
+    # Replace tracks with combined list
+    artist.tracks = combined_tracks
+
+    # Auto-fetch artist image from Spotify if not already stored
+    if not artist.image_url and not artist.spotify_url:
+        _auto_fetch_artist_image(db, artist)
+
     return artist
+
+
+def _auto_fetch_artist_image(db: Session, artist: Artist) -> None:
+    """Automatically fetch artist image from Spotify using existing track URLs."""
+    from app.models import Track
+    from sqlalchemy import select
+    from app.services.artist_service import get_artist_info_from_spotify
+
+    # Look for a Spotify track URL in the artist's tracks
+    tracks = db.execute(
+        select(Track).where(Track.artist_id == artist.id).limit(10)
+    ).scalars().all()
+
+    spotify_track_url = None
+    for track in tracks:
+        if track.source_url and "open.spotify.com" in track.source_url and "/track/" in track.source_url:
+            spotify_track_url = track.source_url
+            break
+
+    if not spotify_track_url:
+        return
+
+    try:
+        artist_info = get_artist_info_from_spotify(spotify_track_url)
+        if not artist_info:
+            return
+
+        # Get the largest available image
+        if artist_info.get("images"):
+            images = sorted(artist_info["images"], key=lambda x: x.get("width", 0), reverse=True)
+            if images and images[0].get("url"):
+                artist.image_url = images[0]["url"]
+
+        # Store Spotify artist URL if available
+        if not artist.spotify_url and artist_info.get("external_urls", {}).get("spotify"):
+            artist.spotify_url = artist_info["external_urls"]["spotify"]
+
+        if artist.image_url or artist.spotify_url:
+            db.commit()
+    except Exception as e:
+        print(f"[DEBUG] Auto-fetch artist image failed: {e}")
+
+
+@app.post("/artists/{artist_id}/fetch-spotify-image")
+def fetch_spotify_artist_image(
+    artist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Fetch artist image from Spotify and update the artist record."""
+    from app.models import Artist, Track
+    from sqlalchemy import select
+    from app.services.artist_service import get_artist_from_spotify_url
+
+    _require_admin(db, x_auth_hash)
+
+    artist = db.get(Artist, artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    # Try to find a Spotify URL from any of the artist's tracks
+    spotify_url = artist.spotify_url
+    if not spotify_url:
+        # Look through tracks to find a Spotify URL
+        tracks = db.execute(
+            select(Track).where(Track.artist_id == artist_id).limit(10)
+        ).scalars().all()
+        for track in tracks:
+            if track.source_url and "open.spotify.com" in track.source_url:
+                spotify_url = track.source_url
+                break
+
+    if not spotify_url:
+        raise HTTPException(
+            status_code=400,
+            detail="No Spotify URL found for this artist. Add a track from Spotify first."
+        )
+
+    # Fetch artist info from Spotify using our service
+    artist_info = get_artist_from_spotify_url(spotify_url)
+    if not artist_info:
+        raise HTTPException(status_code=500, detail="Failed to fetch artist from Spotify")
+
+    # Get the largest available image
+    image_url = artist_info.get("largest_image")
+    if not image_url and artist_info.get("images"):
+        images = sorted(artist_info["images"], key=lambda x: x.get("width", 0), reverse=True)
+        if images and images[0].get("url"):
+            image_url = images[0]["url"]
+
+    if not image_url:
+        raise HTTPException(status_code=404, detail="No artist image found on Spotify")
+
+    # Update the artist record
+    artist.image_url = image_url
+    # Try to get artist URL from external_urls
+    external_urls = artist_info.get("external_urls", {})
+    if not artist.spotify_url and external_urls.get("spotify"):
+        artist.spotify_url = external_urls["spotify"]
+    db.commit()
+    db.refresh(artist)
+
+    return {"image_url": artist.image_url, "spotify_url": artist.spotify_url, "name": artist_info.get("name")}
 
 @app.get("/albums", response_model=List[AlbumOut])
 def list_albums(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):

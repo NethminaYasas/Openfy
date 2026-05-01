@@ -16,6 +16,9 @@ COPY server/.env.example /app/.env
 # Copy Apple Music downloader into the installed SpotiFLAC package
 COPY server/SpotiFLAC /usr/local/lib/python3.11/site-packages/SpotiFLAC
 
+# Copy SpotifyScraper for artist image fetching
+COPY server/spotify_scraper /usr/local/lib/python3.11/site-packages/spotify_scraper
+
 ENV OPENFY_ENV=prod
 ENV OPENFY_DATA_DIR=/data
 ENV OPENFY_MUSIC_DIR=/data/music
