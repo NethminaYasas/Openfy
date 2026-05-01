@@ -196,7 +196,12 @@ def _download_with_yt_music(
                         return
             else:
                 parsed = downloader.parse_apple_music_url(query)
-                if not parsed or not parsed.get("track_id"):
+                if not parsed:
+                    raise Exception("Could not parse Apple Music URL")
+                # Check if it's an album URL (has album_id but no track_id)
+                if parsed.get("album_id") and not parsed.get("track_id"):
+                    raise Exception("Album URLs are not supported. Please provide a direct track URL from Apple Music.")
+                if not parsed.get("track_id"):
                     raise Exception("Could not parse Apple Music track URL")
                 expected_track_info = downloader.get_track_info(parsed["track_id"])
                 if not expected_track_info:

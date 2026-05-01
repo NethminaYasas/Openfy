@@ -764,6 +764,20 @@ class AppleMusicDownloader:
 
         if os.path.exists(expected_path) and os.path.getsize(expected_path) > 0:
             print(f"File already exists: {expected_path}")
+            # Still need to embed metadata even if file exists
+            self._embed_metadata(
+                expected_path,
+                title=track_info["name"],
+                artist=track_info["artist"],
+                album=track_info["album"],
+                album_artist=track_info["album_artist"],
+                date=track_info["release_date"],
+                track_num=track_info["track_number"],
+                total_tracks=track_info["total_tracks"],
+                disc_num=track_info["disc_number"],
+                total_discs=1,
+                cover_url=track_info["cover_url"],
+            )
             return expected_path
 
         # Download
@@ -789,19 +803,23 @@ class AppleMusicDownloader:
         if not download_url:
             raise Exception("All YouTube download APIs failed")
 
-        print("Downloading track from YouTube...")
-        with self.session.get(download_url, stream=True) as r:
-            r.raise_for_status()
-            total = int(r.headers.get("Content-Length", 0))
-            downloaded = 0
-            with open(expected_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if self.progress_callback:
-                            self.progress_callback(downloaded, total)
-        print()
+        # Skip download if file already downloaded via yt-dlp
+        if download_url == "ytdlp_local":
+            print("Track already downloaded via yt-dlp, embedding metadata...")
+        else:
+            print("Downloading track from YouTube...")
+            with self.session.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(expected_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if self.progress_callback:
+                                self.progress_callback(downloaded, total)
+            print()
 
         # Embed metadata
         self._embed_metadata(

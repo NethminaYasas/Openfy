@@ -249,6 +249,7 @@ async function tryAutoLogin() {
 
     if (window.refreshUploadState) window.refreshUploadState();
     await refreshManualUploadSetting();
+    applyManualUploadUI(state.manualAudioUploadEnabled);
     if (window.refreshLibraryState) window.refreshLibraryState();
 
     startUpdateChecker();
@@ -497,6 +498,7 @@ function initEventListeners() {
       showHashModal(user.auth_hash);
       if (window.refreshUploadState) window.refreshUploadState();
       await refreshManualUploadSetting();
+      applyManualUploadUI(state.manualAudioUploadEnabled);
       if (window.refreshLibraryState) window.refreshLibraryState();
     } catch (err) { showAuthStatus("signup-status", err.message || "Sign up failed.", "error"); }
     finally { setButtonLoading(btn, false); }
@@ -551,6 +553,7 @@ function initEventListeners() {
 
       if (window.refreshUploadState) window.refreshUploadState();
       await refreshManualUploadSetting();
+      applyManualUploadUI(state.manualAudioUploadEnabled);
       if (window.refreshLibraryState) window.refreshLibraryState();
 
       startUpdateChecker();
@@ -789,6 +792,7 @@ function initHashModalHandlers() {
 
     if (window.refreshUploadState) window.refreshUploadState();
     await refreshManualUploadSetting();
+    applyManualUploadUI(state.manualAudioUploadEnabled);
     if (window.refreshLibraryState) window.refreshLibraryState();
 
     startUpdateChecker();
