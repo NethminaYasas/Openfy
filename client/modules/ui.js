@@ -1,5 +1,5 @@
 import { state, withBase } from './state.js';
-import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting } from './api.js';
+import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist } from './api.js';
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
 import { addRecentSearch, loadRecentSearches, removeRecentSearch } from './recent-searches.js';
 
@@ -15,7 +15,8 @@ export const pages = {
   admin: null,
   settings: null,
   profile: null,
-  
+  artist: null,
+
   init() {
     this.home = document.getElementById("page-home");
     this.library = document.getElementById("page-library");
@@ -23,12 +24,25 @@ export const pages = {
     this.admin = document.getElementById("page-admin");
     this.settings = document.getElementById("page-settings");
     this.profile = document.getElementById("page-profile");
+    this.artist = document.getElementById("page-artist");
   },
   
   get(key) {
     return this[key];
   }
 };
+
+// Click handler for artist name navigation
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('clickable-artist')) {
+    e.stopPropagation();
+    const artistId = e.target.dataset.artistId;
+    if (artistId) {
+      setUrl('/artist/' + artistId);
+      setActivePage('artist');
+    }
+  }
+});
 
 export function setUrl(path) {
   const baseUrl = window.location.origin + window.location.pathname;
@@ -38,6 +52,16 @@ export function setUrl(path) {
 }
 
 export function setActivePage(pageId, updateUrl = true) {
+  // Check for /artist/ route in URL - only on initial load, not when explicitly navigating away
+  const pathname = window.location.pathname;
+  const explicitPages = ['home', 'library', 'playlist', 'profile', 'admin', 'settings'];
+  if (pathname.startsWith("/artist/") && pageId === "artist") {
+    const artistId = pathname.split("/artist/")[1];
+    if (artistId) {
+      state.currentArtistId = artistId;
+    }
+  }
+
   // Determine currently active page EXACTLY before switching pageId
   const currentActivePage = document.querySelector('.page.active');
   const isLeavingPlaylist = currentActivePage && currentActivePage.id === 'page-playlist';
@@ -47,7 +71,7 @@ export function setActivePage(pageId, updateUrl = true) {
     saveScrollPositions();
   }
 
-  ['home', 'library', 'playlist', 'admin', 'settings', 'profile'].forEach(function(key) {
+  ['home', 'library', 'playlist', 'admin', 'settings', 'profile', 'artist'].forEach(function(key) {
     var p = pages[key];
     if (p && p.classList) p.classList.remove("active");
   });
@@ -65,9 +89,21 @@ if (pageId === "library" && state.authHash) {
   if (pageId === "profile" && state.currentUser) {
     populateProfilePage();
   }
+  if (pageId === "artist") {
+    // Get artist ID from state (set during URL parsing) or URL params
+    var artistId = state.currentArtistId;
+    if (!artistId) {
+      const urlParams = new URLSearchParams(window.location.search);
+      artistId = urlParams.get("id");
+    }
+    if (artistId) {
+      loadArtistPage(artistId);
+    }
+    var p = pages.artist;
+  }
   
   document.getElementById('app-main').classList.toggle('home-page', pageId === 'home');
-  document.getElementById('app-main').classList.toggle('playlist-page', pageId === 'playlist');
+  document.getElementById('app-main').classList.toggle('playlist-page', pageId === 'playlist' || pageId === 'artist');
 
   if (updateUrl) {
     if (pageId === 'home') {
@@ -82,6 +118,8 @@ if (pageId === "library" && state.authHash) {
       setUrl('/admin');
     } else if (pageId === 'playlist' && state.currentPlaylistId) {
       setUrl('/playlist/' + state.currentPlaylistId);
+    } else if (pageId === 'artist' && state.currentArtistId) {
+      setUrl('/artist/' + state.currentArtistId);
     }
   }
 
@@ -116,6 +154,14 @@ export function navigateFromUrl() {
     const playlistId = path.split('/playlist/')[1];
     if (playlistId) {
       openPlaylistById(playlistId);
+    } else {
+      setActivePage('home');
+    }
+  } else if (path.startsWith('/artist/')) {
+    const artistId = path.split('/artist/')[1];
+    if (artistId) {
+      state.currentArtistId = artistId;
+      setActivePage('artist');
     } else {
       setActivePage('home');
     }
@@ -155,6 +201,75 @@ export async function loadMostPlayed() {
   return tracks;
 }
 
+export async function loadArtistPage(artistId) {
+    try {
+        const artist = await getArtist(artistId);
+        if (!artist) {
+            console.error("Artist not found");
+            return;
+        }
+
+        document.getElementById("artist-name").textContent = artist.name;
+
+        // Update meta (track count)
+        const trackCount = artist.tracks?.length || 0;
+        document.getElementById("artist-meta").textContent = `${trackCount} track${trackCount !== 1 ? "s" : ""}`;
+
+        // Set gradient (similar to playlist)
+        if (artist.tracks && artist.tracks.length > 0 && artist.tracks[0].album && artist.tracks[0].album.artwork_path) {
+            const artworkUrl = '/tracks/' + artist.tracks[0].id + '/artwork?v=' + (artist.tracks[0].updated_at || '');
+            fetch(withBase(artworkUrl), { headers: { 'x-auth-hash': state.authHash } })
+                .then(res => {
+                    if (!res.ok) throw new Error("HTTP " + res.status);
+                    return res.blob();
+                })
+                .then(blob => {
+                    const objectUrl = URL.createObjectURL(blob);
+                    extractVibrantColors(objectUrl).then(colors => {
+                        document.getElementById('artist-gradient').style.background =
+                            `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
+                        URL.revokeObjectURL(objectUrl);
+                    });
+                })
+                .catch(() => {
+                    document.getElementById('artist-gradient').style.background =
+                        'linear-gradient(180deg, #282828 0%, #121212 100%)';
+                });
+        } else {
+            document.getElementById('artist-gradient').style.background =
+                'linear-gradient(180deg, #282828 0%, #121212 100%)';
+        }
+
+        // Render tracks in playlist-songs-list - simplified for artist
+        const songsList = document.getElementById("artist-songs-list");
+        songsList.innerHTML = "";
+        if (artist.tracks && artist.tracks.length > 0) {
+            artist.tracks.forEach((track, index) => {
+                var row = document.createElement('div');
+                row.className = 'playlist-song-row';
+                var duration = track.duration ? formatDuration(track.duration) : '';
+                var artworkUrl = (track.album && track.album.artwork_path) ?
+                    withBase('/tracks/' + track.id + '/artwork?v=' + (track.updated_at || '')) : '';
+                row.innerHTML =
+                    '<span class="ps-row-num">' + (index + 1) + '</span>' +
+                    '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +
+                    '<span class="ps-row-title">' +
+                    '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
+                    '<span class="ps-row-title-artist">' + artist.name + '</span>' +
+                    '</span>' +
+                    '<span class="ps-row-duration">' + duration + '</span>';
+                row.addEventListener('click', function() {
+                    setQueueFromList(artist.tracks, index);
+                    if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+                });
+                songsList.appendChild(row);
+            });
+        }
+    } catch (error) {
+        console.error("Failed to load artist:", error);
+    }
+}
+
 export function buildTrackCard(track, list, index) {
   var card = document.createElement("div");
   card.className = "card";
@@ -187,11 +302,32 @@ export function buildTrackCard(track, list, index) {
   title.textContent = track.title;
   var info = document.createElement("p");
   info.className = "card-info";
-  info.textContent = getArtistDisplay(track);
+  // Handle multiple artists - create clickable spans for each
+  var artistNames = [];
+  var artistIds = [];
+  if (track.artists && track.artists.length > 0) {
+    track.artists.forEach(function(a) {
+      artistNames.push(a.name);
+      if (a.id) artistIds.push(a.id);
+    });
+  } else if (track.artist && track.artist.name) {
+    artistNames.push(track.artist.name);
+    if (track.artist.id) artistIds.push(track.artist.id);
+  }
+  if (artistNames.length > 0) {
+    info.innerHTML = artistNames.map(function(name, i) {
+      var id = artistIds[i] || '';
+      return '<span class="clickable-artist"' + (id ? ' data-artist-id="' + id + '"' : '') + '>' + name + '</span>';
+    }).join(', ');
+  } else {
+    info.textContent = "Unknown";
+  }
   card.appendChild(title);
   card.appendChild(info);
 
-  card.addEventListener("click", function() {
+  card.addEventListener("click", function(e) {
+    // Don't play track if clicking on artist name (it's clickable)
+    if (e.target.classList.contains('clickable-artist')) return;
     setCurrentPlayingPlaylistId(null);
     if (window.updateLibraryPlayingState) window.updateLibraryPlayingState();
     setQueueFromList(list, index);
@@ -201,6 +337,55 @@ export function buildTrackCard(track, list, index) {
   card.addEventListener("contextmenu", function(e) {
     e.preventDefault();
     if (window.showTrackContextMenu) window.showTrackContextMenu(e, track);
+  });
+
+  return card;
+}
+
+export function buildAlbumCard(album) {
+  var card = document.createElement("div");
+  card.className = "card";
+
+  var artContainer = document.createElement("div");
+  artContainer.className = "artwork-container";
+
+  var artistName = album.artist ? album.artist.name : "Unknown Artist";
+  var art = createArtCanvas(album.title || "Unknown Album", artistName);
+  var img = document.createElement("img");
+  img.className = "card-img";
+  img.src = withBase("/albums/" + album.id + "/artwork?v=" + (album.updated_at || ""));
+  img.alt = album.title || "Unknown Album";
+  img.style.display = "none";
+
+  img.addEventListener("load", function() {
+    art.style.display = "none";
+    img.style.display = "block";
+  });
+  img.addEventListener("error", function() {
+    img.style.display = "none";
+    art.style.display = "block";
+  });
+
+  artContainer.appendChild(art);
+  artContainer.appendChild(img);
+  card.appendChild(artContainer);
+
+  var title = document.createElement("p");
+  title.className = "card-title";
+  title.textContent = album.title || "Unknown Album";
+  var info = document.createElement("p");
+  info.className = "card-info clickable-artist";
+  info.textContent = artistName;
+  if (album.artist_id || album.artist?.id) {
+    info.dataset.artistId = album.artist_id || album.artist.id;
+  }
+  card.appendChild(title);
+  card.appendChild(info);
+
+  // Add click handler to navigate to album page (if implemented)
+  card.addEventListener("click", function() {
+    // TODO: Implement album page navigation
+    console.log("Album clicked:", album.id);
   });
 
   return card;

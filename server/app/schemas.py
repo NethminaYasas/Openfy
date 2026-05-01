@@ -1,15 +1,50 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, ConfigDict
+
+if TYPE_CHECKING:
+    from .schemas import AlbumOut, TrackForArtist
 
 
 class ArtistBase(BaseModel):
     name: str
 
 
+class ArtistForTrack(BaseModel):
+    """Shallow artist info for embedding in TrackOut - no circular refs"""
+    id: str
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AlbumForTrack(BaseModel):
+    """Shallow album info for embedding in TrackForArtist"""
+    id: str
+    title: str
+    artwork_path: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrackForArtist(BaseModel):
+    """Track info for embedding in ArtistOut - excludes artist/artists to avoid circular refs"""
+    id: str
+    title: str
+    artist_id: str | None = None
+    album_id: str | None = None
+    duration: float | None = None
+    play_count: int = 0
+    created_at: datetime
+    album: AlbumForTrack | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ArtistOut(ArtistBase):
     id: str
     created_at: datetime
+    tracks: List["TrackForArtist"] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,8 +85,8 @@ class TrackOut(TrackBase):
     created_at: datetime
     updated_at: datetime
 
-    artist: ArtistOut | None = None  # primary artist via artist_id
-    artists: List[ArtistOut] = Field(default_factory=list)  # full many-to-many list
+    artist: ArtistForTrack | None = None  # primary artist via artist_id
+    artists: List[ArtistForTrack] = Field(default_factory=list)  # full many-to-many list
     album: AlbumOut | None = None
 
     model_config = ConfigDict(from_attributes=True)

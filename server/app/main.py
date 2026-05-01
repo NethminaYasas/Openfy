@@ -1057,6 +1057,22 @@ def list_artists(x_auth_hash: str | None = Header(None), db: Session = Depends(g
     return artists
 
 
+@app.get("/artists/{artist_id}", response_model=ArtistOut)
+def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
+    from app.models import Artist, Track
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    _require_user(db, x_auth_hash)
+    artist = db.execute(
+        select(Artist)
+        .options(selectinload(Artist.tracks).selectinload(Track.album))
+        .where(Artist.id == artist_id)
+    ).scalar_one_or_none()
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+    return artist
+
 @app.get("/albums", response_model=List[AlbumOut])
 def list_albums(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     _require_user(db, x_auth_hash)

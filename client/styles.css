@@ -4622,6 +4622,22 @@ input:checked + .toggle-slider:before {
     flex-direction: column;
 }
 
+#page-artist {
+    position: relative;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+}
+
+#artist-name {
+    font-size: 5rem;
+}
+
+#page-artist.active {
+    display: flex;
+    flex-direction: column;
+}
+
 
 .playlist-bottom-panel {
     background-color: rgba(18, 18, 18, 0.3);
@@ -5055,4 +5071,15 @@ input:checked + .toggle-slider:before {
 
 .playlist-back:hover {
     background: rgba(255,255,255,0.1);
+}
+
+/* Clickable artist links */
+.clickable-artist {
+    cursor: pointer;
+    color: #b3b3b3;
+}
+
+.clickable-artist:hover {
+    color: #fff;
+    text-decoration: underline;
 }

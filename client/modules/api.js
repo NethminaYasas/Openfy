@@ -396,3 +396,15 @@ export async function updateLibraryState(minimized) {
 export async function updateUploadPreference(enabled) {
   return await api("/user/upload-preference", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upload_enabled: enabled }) });
 }
+
+export async function getArtist(artistId) {
+    try {
+        const response = await api(`/artists/${artistId}`);
+        return response;
+    } catch (err) {
+        if (err.message === "HTTP 404" || (err.message && err.message.includes("HTTP 404"))) {
+            return null;
+        }
+        throw err;
+    }
+}
