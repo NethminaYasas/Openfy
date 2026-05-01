@@ -295,8 +295,14 @@ export async function loadArtistPage(artistId) {
                     '</span>' +
                     '<span class="ps-row-duration">' + duration + '</span>';
                 row.addEventListener('click', function() {
+                    // Don't do anything if clicking the currently playing track
+                    if (state.currentTrackId === track.id) return;
                     setQueueFromList(artist.tracks, index);
                     if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+                });
+                row.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    if (window.showTrackContextMenu) window.showTrackContextMenu(e, track);
                 });
                 songsList.appendChild(row);
             });
@@ -365,8 +371,10 @@ export function buildTrackCard(track, list, index) {
   card.appendChild(info);
 
   card.addEventListener("click", function(e) {
-    // Don't play track if clicking on artist name (it's clickable)
+    // Don't do anything if clicking the currently playing track
     if (e.target.classList.contains('clickable-artist')) return;
+    if (state.currentTrackId === track.id) return;
+
     setCurrentPlayingPlaylistId(null);
     if (window.updateLibraryPlayingState) window.updateLibraryPlayingState();
     setQueueFromList(list, index);
@@ -899,6 +907,9 @@ export async function openPlaylist(playlistId) {
           '<span class="ps-row-duration">' + duration + '</span>';
 
         row.addEventListener('click', function() {
+          // Don't do anything if clicking the currently playing track
+          if (state.currentTrackId === track.id) return;
+
           setQueueFromList(tracks.map(function(t) { return t.track; }), i);
           setCurrentPlayingPlaylistId(state.currentPlaylistId);
 
@@ -919,6 +930,12 @@ export async function openPlaylist(playlistId) {
 
           if (window.updateLibraryPlayingState) window.updateLibraryPlayingState();
           if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+        });
+
+        // Right-click context menu
+        row.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          if (window.showTrackContextMenu) window.showTrackContextMenu(e, track);
         });
 
         container.appendChild(row);
@@ -1217,6 +1234,11 @@ export function renderSearchDropdown(results) {
 
     btn.addEventListener("click", function(ev) {
       ev.preventDefault();
+      // Don't do anything if clicking the currently playing track
+      if (state.currentTrackId === track.id) {
+        hideSearchDropdown();
+        return;
+      }
       setQueueFromList(items, index);
       if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
       addRecentSearch(state.authHash || '', {
@@ -1315,6 +1337,8 @@ export function renderRecentSearchDropdown(recentItems) {
       ev.preventDefault();
       try {
         const track = await api("/tracks/" + item.id);
+        // Don't do anything if clicking the currently playing track
+        if (state.currentTrackId === track.id) return;
         setQueueFromList([track], 0);
         if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
       } catch (err) {
