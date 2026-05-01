@@ -10,6 +10,7 @@ import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, app
 
 // Global function for artist navigation
 window.navigateToArtist = function(artistId) {
+  state.currentArtistId = artistId;
   setUrl('/artist/' + artistId);
   setActivePage('artist');
 };

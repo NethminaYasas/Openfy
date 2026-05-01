@@ -4643,6 +4643,10 @@ input:checked + .toggle-slider:before {
     flex-direction: column;
 }
 
+/* Artist cover - round instead of square */
+#artist-mosaic {
+    border-radius: 50%;
+}
 
 .playlist-bottom-panel {
     background-color: rgba(18, 18, 18, 0.3);
