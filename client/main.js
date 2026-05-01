@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, uploadAvatar } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, uploadAvatar, getArtist } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -162,7 +162,9 @@ document.addEventListener('DOMContentLoaded', async function() {
   initHashModalHandlers();
   
   initPlaylistHandlers();
-  
+
+  initArtistHandlers();
+
   initContextMenuHandlers();
   
   initAdminEventListeners();
@@ -885,6 +887,75 @@ function initPlaylistHandlers() {
       document.getElementById("playlist-menu-dropdown").classList.remove("visible");
     } catch (err) {
       console.error("Failed to toggle public state:", err);
+    }
+  });
+}
+
+function initArtistHandlers() {
+  const artistPlayBtn = document.getElementById("artist-play-btn");
+  if (!artistPlayBtn) return;
+
+  artistPlayBtn.addEventListener('click', async function() {
+    if (!state.currentArtistId) return;
+
+    try {
+      const artist = await getArtist(state.currentArtistId);
+      if (!artist || !artist.tracks || artist.tracks.length === 0) return;
+
+      var tracks = artist.tracks.map(function(t) { return t; });
+      var isPlayingThisArtist = (state.currentPlayingPlaylistId === 'artist-' + state.currentArtistId);
+      var isAudioPlaying = !audioPlayer.paused;
+
+      if (isPlayingThisArtist && state.currentQueue.length > 0) {
+        if (isAudioPlaying) {
+          audioPlayer.pause();
+          artistPlayBtn.classList.remove('playing');
+        } else {
+          audioPlayer.play();
+          artistPlayBtn.classList.add('playing');
+        }
+        return;
+      }
+
+      state.currentQueue = tracks.map(function(t) { return t; });
+      state.currentPlayingPlaylistId = 'artist-' + state.currentArtistId;
+
+      var artistShuffle = document.getElementById('artist-shuffle-btn').classList.contains('active');
+      state.shuffle = artistShuffle;
+      document.getElementById("btn-shuffle").classList.toggle("active", state.shuffle);
+
+      if (state.shuffle) {
+        for (let i = state.currentQueue.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [state.currentQueue[i], state.currentQueue[j]] = [state.currentQueue[j], state.currentQueue[i]];
+        }
+      }
+
+      artistPlayBtn.classList.add('playing');
+      if (state.currentQueue.length) {
+        playTrack(state.currentQueue[0]);
+      }
+    } catch (err) {
+      console.error("Failed to play artist tracks:", err);
+    }
+  });
+
+  document.getElementById('artist-shuffle-btn').addEventListener('click', async function() {
+    if (!state.currentArtistId) return;
+
+    var isActive = this.classList.toggle('active');
+
+    var currentArtistPlaylistId = 'artist-' + state.currentArtistId;
+    if (state.currentPlayingPlaylistId === currentArtistPlaylistId) {
+      state.shuffle = isActive;
+      document.getElementById("btn-shuffle").classList.toggle("active", state.shuffle);
+      if (state.shuffle) {
+        shuffleQueueOnce();
+      } else {
+        unshuffleQueue();
+      }
+      scheduleQueueSave();
+      renderNowPlayingQueue();
     }
   });
 }
