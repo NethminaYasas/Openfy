@@ -182,7 +182,11 @@ document.addEventListener('DOMContentLoaded', async function() {
   initKeyboardControls();
   
   initResizeObserver();
-  
+
+  // Navigate to URL BEFORE any async operations - this sets the correct page immediately
+  // before authentication check, so there's no flash
+  navigateFromUrl();
+
   const ok = await tryAutoLogin();
   if (!ok) {
     document.getElementById("auth-overlay").style.display = "flex";
@@ -190,13 +194,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById("app-main").style.display = "none";
     saveIntendedUrl();
   } else {
+    // Already navigated above - just load data
     await uiLoadTracks();
     await uiLoadMostPlayed();
     await loadPlaylists();
     await uiLoadUserUploads();
   }
-  
-  navigateFromUrl();
 });
 
 async function tryAutoLogin() {
@@ -250,12 +253,8 @@ async function tryAutoLogin() {
 
     startUpdateChecker();
 
-    const urlToNavigate = getAndClearIntendedUrl();
-    if (urlToNavigate) {
-      navigateFromUrl();
-    } else {
-      setActivePage('home');
-    }
+    // Don't navigate here - let the outer navigateFromUrl() at line 199 handle all navigation
+    // This prevents double-navigation issues when user manually logs in
 
     return true;
   }
