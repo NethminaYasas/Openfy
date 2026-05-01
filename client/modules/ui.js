@@ -35,7 +35,6 @@ export const pages = {
 // Click handler for artist name navigation
 document.addEventListener('click', function(e) {
   if (e.target.classList.contains('clickable-artist')) {
-    e.stopPropagation();
     const artistId = e.target.dataset.artistId;
     if (artistId) {
       setUrl('/artist/' + artistId);
@@ -255,7 +254,6 @@ export async function loadArtistPage(artistId) {
                     '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +
                     '<span class="ps-row-title">' +
                     '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
-                    '<span class="ps-row-title-artist">' + artist.name + '</span>' +
                     '</span>' +
                     '<span class="ps-row-duration">' + duration + '</span>';
                 row.addEventListener('click', function() {

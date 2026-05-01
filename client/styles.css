@@ -717,6 +717,11 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    pointer-events: auto;
+}
+
+.np-artist * {
+    pointer-events: auto;
 }
 
 .np-album {
@@ -5077,6 +5082,7 @@ input:checked + .toggle-slider:before {
 .clickable-artist {
     cursor: pointer;
     color: #b3b3b3;
+    pointer-events: auto;
 }
 
 .clickable-artist:hover {

@@ -4,9 +4,24 @@ import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, crea
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
 import { audioPlayer, togglePlay, playByIndex, playTrack, loadTrackPaused, setQueueFromList, reorderQueue, enforceQueueCapacity, shuffleQueueOnce, unshuffleQueue, scheduleQueueSave, renderNowPlayingQueue, buildQueueItem, getShowFullQueue, setShowFullQueue, getCollapseTimeout, setCollapseTimeout, syncLikeButtonState, updateNowPlaying } from './modules/audio-player.js';
-import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates } from './modules/ui.js';
+import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates, setUrl } from './modules/ui.js';
 import { loadRecentSearches, addRecentSearch } from './modules/recent-searches.js';
 import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, applyManualUploadUI, loadUsersListUI, loadTracksListUI, initAdminEventListeners } from './modules/admin.js';
+
+// Global function for artist navigation
+window.navigateToArtist = function(artistId) {
+  setUrl('/artist/' + artistId);
+  setActivePage('artist');
+};
+
+// Global handler for clickable artist names - stops propagation to prevent track play
+window.handleArtistClick = function(event, artistId) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  window.navigateToArtist(artistId);
+};
 
 const MAX_QUEUE_CAPACITY = 20;
 

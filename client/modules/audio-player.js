@@ -2,6 +2,7 @@ import { state, withBase } from './state.js';
 import { getTrackStreamUrl, saveQueueToServer, savePlayerState, checkIfLiked as apiCheckIfLiked } from './api.js';
 import { getArtistDisplay, formatDuration, drawCanvas, clearCanvas, queueArtworkUrl, seededColor, extractVibrantColors } from './utils.js';
 import { emitTrackChanged, getGradientManager } from './gradient-manager.js';
+import { setUrl, setActivePage } from './ui.js';
 
 const MAX_QUEUE_CAPACITY = 20;
 
@@ -216,8 +217,8 @@ export function playTrack(track) {
     .catch(function(err) { console.error(err); });
   
   document.getElementById("now-title").textContent = track.title || "";
-  document.getElementById("now-artist").textContent = getArtistDisplay(track) || "";
-  
+  document.getElementById("now-artist").innerHTML = makeArtistClickable(track) || "";
+
   var artistTitle = (track.artists && track.artists.length > 0 && track.artists[0].name) || (track.artist && track.artist.name) || "Unknown";
   document.title = (track.title || "Openfy") + " - " + artistTitle;
   
@@ -276,7 +277,7 @@ export async function loadTrackPaused(track, preserveQueue = false) {
     .catch(function(err) { console.error(err); });
   
   document.getElementById("now-title").textContent = track.title || "";
-  document.getElementById("now-artist").textContent = getArtistDisplay(track) || "";
+  document.getElementById("now-artist").innerHTML = makeArtistClickable(track) || "";
   clearCanvas(document.getElementById("now-cover"));
   document.getElementById("now-cover").classList.remove("visible");
   
@@ -338,6 +339,31 @@ async function checkIfLiked(trackId) {
   }
 }
 
+// Helper to create clickable artist HTML with inline onclick
+function makeArtistClickable(track) {
+  var artistNames = [];
+  var artistIds = [];
+  if (track.artists && track.artists.length > 0) {
+    track.artists.forEach(function(a) {
+      artistNames.push(a.name);
+      if (a.id) artistIds.push(a.id);
+    });
+  } else if (track.artist && track.artist.name) {
+    artistNames.push(track.artist.name);
+    if (track.artist.id) artistIds.push(track.artist.id);
+  }
+  if (artistNames.length > 0) {
+    return artistNames.map(function(name, i) {
+      var id = artistIds[i] || '';
+      if (id) {
+        return '<span class="clickable-artist" onclick="window.handleArtistClick(event, \'' + id + '\')">' + name + '</span>';
+      }
+      return '<span class="clickable-artist">' + name + '</span>';
+    }).join(', ');
+  }
+  return "Unknown";
+}
+
 export function updateNowPlaying(track) {
   const npPlaceholder = document.getElementById("np-placeholder");
   const npTrack = document.getElementById("np-track");
@@ -345,11 +371,11 @@ export function updateNowPlaying(track) {
   const npArtist = document.getElementById("np-artist");
   const npCover = document.getElementById("np-cover");
   const npImg = document.getElementById("np-img");
-  
+
   npPlaceholder.style.display = "none";
   npTrack.style.display = "flex";
   npTitle.textContent = track.title || "";
-  npArtist.textContent = getArtistDisplay(track) || "Unknown";
+  npArtist.innerHTML = makeArtistClickable(track);
   clearCanvas(npCover);
   npCover.style.display = "none";
   npImg.style.display = "none";
@@ -641,7 +667,29 @@ export function buildQueueItem(track, index, opts) {
 
   const artistEl = document.createElement("div");
   artistEl.className = "np-queue-artist";
-  artistEl.textContent = artistText;
+  // Make each artist name clickable individually
+  var artistNames = [];
+  var artistIds = [];
+  if (track.artists && track.artists.length > 0) {
+    track.artists.forEach(function(a) {
+      artistNames.push(a.name);
+      if (a.id) artistIds.push(a.id);
+    });
+  } else if (track.artist && track.artist.name) {
+    artistNames.push(track.artist.name);
+    if (track.artist.id) artistIds.push(track.artist.id);
+  }
+  if (artistNames.length > 0) {
+    artistEl.innerHTML = artistNames.map(function(name, i) {
+      var id = artistIds[i] || '';
+      if (id) {
+        return '<span class="clickable-artist" onclick="window.handleArtistClick(event, \'' + id + '\')">' + name + '</span>';
+      }
+      return '<span>' + name + '</span>';
+    }).join(', ');
+  } else {
+    artistEl.textContent = "Unknown";
+  }
 
   meta.appendChild(titleEl);
   meta.appendChild(artistEl);
@@ -664,6 +712,8 @@ export function buildQueueItem(track, index, opts) {
 
   btn.addEventListener("click", function(ev) {
     ev.preventDefault();
+    // Don't play track if clicking on artist name
+    if (ev.target.closest('.clickable-artist')) return;
     if (!state.currentQueue || !state.currentQueue.length) return;
     if (index < 0 || index >= state.currentQueue.length) return;
     state.currentIndex = index;
