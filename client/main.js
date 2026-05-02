@@ -403,9 +403,171 @@ function initEventListeners() {
       return;
     }
     event.stopPropagation();
-    await showAddToPlaylistModal();
+
+    // Check current state based on button classes
+    const isLiked = state.likedTrackIds.has(state.currentTrackId);
+    const isInPlaylist = state.trackIdsInRegularPlaylists.has(state.currentTrackId);
+
+    if (isLiked && isInPlaylist) {
+      // Track is both liked AND in a playlist - show full modal
+      await showAddToPlaylistModal();
+    } else if (isLiked) {
+      // Track is only liked - show full modal
+      await showAddToPlaylistModal();
+    } else if (isInPlaylist) {
+      // Track is only in playlist(s) - show full modal
+      await showAddToPlaylistModal();
+    } else {
+      // Plus icon - add directly to liked songs
+      await addToLikedSongsDirect();
+    }
     npLikeBtn.disabled = false;
   });
+
+  // Add track directly to liked songs (no modal)
+  async function addToLikedSongsDirect() {
+    if (!state.currentTrackId || !state.authHash) return;
+    try {
+      await toggleLiked(state.currentTrackId);
+      state.likedTrackIds.add(state.currentTrackId);
+      syncLikeButtonState({ id: state.currentTrackId });
+      // Show brief feedback animation
+      npLikeBtn.classList.add('adding');
+      setTimeout(() => npLikeBtn.classList.remove('adding'), 400);
+    } catch (err) {
+      console.error("Failed to add to liked songs:", err);
+      alert("Failed to add to liked songs: " + err.message);
+    }
+  }
+
+  // Show removal menu for liked songs
+  window.showRemovalMenuForLiked = async function() {
+    const removalMenu = document.getElementById("np-playlist-removal-menu");
+    const removalItems = document.getElementById("np-playlist-removal-items");
+    if (!removalMenu || !removalItems || !state.currentTrackId) return;
+
+    removalItems.innerHTML = '<div class="submenu-loading">Loading...</div>';
+    positionRemovalMenu(removalMenu, npLikeBtn);
+    removalMenu.classList.add("visible");
+
+    // For liked songs, just show a single option to remove
+    removalItems.innerHTML = '';
+    const removeItem = document.createElement('button');
+    removeItem.className = 'submenu-item';
+    removeItem.innerHTML = '<span class="submenu-playlist-name">Remove from Liked Songs</span>';
+    removeItem.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await toggleLiked(state.currentTrackId);
+        state.likedTrackIds.delete(state.currentTrackId);
+        removalMenu.classList.remove("visible");
+        syncLikeButtonState({ id: state.currentTrackId });
+      } catch (err) {
+        console.error("Failed to remove from liked songs:", err);
+        alert("Failed to remove from liked songs: " + err.message);
+      }
+    });
+    removalItems.appendChild(removeItem);
+  };
+
+  // Show removal menu with both liked songs and playlist options
+  window.showRemovalMenuAllOptions = async function() {
+    const removalMenu = document.getElementById("np-playlist-removal-menu");
+    const removalItems = document.getElementById("np-playlist-removal-items");
+    if (!removalMenu || !removalItems || !state.currentTrackId) return;
+
+    removalItems.innerHTML = '<div class="submenu-loading">Loading...</div>';
+    positionRemovalMenu(removalMenu, npLikeBtn);
+    removalMenu.classList.add("visible");
+
+    if (!state.currentUser) {
+      removalItems.innerHTML = '<div class="submenu-error">Not logged in</div>';
+      return;
+    }
+
+    try {
+      // Load all playlists
+      const playlists = await api("/playlists");
+      state.userPlaylists = playlists;
+
+      // Find playlists containing the current track
+      const results = await Promise.all(
+        playlists.map(async (pl) => {
+          if (pl.is_liked) return { pl, hasTrack: false }; // Skip liked songs
+          const trackIds = new Set();
+          try {
+            const tracks = await api("/playlists/" + pl.id + "/tracks");
+            for (const pt of tracks) trackIds.add(pt.track.id);
+          } catch (e) {
+            console.error("Failed to load tracks for playlist:", pl.name, e);
+          }
+          return { pl, hasTrack: trackIds.has(state.currentTrackId) };
+        })
+      );
+
+      // Filter to playlists that contain the track
+      const playlistsWithTrack = results.filter(r => r.hasTrack && !r.pl.is_liked);
+
+      // Build the menu items
+      removalItems.innerHTML = '';
+
+      // Add "Remove from Liked Songs" option
+      const likedItem = document.createElement('button');
+      likedItem.className = 'submenu-item';
+      likedItem.innerHTML = '<span class="submenu-playlist-name">Remove from Liked Songs</span>';
+      likedItem.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await toggleLiked(state.currentTrackId);
+          state.likedTrackIds.delete(state.currentTrackId);
+          removalMenu.classList.remove("visible");
+          syncLikeButtonState({ id: state.currentTrackId });
+        } catch (err) {
+          console.error("Failed to remove from liked songs:", err);
+          alert("Failed to remove from liked songs: " + err.message);
+        }
+      });
+      removalItems.appendChild(likedItem);
+
+      // Add divider if there are playlists
+      if (playlistsWithTrack.length > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'submenu-divider';
+        removalItems.appendChild(divider);
+
+        // Add playlist items
+        playlistsWithTrack.forEach(({ pl }) => {
+          const item = document.createElement('button');
+          item.className = 'submenu-item';
+          item.dataset.playlistId = pl.id;
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'submenu-playlist-name';
+          nameSpan.textContent = pl.name;
+          item.appendChild(nameSpan);
+
+          item.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            try {
+              await removeTrackFromPlaylist(pl.id, state.currentTrackId);
+              state.trackIdsInRegularPlaylists.delete(state.currentTrackId);
+              removalMenu.classList.remove("visible");
+              await loadPlaylists();
+              syncLikeButtonState({ id: state.currentTrackId });
+            } catch (err) {
+              console.error("Failed to remove track:", err);
+              alert("Failed to remove track: " + err.message);
+            }
+          });
+
+          removalItems.appendChild(item);
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load playlists:", err);
+      removalItems.innerHTML = '<div class="submenu-error">Failed to load</div>';
+    }
+  };
 
   // Show removal menu for playlist
   window.showRemovalMenu = async function() {
