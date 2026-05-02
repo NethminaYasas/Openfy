@@ -30,7 +30,7 @@ class AlbumForTrack(BaseModel):
 
 
 class TrackForArtist(BaseModel):
-    """Track info for embedding in ArtistOut - excludes artist/artists to avoid circular refs"""
+    """Track info for embedding in ArtistOut - includes artist/artists for display"""
     id: str
     title: str
     artist_id: str | None = None
@@ -40,6 +40,8 @@ class TrackForArtist(BaseModel):
     play_count_30_days: int = 0
     created_at: datetime
     album: AlbumForTrack | None = None
+    artist: ArtistForTrack | None = None
+    artists: List[ArtistForTrack] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

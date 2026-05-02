@@ -24,13 +24,15 @@ export const audioPlayer = {
       updateMediaSessionPlaybackState('playing');
       updateTabTitle();
       updatePlaylistPlayButtonState();
+      updateArtistPlayButtonState();
     });
-    
+
     this.current.addEventListener("pause", () => {
       document.getElementById("btn-play").classList.remove("playing");
       document.getElementById("progress-container").classList.remove("active");
       updateMediaSessionPlaybackState('paused');
       updatePlaylistPlayButtonState();
+      updateArtistPlayButtonState();
     });
     
     this.current.addEventListener("ended", () => handleTrackEnded());
@@ -76,6 +78,17 @@ function updatePlaylistPlayButtonState() {
     playlistPlayBtn.classList.add('playing');
   } else {
     playlistPlayBtn.classList.remove('playing');
+  }
+}
+
+function updateArtistPlayButtonState() {
+  const artistPlayBtn = document.getElementById("artist-play-btn");
+  if (!artistPlayBtn) return;
+  const currentArtistPlaylistId = 'artist-' + state.currentArtistId;
+  if (state.currentPlayingPlaylistId === currentArtistPlaylistId && !audioPlayer.paused) {
+    artistPlayBtn.classList.add('playing');
+  } else {
+    artistPlayBtn.classList.remove('playing');
   }
 }
 

@@ -1111,7 +1111,11 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
     artist = db.execute(
         select(Artist)
         .options(selectinload(Artist.tracks).selectinload(Track.album))
+        .options(selectinload(Artist.tracks).joinedload(Track.artist))
+        .options(selectinload(Artist.tracks).selectinload(Track.artists))
         .options(selectinload(Artist.many_tracks).selectinload(Track.album))
+        .options(selectinload(Artist.many_tracks).joinedload(Track.artist))
+        .options(selectinload(Artist.many_tracks).selectinload(Track.artists))
         .where(Artist.id == artist_id)
     ).scalar_one_or_none()
     if not artist:
