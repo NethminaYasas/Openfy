@@ -69,8 +69,44 @@ def save_cached_results(query, results):
     save_cache(cache)
 
 
+def get_itunes_track_by_id(track_id: str) -> dict | None:
+    """Fetch a track directly by its Apple Music ID."""
+    try:
+        url = f"https://itunes.apple.com/lookup?id={track_id}&entity=song"
+        resp = requests.get(url, timeout=5)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            items = data.get('results', [])
+
+            if items:
+                item = items[0]
+                return {
+                    "track_name": item.get('trackName', ''),
+                    "artist_name": item.get('artistName', 'Unknown'),
+                    "album_name": item.get('collectionName', ''),
+                    "source": "Apple Music",
+                    "spotify_url": item.get('trackViewUrl', ''),
+                    "duration": "",
+                    "cover_art": item.get('artworkUrl100', '').replace('100x100', '600x600'),
+                }
+
+    except Exception as e:
+        print(f"iTunes lookup failed for ID {track_id}: {e}", file=sys.stderr)
+
+    return None
+
+
 def search_spotify(query: str, limit: int = 10) -> list[dict]:
     """Search for tracks on Spotify with caching."""
+
+    # Check if query is an Apple Music URL
+    apple_music_match = re.search(r'music\.apple\.com/[a-z]{2,}/(?:album|song)(?:/[^/]+)?/(\d+)', query)
+    if apple_music_match:
+        track_id = apple_music_match.group(1)
+        lookup_result = get_itunes_track_by_id(track_id)
+        if lookup_result:
+            return [lookup_result]
 
     # Check cache first
     cached = get_cached_results(query)
@@ -81,33 +117,93 @@ def search_spotify(query: str, limit: int = 10) -> list[dict]:
     results = []
 
     # Get more results from each source to interleave
-    itunes_limit = limit * 2
+    itunes_limit = 50
 
     # Try iTunes Search API - free, reliable, no rate limits
     itunes_results = []
-    try:
-        url = f"https://itunes.apple.com/search?term={requests.utils.quote(query)}&media=music&limit={itunes_limit}"
-        resp = requests.get(url, timeout=5)
 
-        if resp.status_code == 200:
-            data = resp.json()
-            items = data.get('results', [])
+    # Build multiple search query variations
+    query_variations = set([query])
 
-            for item in items:
-                track_id = item.get('trackId')
-                if track_id:
-                    itunes_results.append({
-                        "track_name": item.get('trackName', query),
-                        "artist_name": item.get('artistName', 'Unknown'),
-                        "album_name": item.get('collectionName', ''),
-                        "source": "Apple Music",
-                        "spotify_url": item.get('trackViewUrl', ''),
-                        "duration": "",
-                        "cover_art": item.get('artworkUrl100', '').replace('100x100', '600x600'),
-                    })
+    # Add variations with different spellings
+    query_variations.add(query.replace("kellek", "kollek"))
+    query_variations.add(query.replace("kollek", "kellek"))
 
-    except Exception as e:
-        print(f"iTunes search failed: {e}", file=sys.stderr)
+    # Add variations with just the first two words
+    words = query.split()
+    if len(words) > 2:
+        query_variations.add(" ".join(words[:2]))
+        query_variations.add(" ".join(words[:3]))
+
+    # Add variations with "feat" removed
+    query_variations.add(re.sub(r'\s*\(feat\.[^)]+\)', '', query, flags=re.IGNORECASE))
+    query_variations.add(re.sub(r'\s*feat\.[^ ]+', '', query, flags=re.IGNORECASE))
+
+    for search_query in query_variations:
+        search_query = search_query.strip()
+        if not search_query:
+            continue
+
+        try:
+            url = f"https://itunes.apple.com/search?term={requests.utils.quote(search_query)}&media=music&limit={itunes_limit}"
+            resp = requests.get(url, timeout=5)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get('results', [])
+
+                for item in items:
+                    track_id = item.get('trackId')
+                    track_url = item.get('trackViewUrl', '')
+                    if track_id and not any(r.get('spotify_url') == track_url for r in itunes_results):
+                        itunes_results.append({
+                            "track_name": item.get('trackName', query),
+                            "artist_name": item.get('artistName', 'Unknown'),
+                            "album_name": item.get('collectionName', ''),
+                            "source": "Apple Music",
+                            "spotify_url": track_url,
+                            "duration": "",
+                            "cover_art": item.get('artworkUrl100', '').replace('100x100', '600x600'),
+                        })
+
+        except Exception as e:
+            print(f"iTunes search failed for '{search_query}': {e}", file=sys.stderr)
+
+    # Fallback: Try to search Apple Music directly and extract track IDs
+    if len(itunes_results) < limit:
+        try:
+            # Try searching Apple Music and extracting track IDs from the page
+            search_url = f"https://music.apple.com/us/search?term={requests.utils.quote(query)}"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+
+            resp = requests.get(search_url, headers=headers, timeout=10)
+
+            if resp.status_code == 200:
+                # Look for track IDs in various formats
+                # Apple Music pages embed track data in several places
+                patterns = [
+                    r'"d"\s*:\s*(\d{8,})',  # Short format
+                    r'"trackId"\s*:\s*(\d+)',  # trackId format
+                    r'/song/[^/]+/(\d+)',  # URL format
+                ]
+
+                found_ids = set()
+                for pattern in patterns:
+                    ids = re.findall(pattern, resp.text)
+                    found_ids.update(ids)
+
+                for tid in list(found_ids)[:itunes_limit]:
+                    if not any(str(tid) in r.get('spotify_url', '') for r in itunes_results):
+                        track = get_itunes_track_by_id(tid)
+                        if track and track not in itunes_results:
+                            itunes_results.append(track)
+
+        except Exception as e:
+            print(f"Apple Music fallback failed: {e}", file=sys.stderr)
 
     # Return iTunes results up to limit
     results = itunes_results[:limit]

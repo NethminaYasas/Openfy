@@ -1159,7 +1159,9 @@ export async function renderSearch(query) {
 
   // Render Spotify results
   if (spotifyResults.length === 0) {
-    searchSpotifyResults.innerHTML = '<p class="empty-message">No Spotify results found</p>';
+    searchSpotifyResults.innerHTML = '<p class="empty-message">No results found</p>' +
+      '<p class="empty-message" style="font-size:0.8rem;margin-top:0.5rem;">' +
+      'Can\'t find a track? Try pasting the Apple Music URL directly in the search bar.</p>';
   } else {
     searchSpotifyResults.innerHTML = '';
     spotifyResults.forEach(track => {
