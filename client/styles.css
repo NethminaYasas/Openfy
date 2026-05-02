@@ -5199,6 +5199,16 @@ input:checked + .toggle-slider:before {
     padding: 1rem 2rem;
 }
 
+#page-search .track-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(12vw, 180px), 1fr));
+    gap: 2rem;
+    padding: 0 1rem;
+    align-items: start;
+    min-width: unset;
+    width: auto;
+}
+
 #page-search h3 {
     font-size: 1rem;
     font-weight: 600;
