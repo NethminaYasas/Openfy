@@ -4998,6 +4998,19 @@ input:checked + .toggle-slider:before {
     column-gap: 12px;
 }
 
+.artist-song-row {
+    display: grid;
+    grid-template-columns: 40px 40px 1fr 50px 60px;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+    column-gap: 12px;
+}
+
 .playlist-song-row:hover {
     background: rgba(255,255,255,0.07);
 }
@@ -5048,12 +5061,33 @@ input:checked + .toggle-slider:before {
 }
 
 .ps-row-duration {
-    grid-column: 4;
+    grid-column: 5;
     color: #b3b3b3;
     display: flex;
     justify-content: flex-end;
     align-items: center;
 }
+
+.ps-row-plays {
+    grid-column: 4;
+    color: #b3b3b3;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.artist-songs-header {
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.ash-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+/* Empty State */
 
 /* Empty State */
 .playlist-empty-state {

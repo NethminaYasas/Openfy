@@ -35,8 +35,9 @@ export function restoreScrollPositions() {
     if (!mainContent) return;
 
     const onPlaylistPage = document.querySelector('.page#page-playlist.active');
-    if (onPlaylistPage) {
-      // Playlist page: always start at top
+    const onArtistPage = document.querySelector('.page#page-artist.active');
+    if (onPlaylistPage || onArtistPage) {
+      // Playlist and Artist page: always start at top
       mainContent.scrollTop = 0;
       return;
     }

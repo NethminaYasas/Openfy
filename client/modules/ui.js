@@ -64,9 +64,11 @@ export function setActivePage(pageId, updateUrl = true) {
   // Determine currently active page EXACTLY before switching pageId
   const currentActivePage = document.querySelector('.page.active');
   const isLeavingPlaylist = currentActivePage && currentActivePage.id === 'page-playlist';
+  const isLeavingArtist = currentActivePage && currentActivePage.id === 'page-artist';
 
   // Only save scroll if leaving a non-playlist page (playlist scroll never persists to global)
-  if (!isLeavingPlaylist) {
+  // Also skip saving for artist page (scroll should reset on both artist and home)
+  if (!isLeavingPlaylist && !isLeavingArtist) {
     saveScrollPositions();
   }
 
@@ -202,7 +204,10 @@ export async function loadMostPlayed() {
 
 export async function loadArtistPage(artistId) {
     // Scroll to top when visiting artist page
-    window.scrollTo(0, 0);
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent) {
+        mainContent.scrollTop = 0;
+    }
 
     try {
         const artist = await getArtist(artistId);
@@ -280,11 +285,21 @@ export async function loadArtistPage(artistId) {
         // Render tracks in playlist-songs-list - simplified for artist
         const songsList = document.getElementById("artist-songs-list");
         songsList.innerHTML = "";
+
+        // Add "Popular" header
+        var headerRow = document.createElement('div');
+        headerRow.className = 'artist-songs-header';
+        headerRow.innerHTML = '<span class="ash-title">Popular</span>';
+        songsList.appendChild(headerRow);
+
         if (artist.tracks && artist.tracks.length > 0) {
-            artist.tracks.forEach((track, index) => {
+            // Sort tracks by play count descending
+            var sortedTracks = [...artist.tracks].sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
+            sortedTracks.forEach((track, index) => {
                 var row = document.createElement('div');
-                row.className = 'playlist-song-row';
+                row.className = 'artist-song-row';
                 var duration = track.duration ? formatDuration(track.duration) : '';
+                var plays = track.play_count !== undefined ? track.play_count : 0;
                 var artworkUrl = (track.album && track.album.artwork_path) ?
                     withBase('/tracks/' + track.id + '/artwork?v=' + (track.updated_at || '')) : '';
                 row.innerHTML =
@@ -293,11 +308,12 @@ export async function loadArtistPage(artistId) {
                     '<span class="ps-row-title">' +
                     '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
                     '</span>' +
+                    '<span class="ps-row-plays">' + plays + '</span>' +
                     '<span class="ps-row-duration">' + duration + '</span>';
                 row.addEventListener('click', function() {
                     // Don't do anything if clicking the currently playing track
                     if (state.currentTrackId === track.id) return;
-                    setQueueFromList(artist.tracks, index);
+                    setQueueFromList(sortedTracks, index);
                     if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
                 });
                 row.addEventListener('contextmenu', function(e) {
