@@ -1274,6 +1274,21 @@ def search(
     return db.execute(stmt.limit(limit)).scalars().all()
 
 
+@app.get("/spotify-search")
+def spotify_search(
+    q: str = Query(..., min_length=1, max_length=255, description="Search query"),
+    limit: int = Query(10, ge=1, le=20),
+):
+    """Search Spotify for tracks using web search."""
+    # Import here to avoid circular imports
+    try:
+        from spotify_search import search_spotify
+        results = search_spotify(q, limit)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Spotify search failed: {str(e)}")
+
+
 @app.get("/playlists", response_model=List[PlaylistOut])
 def list_playlists(
     x_auth_hash: str | None = Header(None),

@@ -1194,7 +1194,7 @@ export async function populateProfilePage() {
 export function renderSearchDropdown(results) {
   const searchDropdown = document.getElementById("search-dropdown");
   if (!searchDropdown) return;
-  
+
   const items = Array.isArray(results) ? results : [];
   searchDropdown.innerHTML = "";
   searchDropdown.style.display = "block";
@@ -1211,7 +1211,12 @@ export function renderSearchDropdown(results) {
     return;
   }
 
-  items.forEach(function(track, index) {
+  // Separate local tracks from Spotify results
+  const localTracks = items.filter(t => t.id && !t.spotify_url);
+  const spotifyTracks = items.filter(t => t.spotify_url);
+
+  // Render local tracks first
+  localTracks.forEach(function(track, index) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "search-result";
@@ -1268,6 +1273,77 @@ export function renderSearchDropdown(results) {
 
     inner.appendChild(btn);
   });
+
+  // Render Spotify results
+  if (spotifyTracks.length > 0) {
+    // Add a divider if there are local results
+    if (localTracks.length > 0) {
+      const divider = document.createElement("div");
+      divider.className = "search-dropdown-divider";
+      divider.textContent = "Spotify Results";
+      inner.appendChild(divider);
+    }
+
+    spotifyTracks.forEach(function(track) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "search-result search-result-spotify";
+
+      const artistText = track.artist_name || "Unknown";
+      const trackTitle = track.track_name || "Unknown Track";
+      const seed = (trackTitle + " " + artistText).trim() || "Spotify";
+
+      const art = document.createElement("div");
+      art.className = "search-result-art";
+      art.style.setProperty("--sr-color", seededColor(seed));
+
+      // Use Spotify cover art if available, otherwise use placeholder
+      if (track.cover_art) {
+        const img = document.createElement("img");
+        img.alt = trackTitle + " artwork";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.src = track.cover_art;
+        img.onerror = function() { img.remove(); };
+        art.appendChild(img);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "search-result-meta";
+
+      const titleEl = document.createElement("div");
+      titleEl.className = "search-result-title";
+      titleEl.textContent = trackTitle;
+
+      const artistEl = document.createElement("div");
+      artistEl.className = "search-result-artist";
+      artistEl.textContent = artistText;
+
+      // Add Spotify badge
+      const spotifyBadge = document.createElement("span");
+      spotifyBadge.className = "spotify-badge";
+      spotifyBadge.innerHTML = '<i class="fa-brands fa-spotify"></i> Open in Spotify';
+
+      meta.appendChild(titleEl);
+      meta.appendChild(artistEl);
+      meta.appendChild(spotifyBadge);
+
+      btn.appendChild(art);
+      btn.appendChild(meta);
+
+      btn.addEventListener("click", function(ev) {
+        ev.preventDefault();
+        // Open Spotify URL in new tab
+        if (track.spotify_url) {
+          window.open(track.spotify_url, '_blank');
+        }
+        hideSearchDropdown();
+        document.getElementById("search-input").blur();
+      });
+
+      inner.appendChild(btn);
+    });
+  }
 
   searchDropdown.appendChild(inner);
 }

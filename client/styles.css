@@ -651,6 +651,7 @@ body {
     background-color: #1db954;
 }
 
+
 .player-like-btn.adding::before,
 .player-like-btn.adding::after {
     animation: pulse 0.4s ease;
@@ -1152,6 +1153,30 @@ a {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.spotify-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    color: #1DB954;
+    margin-top: 4px;
+}
+
+.search-result-spotify {
+    border-left: 3px solid #1DB954;
+}
+
+.search-dropdown-divider {
+    padding: 0.6rem 0.75rem 0.4rem;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    margin-top: 8px;
 }
 
 .search-dropdown-empty {

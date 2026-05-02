@@ -196,6 +196,16 @@ export async function runSearch(query) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function runSpotifySearch(query, limit = 10) {
+  try {
+    const data = await api("/spotify-search?q=" + encodeURIComponent(query) + "&limit=" + limit);
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error("Spotify search failed:", err);
+    return [];
+  }
+}
+
 export async function checkForTrackUpdates() {
   try {
     var response = await api("/tracks/updates?since=" + state.lastTrackUpdate);

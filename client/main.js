@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, uploadAvatar, getArtist } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -396,6 +396,83 @@ function initEventListeners() {
     await showAddToPlaylistModal();
     npLikeBtn.disabled = false;
   });
+
+  // Show removal menu for playlist
+  window.showRemovalMenu = async function() {
+    const removalMenu = document.getElementById("np-playlist-removal-menu");
+    const removalItems = document.getElementById("np-playlist-removal-items");
+    if (!removalMenu || !removalItems || !state.currentTrackId) return;
+
+    removalItems.innerHTML = '<div class="submenu-loading">Loading...</div>';
+    positionRemovalMenu(removalMenu, npLikeBtn);
+    removalMenu.classList.add("visible");
+
+    if (!state.currentUser) {
+      removalItems.innerHTML = '<div class="submenu-error">Not logged in</div>';
+      return;
+    }
+
+    try {
+      // Load all playlists
+      const playlists = await api("/playlists");
+      state.userPlaylists = playlists;
+
+      // Find playlists containing the current track
+      const results = await Promise.all(
+        playlists.map(async (pl) => {
+          if (pl.is_liked) return { pl, hasTrack: false }; // Skip liked songs
+          const trackIds = new Set();
+          try {
+            const tracks = await api("/playlists/" + pl.id + "/tracks");
+            for (const pt of tracks) trackIds.add(pt.track.id);
+          } catch (e) {
+            console.error("Failed to load tracks for playlist:", pl.name, e);
+          }
+          return { pl, hasTrack: trackIds.has(state.currentTrackId) };
+        })
+      );
+
+      // Filter to only playlists that contain the track
+      const playlistsWithTrack = results.filter(r => r.hasTrack && !r.pl.is_liked);
+
+      removalItems.innerHTML = '';
+      if (playlistsWithTrack.length === 0) {
+        removalItems.innerHTML = '<div class="submenu-empty">Track not in any playlist</div>';
+        return;
+      }
+
+      playlistsWithTrack.forEach(({ pl }) => {
+        const item = document.createElement('button');
+        item.className = 'submenu-item';
+        item.dataset.playlistId = pl.id;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'submenu-playlist-name';
+        nameSpan.textContent = pl.name;
+        item.appendChild(nameSpan);
+
+        item.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          try {
+            await removeTrackFromPlaylist(pl.id, state.currentTrackId);
+            state.trackIdsInRegularPlaylists.delete(state.currentTrackId);
+            // Refresh to update
+            removalMenu.classList.remove("visible");
+            await loadPlaylists();
+            syncLikeButtonState({ id: state.currentTrackId });
+          } catch (err) {
+            console.error("Failed to remove track:", err);
+            alert("Failed to remove track: " + err.message);
+          }
+        });
+
+        removalItems.appendChild(item);
+      });
+    } catch (err) {
+      console.error("Failed to load playlists:", err);
+      removalItems.innerHTML = '<div class="submenu-error">Failed to load</div>';
+    }
+  };
 
   const queueHeader = document.getElementById("queue-header");
   queueHeader?.addEventListener("click", function(e) {
@@ -2032,9 +2109,16 @@ async function handleSearch() {
   }
 
   try {
-    const results = await runSearch(query);
-    state.lastSearchResults = results;
-    renderSearchDropdown(results);
+    // Run local library search and Spotify search in parallel
+    const [localResults, spotifyResults] = await Promise.all([
+      runSearch(query).catch(() => []),
+      runSpotifySearch(query, 10).catch(() => [])
+    ]);
+
+    // Combine results - local first, then Spotify
+    const combinedResults = [...localResults, ...spotifyResults];
+    state.lastSearchResults = combinedResults;
+    renderSearchDropdown(combinedResults);
   } catch (err) {
     console.error(err);
     renderSearchDropdown([]);
@@ -2266,7 +2350,7 @@ function showAddToPlaylistModal() {
     hideContextMenu();
     hideRemovalMenuIfVisible();
 
-    positionAddToPlaylistModal(document.getElementById("np-likeBtn"));
+    positionAddToPlaylistModal(document.getElementById("np-like-btn"));
 
     try {
       const playlists = await api("/playlists");
@@ -2456,7 +2540,7 @@ function buildAddToPlaylistItems(playlists, filter = '') {
     actions.className = 'add-playlist-actions';
 
     const pinSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    pinSvg.className = 'add-playlist-pin';
+    pinSvg.setAttribute("class", "add-playlist-pin");
     pinSvg.setAttribute("viewBox", "290 120 160 160");
     pinSvg.setAttribute("width", "14");
     pinSvg.setAttribute("height", "14");

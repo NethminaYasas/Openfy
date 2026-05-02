@@ -10,6 +10,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY server/app /app/app
+COPY server/spotify_search.py /app/spotify_search.py
 COPY client /app/client
 COPY server/.env.example /app/.env
 
