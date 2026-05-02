@@ -80,9 +80,14 @@ def search_spotify(query: str, limit: int = 10) -> list[dict]:
 
     results = []
 
+    # Get more results from each source to interleave
+    itunes_limit = limit * 2
+    yt_limit = limit * 2
+
     # Try iTunes Search API - free, reliable, no rate limits
+    itunes_results = []
     try:
-        url = f"https://itunes.apple.com/search?term={requests.utils.quote(query)}&media=music&limit={limit}"
+        url = f"https://itunes.apple.com/search?term={requests.utils.quote(query)}&media=music&limit={itunes_limit}"
         resp = requests.get(url, timeout=5)
 
         if resp.status_code == 200:
@@ -92,60 +97,62 @@ def search_spotify(query: str, limit: int = 10) -> list[dict]:
             for item in items:
                 track_id = item.get('trackId')
                 if track_id:
-                    results.append({
+                    itunes_results.append({
                         "track_name": item.get('trackName', query),
                         "artist_name": item.get('artistName', 'Unknown'),
                         "album_name": item.get('collectionName', ''),
-                        "spotify_url": item.get('trackViewUrl', ''),  # Use iTunes URL since we can't map to Spotify
+                        "source": "Apple Music",
+                        "spotify_url": item.get('trackViewUrl', ''),
                         "duration": "",
                         "cover_art": item.get('artworkUrl100', '').replace('100x100', '600x600'),
                     })
 
-            if results:
-                # Save to cache
-                save_cached_results(query, results)
-                return results[:limit]
-
     except Exception as e:
         print(f"iTunes search failed: {e}", file=sys.stderr)
 
-    # Try web search as fallback
+    # Try YouTube Music search
+    yt_results = []
     try:
-        search_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}+site%3Aopen.spotify.com%2Ftrack"
-        headers = {
+        yt_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html",
         }
+        yt_url = f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}+song"
+        yt_resp = requests.get(yt_url, headers=yt_headers, timeout=5)
 
-        response = requests.get(search_url, headers=headers, timeout=5)
-
-        if response.status_code == 200:
-            pattern = r'open\.spotify\.com/track/([a-zA-Z0-9]+)'
-            matches = re.findall(pattern, response.text)
-
-            seen = set()
-            track_ids = []
-            for match in matches:
-                if match not in seen:
-                    seen.add(match)
-                    track_ids.append(match)
-
-            for track_id in track_ids[:limit]:
-                results.append({
-                    "track_name": query.title(),
-                    "artist_name": "Tap to view on Spotify",
-                    "album_name": "",
-                    "spotify_url": f"https://open.spotify.com/track/{track_id}",
-                    "duration": "",
-                    "cover_art": None,
-                })
-
-            if results:
-                save_cached_results(query, results)
-                return results
+        if yt_resp.status_code == 200:
+            yt_pattern = r'\"videoId\":\"([a-zA-Z0-9_-]+)\"'
+            yt_matches = re.findall(yt_pattern, yt_resp.text)
+            seen_videos = set()
+            for video_id in yt_matches[:yt_limit]:
+                if video_id not in seen_videos:
+                    seen_videos.add(video_id)
+                    yt_results.append({
+                        "track_name": query.title(),
+                        "artist_name": "YouTube Music",
+                        "album_name": "",
+                        "source": "YouTube Music",
+                        "spotify_url": f"https://music.youtube.com/watch?v={video_id}",
+                        "duration": "",
+                        "cover_art": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+                    })
 
     except Exception as e:
-        print(f"Web search failed: {e}", file=sys.stderr)
+        print(f"YouTube search failed: {e}", file=sys.stderr)
+
+    # Interleave results from both sources
+    itunes_idx = 0
+    yt_idx = 0
+    while len(results) < limit and (itunes_idx < len(itunes_results) or yt_idx < len(yt_results)):
+        if itunes_idx < len(itunes_results):
+            results.append(itunes_results[itunes_idx])
+            itunes_idx += 1
+        if yt_idx < len(yt_results) and len(results) < limit:
+            results.append(yt_results[yt_idx])
+            yt_idx += 1
+
+    if results:
+        # Save to cache
+        save_cached_results(query, results)
 
     return results
 
