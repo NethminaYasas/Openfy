@@ -805,6 +805,7 @@ function initEventListeners() {
       applyManualUploadUI(state.manualAudioUploadEnabled);
       if (window.refreshLibraryState) window.refreshLibraryState();
 
+      await uiLoadMostPlayed();
       startUpdateChecker();
 
       const urlToNavigate = getAndClearIntendedUrl();
@@ -1052,6 +1053,7 @@ function initHashModalHandlers() {
     applyManualUploadUI(state.manualAudioUploadEnabled);
     if (window.refreshLibraryState) window.refreshLibraryState();
 
+    await uiLoadMostPlayed();
     startUpdateChecker();
   });
 
