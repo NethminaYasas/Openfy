@@ -1,5 +1,5 @@
 import { state, withBase } from './state.js';
-import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist } from './api.js';
+import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist, runSearch, runSpotifySearch } from './api.js';
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
 import { addRecentSearch, loadRecentSearches, removeRecentSearch } from './recent-searches.js';
 
@@ -16,6 +16,7 @@ export const pages = {
   settings: null,
   profile: null,
   artist: null,
+  search: null,
 
   init() {
     this.home = document.getElementById("page-home");
@@ -25,6 +26,7 @@ export const pages = {
     this.settings = document.getElementById("page-settings");
     this.profile = document.getElementById("page-profile");
     this.artist = document.getElementById("page-artist");
+    this.search = document.getElementById("page-search");
   },
   
   get(key) {
@@ -72,12 +74,14 @@ export function setActivePage(pageId, updateUrl = true) {
     saveScrollPositions();
   }
 
-  ['home', 'library', 'playlist', 'admin', 'settings', 'profile', 'artist'].forEach(function(key) {
+  ['home', 'library', 'playlist', 'admin', 'settings', 'profile', 'artist', 'search'].forEach(function(key) {
     var p = pages[key];
     if (p && p.classList) p.classList.remove("active");
   });
   var target = pages[pageId] || pages.home;
-  if (target && target.classList) target.classList.add("active");
+  if (target && target.classList) {
+    target.classList.add("active");
+  }
   document.querySelectorAll(".nav-link").forEach(function(link) { link.classList.toggle("active", link.dataset.page === pageId); });
 if (pageId === "library" && state.authHash) {
       loadUserUploads();
@@ -1104,6 +1108,160 @@ export function renderLibrary() {
     });
     libBox.appendChild(item);
   });
+}
+
+export async function renderSearch(query) {
+  // Show search page
+  const searchPage = document.getElementById("page-search");
+  const searchQueryDisplay = document.getElementById("search-query-display");
+  const searchLocalResults = document.getElementById("search-local-results");
+  const searchSpotifyResults = document.getElementById("search-spotify-results");
+
+  if (!searchPage) {
+    console.error("searchPage element not found!");
+    return;
+  }
+
+  // Update header
+  searchQueryDisplay.textContent = "Search Results";
+
+  // Set active page immediately so user sees the search page
+  setActivePage('search');
+
+  // Show loading state
+  searchLocalResults.innerHTML = '<p class="empty-message">Searching library...</p>';
+  searchSpotifyResults.innerHTML = '<p class="empty-message">Searching Spotify...</p>';
+
+  // Load real data
+  let localResults = [];
+  let spotifyResults = [];
+
+  try {
+    localResults = await runSearch(query).catch(() => []);
+  } catch (e) {}
+
+  try {
+    spotifyResults = await runSpotifySearch(query, 20).catch(() => []);
+  } catch (e) {}
+
+  // Render local results
+  if (localResults.length === 0) {
+    searchLocalResults.innerHTML = '<p class="empty-message">No tracks found in your library</p>';
+  } else {
+    searchLocalResults.innerHTML = '';
+    localResults.forEach(track => {
+      const card = buildTrackCard(track);
+      card.style.flex = '0 0 auto';
+      card.style.width = '180px';
+      searchLocalResults.appendChild(card);
+    });
+  }
+
+  // Render Spotify results
+  if (spotifyResults.length === 0) {
+    searchSpotifyResults.innerHTML = '<p class="empty-message">No Spotify results found</p>';
+  } else {
+    searchSpotifyResults.innerHTML = '';
+    spotifyResults.forEach(track => {
+      const card = buildSpotifyTrackCard(track);
+      card.style.flex = '0 0 auto';
+      card.style.width = '180px';
+      searchSpotifyResults.appendChild(card);
+    });
+  }
+}
+
+function createTrackRowWithScroll(cards, rowIndex, prefix) {
+  const rowWrapper = document.createElement('div');
+  rowWrapper.className = 'track-row-wrapper';
+  rowWrapper.style.marginTop = '1rem';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'track-row-scroll-btn track-row-scroll-btn-prev';
+  prevBtn.id = `${prefix}-prev-${rowIndex}`;
+  prevBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+
+  const rowContainer = document.createElement('div');
+  rowContainer.className = 'track-row-container';
+
+  const trackRow = document.createElement('div');
+  trackRow.className = 'track-row';
+  trackRow.id = `${prefix}-grid-${rowIndex}`;
+
+  cards.forEach(card => {
+    card.classList.add('track-row-card');
+    trackRow.appendChild(card);
+  });
+
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'track-row-scroll-btn track-row-scroll-btn-next';
+  nextBtn.id = `${prefix}-next-${rowIndex}`;
+  nextBtn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+
+  rowWrapper.appendChild(prevBtn);
+  rowWrapper.appendChild(rowContainer);
+  rowWrapper.appendChild(nextBtn);
+  rowContainer.appendChild(trackRow);
+
+  // Initialize scrolling after a short delay
+  setTimeout(() => {
+    initTrackRowScrolling([cards.length], prefix + '-', prefix + '-grid-');
+  }, 100);
+
+  return rowWrapper;
+}
+
+function buildSpotifyTrackCard(track) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.trackId = track.spotify_url;
+
+  const artContainer = document.createElement("div");
+  artContainer.className = "artwork-container";
+
+  // Generate a colored placeholder art for Spotify tracks
+  const art = createArtCanvas(track.track_name, track.artist_name);
+
+  if (track.cover_art) {
+    const img = document.createElement("img");
+    img.className = "card-img";
+    img.src = track.cover_art;
+    img.alt = track.track_name;
+    img.loading = "lazy";
+
+    img.addEventListener("load", function() {
+      art.style.display = "none";
+      img.style.display = "block";
+    });
+    img.addEventListener("error", function() {
+      img.style.display = "none";
+      art.style.display = "block";
+    });
+    artContainer.appendChild(img);
+  }
+
+  artContainer.appendChild(art);
+  card.appendChild(artContainer);
+
+  const title = document.createElement("p");
+  title.className = "card-title";
+  title.textContent = track.track_name;
+
+  const info = document.createElement("p");
+  info.className = "card-info";
+  info.innerHTML = '<span class="spotify-artist">' + track.artist_name + '</span>';
+
+  card.appendChild(title);
+  card.appendChild(info);
+
+  // Click to open in Spotify
+  card.addEventListener("click", () => {
+    if (track.spotify_url) {
+      window.open(track.spotify_url, '_blank');
+    }
+  });
+
+  return card;
 }
 
 function escapeHtml(text) {

@@ -5173,3 +5173,95 @@ input:checked + .toggle-slider:before {
     color: #fff;
     text-decoration: underline;
 }
+
+/* Search Results Page */
+.search-results-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.search-results-header h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+#page-search .section {
+    padding: 1rem 2rem;
+}
+
+#page-search h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #b3b3b3;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.spotify-track-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.spotify-track-card:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.spotify-track-card .track-card-cover {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.spotify-track-card .track-card-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.spotify-track-card .track-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.spotify-track-card .track-card-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.spotify-track-card .track-card-artist {
+    font-size: 0.8rem;
+    color: #b3b3b3;
+    margin-top: 0.25rem;
+}
+
+.spotify-badge-small {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    color: #1DB954;
+    margin-top: 0.25rem;
+}
+
+.section-loading, .empty-message {
+    padding: 2rem;
+    color: #b3b3b3;
+    text-align: center;
+}

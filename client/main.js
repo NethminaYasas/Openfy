@@ -4,7 +4,7 @@ import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, crea
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
 import { audioPlayer, togglePlay, playByIndex, playTrack, loadTrackPaused, setQueueFromList, reorderQueue, enforceQueueCapacity, shuffleQueueOnce, unshuffleQueue, scheduleQueueSave, renderNowPlayingQueue, buildQueueItem, getShowFullQueue, setShowFullQueue, getCollapseTimeout, setCollapseTimeout, syncLikeButtonState, updateNowPlaying } from './modules/audio-player.js';
-import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates, setUrl } from './modules/ui.js';
+import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates, setUrl, renderSearch } from './modules/ui.js';
 import { loadRecentSearches, addRecentSearch } from './modules/recent-searches.js';
 import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, applyManualUploadUI, loadUsersListUI, loadTracksListUI, initAdminEventListeners } from './modules/admin.js';
 
@@ -297,10 +297,20 @@ function initEventListeners() {
     state.searchDebounceTimer = setTimeout(handleSearch, 150);
   });
   
-  searchInput.addEventListener("keydown", function(ev) {
+  searchInput.addEventListener("keydown", async function(ev) {
     if (ev.key === "Escape") {
       hideSearchDropdown();
       searchInput.blur();
+    }
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      var query = searchInput.value.trim();
+      if (query) {
+        // Hide dropdown and navigate to search results page
+        hideSearchDropdown();
+        await renderSearch(query);
+        searchInput.blur();
+      }
     }
   });
 
@@ -752,6 +762,14 @@ function initEventListeners() {
   });
 
   document.getElementById('np-playlist-removal-menu');
+
+  // Search page back button
+  const searchBack = document.getElementById("search-back");
+  if (searchBack) {
+    searchBack.addEventListener("click", function() {
+      setActivePage("home");
+    });
+  }
 }
 
 function updateDragPosition() {
@@ -2109,16 +2127,10 @@ async function handleSearch() {
   }
 
   try {
-    // Run local library search and Spotify search in parallel
-    const [localResults, spotifyResults] = await Promise.all([
-      runSearch(query).catch(() => []),
-      runSpotifySearch(query, 10).catch(() => [])
-    ]);
-
-    // Combine results - local first, then Spotify
-    const combinedResults = [...localResults, ...spotifyResults];
-    state.lastSearchResults = combinedResults;
-    renderSearchDropdown(combinedResults);
+    // Only run local library search on input (Spotify runs on Enter)
+    const localResults = await runSearch(query).catch(() => []);
+    state.lastSearchResults = localResults;
+    renderSearchDropdown(localResults);
   } catch (err) {
     console.error(err);
     renderSearchDropdown([]);

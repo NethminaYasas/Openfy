@@ -1,71 +1,151 @@
 #!/usr/bin/env python3
 """
-Spotify track search using web search to find Spotify URLs.
-Can be used as a module or CLI script.
+Spotify track search with 30-day cache.
 """
 
 import sys
 import re
 import json
+import os
 import time
-import random
 import requests
+from datetime import datetime, timedelta
 
 
-# Choose search engine: "brave" (more results) or "duckduckgo" (more reliable)
-SEARCH_ENGINE = "brave"
+# Cache file location
+CACHE_DIR = "/app/data"
+CACHE_FILE = os.path.join(CACHE_DIR, "search_cache.json")
+CACHE_DAYS = 30
+
+
+def load_cache():
+    """Load search cache from file."""
+    if not os.path.exists(CACHE_FILE):
+        return {}
+    try:
+        with open(CACHE_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_cache(cache):
+    """Save search cache to file."""
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(cache, f)
+    except Exception as e:
+        print(f"Cache save error: {e}", file=sys.stderr)
+
+
+def get_cached_results(query):
+    """Get cached results for a query if not expired."""
+    cache = load_cache()
+    query_lower = query.lower().strip()
+
+    if query_lower in cache:
+        cached = cache[query_lower]
+        cached_time = cached.get('timestamp', 0)
+        # Check if less than CACHE_DAYS old
+        if time.time() - cached_time < CACHE_DAYS * 24 * 3600:
+            return cached.get('results', [])
+        else:
+            # Remove expired entry
+            del cache[query_lower]
+            save_cache(cache)
+
+    return None
+
+
+def save_cached_results(query, results):
+    """Save results to cache."""
+    cache = load_cache()
+    query_lower = query.lower().strip()
+    cache[query_lower] = {
+        'timestamp': time.time(),
+        'results': results
+    }
+    save_cache(cache)
 
 
 def search_spotify(query: str, limit: int = 10) -> list[dict]:
-    """Search for tracks on Spotify using web search."""
+    """Search for tracks on Spotify with caching."""
+
+    # Check cache first
+    cached = get_cached_results(query)
+    if cached:
+        print(f"Returning cached results for: {query}", file=sys.stderr)
+        return cached[:limit]
+
     results = []
 
-    if SEARCH_ENGINE == "brave":
-        search_url = f"https://search.brave.com/search?q={query}+site%3Aopen.spotify.com%2Ftrack"
-    else:
-        search_url = f"https://duckduckgo.com/html/?q={query}+site%3Aopen.spotify.com%2Ftrack&s=25"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
+    # Try iTunes Search API - free, reliable, no rate limits
     try:
-        response = requests.get(search_url, headers=headers, timeout=15)
-        response.raise_for_status()
+        url = f"https://itunes.apple.com/search?term={requests.utils.quote(query)}&media=music&limit={limit}"
+        resp = requests.get(url, timeout=5)
 
-        pattern = r'open\.spotify\.com/track/([a-zA-Z0-9]+)'
-        matches = re.findall(pattern, response.text)
+        if resp.status_code == 200:
+            data = resp.json()
+            items = data.get('results', [])
 
-        # Remove duplicates
-        seen = set()
-        track_ids = []
-        for match in matches:
-            if match not in seen:
-                seen.add(match)
-                track_ids.append(match)
+            for item in items:
+                track_id = item.get('trackId')
+                if track_id:
+                    results.append({
+                        "track_name": item.get('trackName', query),
+                        "artist_name": item.get('artistName', 'Unknown'),
+                        "album_name": item.get('collectionName', ''),
+                        "spotify_url": item.get('trackViewUrl', ''),  # Use iTunes URL since we can't map to Spotify
+                        "duration": "",
+                        "cover_art": item.get('artworkUrl100', '').replace('100x100', '600x600'),
+                    })
 
-        # Fetch track details for each ID
-        for track_id in track_ids[:limit]:
-            # Add small delay to avoid rate limits
-            time.sleep(0.3 + random.random() * 0.5)
+            if results:
+                # Save to cache
+                save_cached_results(query, results)
+                return results[:limit]
 
-            info = get_track_info(track_id)
-            if info:
-                results.append(info)
-            else:
+    except Exception as e:
+        print(f"iTunes search failed: {e}", file=sys.stderr)
+
+    # Try web search as fallback
+    try:
+        search_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}+site%3Aopen.spotify.com%2Ftrack"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html",
+        }
+
+        response = requests.get(search_url, headers=headers, timeout=5)
+
+        if response.status_code == 200:
+            pattern = r'open\.spotify\.com/track/([a-zA-Z0-9]+)'
+            matches = re.findall(pattern, response.text)
+
+            seen = set()
+            track_ids = []
+            for match in matches:
+                if match not in seen:
+                    seen.add(match)
+                    track_ids.append(match)
+
+            for track_id in track_ids[:limit]:
                 results.append({
-                    "track_name": query,
-                    "artist_name": "Unknown",
-                    "album_name": "Unknown",
+                    "track_name": query.title(),
+                    "artist_name": "Tap to view on Spotify",
+                    "album_name": "",
                     "spotify_url": f"https://open.spotify.com/track/{track_id}",
-                    "duration": "0:00",
+                    "duration": "",
                     "cover_art": None,
                 })
 
+            if results:
+                save_cached_results(query, results)
+                return results
+
     except Exception as e:
-        print(f"Search error: {e}", file=sys.stderr)
+        print(f"Web search failed: {e}", file=sys.stderr)
 
     return results
 
@@ -132,6 +212,14 @@ def get_track_info(track_id: str) -> dict | None:
                 if images:
                     sorted_images = sorted(images, key=lambda x: x.get("width", 0), reverse=True)
                     cover_art = sorted_images[0].get("url") if sorted_images else None
+        if not cover_art:
+            # Try new visualIdentity path
+            visual = entity.get("visualIdentity", {})
+            images = visual.get("image", [])
+            if images:
+                # Get largest image
+                sorted_images = sorted(images, key=lambda x: x.get("maxWidth", 0), reverse=True)
+                cover_art = sorted_images[0].get("url") if sorted_images else None
 
         # Extract duration
         duration_ms = entity.get("duration", 0) or entity.get("durationMs", 0)
