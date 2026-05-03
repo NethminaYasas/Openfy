@@ -1151,6 +1151,7 @@ function initPlaylistHandlers() {
       // Show plus in circle (not following)
       followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
       followBtn.style.cssText = '';
+      followBtn.style.setProperty('display', 'flex', 'important');
       followBtn.classList.remove('followed');
       followBtn.title = 'Follow playlist';
     }

@@ -258,7 +258,8 @@ export async function loadUserPlaylists() {
 export async function updateRegularPlaylistTrackCache() {
   state.trackIdsInRegularPlaylists.clear();
   state.likedTrackIds.clear();
-  const regularPlaylists = state.userPlaylists.filter(pl => !pl.is_liked);
+  // Only include user's own playlists (not followed playlists)
+  const regularPlaylists = state.userPlaylists.filter(pl => !pl.is_liked && !pl.is_followed);
   const likedPlaylist = state.userPlaylists.find(pl => pl.is_liked);
   const results = await Promise.all(
     regularPlaylists.map(async (pl) => {

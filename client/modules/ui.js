@@ -947,10 +947,16 @@ export async function openPlaylist(playlistId) {
     window.currentPlaylistIsOwner = isOwner;
     const followBtn = document.getElementById('playlist-follow-btn');
     if (followBtn) {
-      // Show follow button for public playlists where user is NOT owner
+      // Show follow button for public playlists where user is NOT owner and IS logged in
       // (either to follow, or to show the checkmark if already following)
-      const showFollow = isPublic && !isLiked && !isOwner;
-      followBtn.style.display = showFollow ? 'flex' : 'none';
+      const isLoggedIn = !!state.currentUser;
+      console.log('Follow button check:', { isPublic, isLiked, isOwner, isLoggedIn, showFollow: (isPublic && !isLiked && !isOwner && isLoggedIn), pl: pl.name });
+      const showFollow = isPublic && !isLiked && !isOwner && isLoggedIn;
+      if (showFollow) {
+        followBtn.style.setProperty('display', 'flex', 'important');
+      } else {
+        followBtn.style.setProperty('display', 'none', 'important');
+      }
       // Update icon based on follow state
       if (isFollowed) {
         // Show green circle with black checkmark - matches track in playlist icon (24x24px)
@@ -969,6 +975,7 @@ export async function openPlaylist(playlistId) {
         // Show plus in circle (not following)
         followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
         followBtn.style.cssText = '';
+        followBtn.style.setProperty('display', 'flex', 'important');
         followBtn.classList.remove('followed');
         followBtn.title = 'Follow playlist';
       }
