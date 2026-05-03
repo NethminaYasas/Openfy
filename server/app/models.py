@@ -150,6 +150,9 @@ class User(Base):
     playlists = relationship(
         "Playlist", back_populates="user", cascade="all, delete-orphan"
     )
+    followed_playlists = relationship(
+        "FollowedPlaylist", back_populates="user", cascade="all, delete-orphan"
+    )
     last_track = relationship("Track", foreign_keys=[last_track_id])
 
 
@@ -176,6 +179,9 @@ class Playlist(Base):
     tracks = relationship(
         "PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan"
     )
+    followers = relationship(
+        "FollowedPlaylist", back_populates="playlist", cascade="all, delete-orphan"
+    )
 
 
 class PlaylistTrack(Base):
@@ -191,6 +197,28 @@ class PlaylistTrack(Base):
 
     playlist = relationship("Playlist", back_populates="tracks")
     track = relationship("Track", back_populates="playlist_tracks")
+
+
+class FollowedPlaylist(Base):
+    __tablename__ = "followed_playlists"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_hash: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.auth_hash"), index=True
+    )
+    playlist_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("playlists.id", ondelete="CASCADE"), index=True
+    )
+    followed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_hash", "playlist_id", name="uq_user_followed_playlist"),
+    )
+
+    user = relationship("User", back_populates="followed_playlists")
+    playlist = relationship("Playlist", back_populates="followers")
 
 
 class TrackPlay(Base):

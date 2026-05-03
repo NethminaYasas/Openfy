@@ -47,6 +47,7 @@ from .models import (
     Album,
     Playlist,
     PlaylistTrack,
+    FollowedPlaylist,
     DownloadJob,
     User,
     TrackPlay,
@@ -533,6 +534,28 @@ def _startup():
                     "CREATE INDEX IF NOT EXISTS idx_playlists_user_hash_created_at ON playlists(user_hash, created_at DESC)"
                 )
             )
+
+            # Create followed_playlists table if it doesn't exist
+            for row in conn.execute(text("PRAGMA table_info(followed_playlists)")).fetchall():
+                table_exists = True
+                break
+            else:
+                table_exists = False
+            if not table_exists:
+                conn.execute(text("""
+                    CREATE TABLE followed_playlists (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_hash VARCHAR(64) NOT NULL,
+                        playlist_id VARCHAR(36) NOT NULL,
+                        followed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_hash) REFERENCES users(auth_hash) ON DELETE CASCADE,
+                        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+                        UNIQUE(user_hash, playlist_id)
+                    )
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_followed_playlists_user ON followed_playlists(user_hash)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_followed_playlists_playlist ON followed_playlists(playlist_id)"))
+
             conn.commit()
 
     db = SessionLocal()
