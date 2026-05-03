@@ -34,7 +34,7 @@ from fastapi.responses import (
     JSONResponse,
 )
 from PIL import Image
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
@@ -1608,6 +1608,89 @@ def update_playlist(
     db.commit()
     db.refresh(playlist)
     return playlist
+
+
+@app.post("/playlists/{playlist_id}/follow")
+def follow_playlist(
+    playlist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Follow a public playlist."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    # Cannot follow Liked Songs
+    if playlist.is_liked:
+        raise HTTPException(status_code=403, detail="Cannot follow Liked Songs playlist")
+
+    # Cannot follow own playlist
+    if playlist.user_hash == user.auth_hash:
+        raise HTTPException(status_code=403, detail="Cannot follow your own playlist")
+
+    # Must be public to follow
+    if not playlist.is_public:
+        raise HTTPException(status_code=403, detail="Cannot follow private playlist")
+
+    # Check if already following
+    existing = db.execute(
+        select(FollowedPlaylist).where(
+            FollowedPlaylist.user_hash == user.auth_hash,
+            FollowedPlaylist.playlist_id == playlist_id,
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        raise HTTPException(status_code=409, detail="Already following this playlist")
+
+    # Create follow
+    followed = FollowedPlaylist(
+        user_hash=user.auth_hash,
+        playlist_id=playlist_id,
+    )
+    db.add(followed)
+    db.commit()
+
+    return {"success": True}
+
+
+@app.delete("/playlists/{playlist_id}/follow")
+def unfollow_playlist(
+    playlist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Unfollow a playlist."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    # Find and delete the follow
+    followed = db.execute(
+        select(FollowedPlaylist).where(
+            FollowedPlaylist.user_hash == user.auth_hash,
+            FollowedPlaylist.playlist_id == playlist_id,
+        )
+    ).scalar_one_or_none()
+
+    if not followed:
+        raise HTTPException(status_code=404, detail="Not following this playlist")
+
+    db.delete(followed)
+    db.commit()
+
+    return {"success": True}
 
 
 @app.get("/playlists/{playlist_id}/tracks", response_model=List[PlaylistTrackOut])

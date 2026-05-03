@@ -344,6 +344,14 @@ export async function addTrackToPlaylist(playlistId, trackId) {
   return await api("/playlists/" + playlistId + "/tracks?track_id=" + trackId, { method: "POST" });
 }
 
+export async function followPlaylist(playlistId) {
+  return await api("/playlists/" + playlistId + "/follow", { method: "POST" });
+}
+
+export async function unfollowPlaylist(playlistId) {
+  return await api("/playlists/" + playlistId + "/follow", { method: "DELETE" });
+}
+
 export async function removeTrackFromPlaylist(playlistId, trackId) {
   return await api("/playlists/" + playlistId + "/tracks/" + trackId, { method: "DELETE" });
 }

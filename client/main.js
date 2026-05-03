@@ -1131,6 +1131,95 @@ function initPlaylistHandlers() {
     }
   });
 
+  // Update follow button state
+  function updateFollowButtonState(isFollowing) {
+    const followBtn = document.getElementById('playlist-follow-btn');
+    if (!followBtn) return;
+    if (isFollowing) {
+      // Show green circle with black checkmark - matches track in playlist icon (24x24px)
+      followBtn.innerHTML = '';
+      followBtn.style.cssText = 'background: #1db954 !important; border: none !important; border-radius: 50% !important; width: 24px !important; height: 24px !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
+      if (!document.getElementById('follow-btn-style')) {
+        const style = document.createElement('style');
+        style.id = 'follow-btn-style';
+        style.textContent = '#playlist-follow-btn.followed::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; margin-bottom: 2px; }';
+        document.head.appendChild(style);
+      }
+      followBtn.classList.add('followed');
+      followBtn.title = 'Unfollow playlist';
+    } else {
+      // Show plus in circle (not following)
+      followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
+      followBtn.style.cssText = '';
+      followBtn.classList.remove('followed');
+      followBtn.title = 'Follow playlist';
+    }
+  }
+
+  // Follow button click handler
+  document.getElementById('playlist-follow-btn')?.addEventListener('click', async function() {
+    const playlistId = state.currentPlaylistId;
+    if (!playlistId || !state.currentUser) return;
+
+    const playlist = window.currentPlaylistData;
+    if (!playlist) return;
+
+    try {
+      const apiModule = await import("./modules/api.js");
+      const followPlaylist = apiModule.followPlaylist || window.followPlaylist;
+      const unfollowPlaylist = apiModule.unfollowPlaylist || window.unfollowPlaylist;
+
+      if (playlist.is_followed) {
+        // Show confirmation modal for unfollow
+        const confirmOverlay = document.getElementById('confirm-modal-overlay');
+        const confirmMessage = document.getElementById('confirm-message');
+        const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+        const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+
+        confirmMessage.textContent = 'Remove "' + playlist.name + '" from your library?';
+        confirmOverlay.style.display = 'flex';
+
+        const handleUnfollow = async () => {
+          confirmOverlay.style.display = 'none';
+          confirmCancelBtn.removeEventListener('click', handleCancel);
+          confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+
+          try {
+            await unfollowPlaylist(playlistId);
+            playlist.is_followed = false;
+            window.currentPlaylistFollowed = false;
+            // Refresh playlists in library
+            await loadPlaylists();
+            // Update button appearance
+            updateFollowButtonState(false);
+          } catch (err) {
+            console.error("Failed to unfollow:", err);
+          }
+        };
+
+        const handleCancel = () => {
+          confirmOverlay.style.display = 'none';
+          confirmCancelBtn.removeEventListener('click', handleCancel);
+          confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+        };
+
+        confirmDeleteBtn.textContent = 'Remove';
+        confirmCancelBtn.addEventListener('click', handleCancel);
+        confirmDeleteBtn.addEventListener('click', handleUnfollow);
+      } else {
+        await followPlaylist(playlistId);
+        playlist.is_followed = true;
+        window.currentPlaylistFollowed = true;
+        // Refresh playlists in library
+        await loadPlaylists();
+        // Update button appearance
+        updateFollowButtonState(true);
+      }
+    } catch (err) {
+      console.error("Failed to toggle follow:", err);
+    }
+  });
+
   const playlistVisibilityItem = document.getElementById("playlist-visibility-item");
   playlistVisibilityItem?.addEventListener('click', async function() {
     if (!state.currentPlaylistId || !state.currentUser) return;
@@ -1145,7 +1234,8 @@ function initPlaylistHandlers() {
       currentPlaylist.is_public = newPublicState;
       document.getElementById('playlist-type').textContent = newPublicState ? 'Public Playlist' : 'Private Playlist';
       const isOwner = state.currentUser && currentPlaylist.user && currentPlaylist.user.auth_hash === state.authHash;
-      updatePlaylistMenu(newPublicState, isOwner, false);
+      const isFollowed = currentPlaylist.is_followed || false;
+      updatePlaylistMenu(newPublicState, isOwner, false, isFollowed);
       document.getElementById("playlist-menu-dropdown").classList.remove("visible");
     } catch (err) {
       console.error("Failed to toggle public state:", err);
@@ -1222,7 +1312,7 @@ function initArtistHandlers() {
   });
 }
 
-function updatePlaylistMenu(isPublic, isOwner, isLiked) {
+function updatePlaylistMenu(isPublic, isOwner, isLiked, isFollowed) {
   const playlistMenuBtn = document.getElementById("playlist-menu-btn");
   const playlistVisibilityItem = document.getElementById("playlist-visibility-item");
   const playlistVisibilityIcon = document.getElementById("playlist-visibility-icon");
@@ -1232,7 +1322,8 @@ function updatePlaylistMenu(isPublic, isOwner, isLiked) {
     playlistMenuBtn.classList.remove("hidden");
   }
 
-  if (isLiked || !isOwner) {
+  // Hide visibility toggle for Liked Songs, non-owners, or followed playlists
+  if (isLiked || !isOwner || isFollowed) {
     if (playlistVisibilityItem) playlistVisibilityItem.style.display = "none";
   } else {
     if (playlistVisibilityItem) playlistVisibilityItem.style.display = "flex";
@@ -1312,7 +1403,11 @@ function initContextMenuHandlers() {
       }
     }
 
-    if (playlist.is_liked) {
+    // Check if user can edit (owner only, not for followed playlists)
+    const canEdit = !playlist.is_liked && playlist.is_owner;
+
+    if (playlist.is_liked || !playlist.is_owner) {
+      // Disable all editing options for Liked Songs or followed playlists (non-owners)
       ctxRename.classList.add("disabled");
       ctxRemove.classList.add("disabled");
       ctxPin.classList.add("disabled");
@@ -1386,6 +1481,7 @@ function initContextMenuHandlers() {
     ctxPin.style.display = 'none';
     ctxRename.style.display = 'none';
     ctxRemove.style.display = 'none';
+    ctxVisibility.style.display = 'none';
     ctxTrackAddPlaylist.style.display = '';
     ctxTrackAddQueue.style.display = '';
     contextMenu.insertBefore(ctxTrackAddQueue, ctxTrackAddPlaylist);

@@ -934,10 +934,48 @@ export async function openPlaylist(playlistId) {
       document.getElementById('playlist-shuffle-btn').classList.remove('active');
     }
 
-    const isOwner = state.currentUser && pl.user && pl.user.auth_hash === state.authHash;
-    const isPublic = Boolean(pl.is_public);
-    const isLiked = Boolean(pl.is_liked);
-    updatePlaylistMenu(isPublic, isOwner, isLiked);
+    // Use is_owner from API response (more reliable)
+    const isOwner = pl.is_owner === true;
+    const isPublic = pl.is_public === true;
+    const isLiked = pl.is_liked === true;
+    const isFollowed = pl.is_followed === true;
+
+    updatePlaylistMenu(isPublic, isOwner, isLiked, isFollowed);
+
+    // Update follow button visibility
+    window.currentPlaylistFollowed = isFollowed;
+    window.currentPlaylistIsOwner = isOwner;
+    const followBtn = document.getElementById('playlist-follow-btn');
+    if (followBtn) {
+      // Show follow button for public playlists where user is NOT owner
+      // (either to follow, or to show the checkmark if already following)
+      const showFollow = isPublic && !isLiked && !isOwner;
+      followBtn.style.display = showFollow ? 'flex' : 'none';
+      // Update icon based on follow state
+      if (isFollowed) {
+        // Show green circle with black checkmark - matches track in playlist icon (24x24px)
+        followBtn.innerHTML = '';
+        followBtn.style.cssText = 'background: #1db954 !important; border: none !important; border-radius: 50% !important; width: 24px !important; height: 24px !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
+        // Add checkmark via CSS pseudo-element
+        if (!document.getElementById('follow-btn-style')) {
+          const style = document.createElement('style');
+          style.id = 'follow-btn-style';
+          style.textContent = '#playlist-follow-btn.followed::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; margin-bottom: 2px; }';
+          document.head.appendChild(style);
+        }
+        followBtn.classList.add('followed');
+        followBtn.title = 'Unfollow playlist';
+      } else {
+        // Show plus in circle (not following)
+        followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
+        followBtn.style.cssText = '';
+        followBtn.classList.remove('followed');
+        followBtn.title = 'Follow playlist';
+      }
+    }
+
+    // Store playlist data for follow button access
+    window.currentPlaylistData = pl;
 
     if (pl && pl.is_liked) {
       document.getElementById('playlist-gradient').style.background =
@@ -1064,7 +1102,7 @@ import { shuffleQueueOnce, unshuffleQueue, scheduleQueueSave } from './audio-pla
 import { savePlayerState } from './api.js';
 import { audioPlayer } from './audio-player.js';
 
-function updatePlaylistMenu(isPublic, isOwner, isLiked) {
+function updatePlaylistMenu(isPublic, isOwner, isLiked, isFollowed) {
   const playlistMenuBtn = document.getElementById("playlist-menu-btn");
   const playlistVisibilityItem = document.getElementById("playlist-visibility-item");
   const playlistVisibilityIcon = document.getElementById("playlist-visibility-icon");
@@ -1074,7 +1112,8 @@ function updatePlaylistMenu(isPublic, isOwner, isLiked) {
     playlistMenuBtn.classList.remove("hidden");
   }
 
-  if (isLiked || !isOwner) {
+  // Hide visibility toggle for Liked Songs, non-owners, or followed playlists
+  if (isLiked || !isOwner || isFollowed) {
     if (playlistVisibilityItem) playlistVisibilityItem.style.display = "none";
   } else {
     if (playlistVisibilityItem) playlistVisibilityItem.style.display = "flex";
@@ -1166,7 +1205,12 @@ export function renderLibrary() {
       typeEl.appendChild(pinSvg);
       typeEl.appendChild(document.createTextNode(" "));
     }
-    typeEl.appendChild(document.createTextNode("Playlist"));
+    // Show "Public Playlist" for followed playlists, "Playlist" otherwise
+    if (pl.is_followed) {
+      typeEl.appendChild(document.createTextNode("Public Playlist"));
+    } else {
+      typeEl.appendChild(document.createTextNode("Playlist"));
+    }
 
     info.appendChild(nameEl);
     info.appendChild(typeEl);

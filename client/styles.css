@@ -5017,6 +5017,28 @@ input:checked + .toggle-slider:before {
     position: relative;
 }
 
+.playlist-follow-btn {
+    background: none;
+    border: none;
+    color: #b3b3b3;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 8px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.playlist-follow-btn:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+}
+
+.playlist-follow-btn:hover {
+    color: #fff;
+}
+
 /* Playlist Menu Button */
 .playlist-menu-btn {
     background: none;
