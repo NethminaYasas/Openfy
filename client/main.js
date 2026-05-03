@@ -1240,7 +1240,7 @@ function updatePlaylistMenu(isPublic, isOwner, isLiked) {
       if (playlistVisibilityIcon) playlistVisibilityIcon.className = "fa-solid fa-lock";
       if (playlistVisibilityText) playlistVisibilityText.textContent = "Make Private";
     } else {
-      if (playlistVisibilityIcon) playlistVisibilityIcon.className = "fa-solid fa-globe";
+      if (playlistVisibilityIcon) playlistVisibilityIcon.className = "fa-solid fa-network-wired";
       if (playlistVisibilityText) playlistVisibilityText.textContent = "Make Public";
     }
   }
@@ -1252,6 +1252,9 @@ function initContextMenuHandlers() {
   const ctxPin = document.getElementById("ctx-pin");
   const ctxRename = document.getElementById("ctx-rename");
   const ctxRemove = document.getElementById("ctx-remove");
+  const ctxVisibility = document.getElementById("ctx-visibility");
+  const ctxVisibilityIcon = document.getElementById("ctx-visibility-icon");
+  const ctxVisibilityText = document.getElementById("ctx-visibility-text");
   const ctxTrackAddPlaylist = document.getElementById("ctx-track-add-playlist");
   const ctxPlaylistSubmenu = document.getElementById("ctx-playlist-submenu");
   const ctxSubmenuItems = document.getElementById("submenu-playlist-items");
@@ -1313,15 +1316,26 @@ function initContextMenuHandlers() {
       ctxRename.classList.add("disabled");
       ctxRemove.classList.add("disabled");
       ctxPin.classList.add("disabled");
+      ctxVisibility.classList.add("disabled");
     } else {
       ctxRename.classList.remove("disabled");
       ctxRemove.classList.remove("disabled");
       ctxPin.classList.remove("disabled");
+      ctxVisibility.classList.remove("disabled");
+      // Update visibility icon and text based on current state
+      if (playlist.is_public) {
+        if (ctxVisibilityIcon) ctxVisibilityIcon.className = "fa-solid fa-lock";
+        if (ctxVisibilityText) ctxVisibilityText.textContent = "Make Private";
+      } else {
+        if (ctxVisibilityIcon) ctxVisibilityIcon.className = "fa-solid fa-network-wired";
+        if (ctxVisibilityText) ctxVisibilityText.textContent = "Make Public";
+      }
     }
 
     ctxPin.style.display = '';
     ctxRename.style.display = '';
     ctxRemove.style.display = '';
+    ctxVisibility.style.display = playlist.is_liked ? 'none' : '';
     ctxTrackAddPlaylist.style.display = 'none';
     ctxTrackAddQueue.style.display = 'none';
     ctxPlaylistSubmenu.classList.remove('visible');
@@ -1441,6 +1455,30 @@ function initContextMenuHandlers() {
     state.pendingActionPlaylistId = targetId;
     document.getElementById("confirm-message").textContent = 'Delete playlist "' + targetName + '"?';
     document.getElementById("confirm-modal-overlay").style.display = "flex";
+  });
+
+  ctxVisibility.addEventListener("click", async function() {
+    if (!state.currentContextPlaylist || state.currentContextPlaylist.is_liked) return;
+    if (ctxVisibility.classList.contains('disabled')) return;
+
+    const playlist = state.currentContextPlaylist;
+    const newVisibility = !playlist.is_public;
+    hideContextMenu();
+
+    try {
+      await togglePlaylistVisibility(playlist.id, newVisibility);
+      // Update the playlist in state
+      playlist.is_public = newVisibility ? 1 : 0;
+      // Refresh library to show updated visibility
+      renderLibrary();
+      // Update current playlist data if open
+      if (window.currentPlaylistData && window.currentPlaylistData.id === playlist.id) {
+        window.currentPlaylistData.is_public = playlist.is_public;
+        document.getElementById('playlist-type').textContent = newVisibility ? 'Public Playlist' : 'Private Playlist';
+      }
+    } catch (err) {
+      console.error("Failed to toggle playlist visibility:", err);
+    }
   });
 
   ctxTrackAddQueue.addEventListener("click", function() {

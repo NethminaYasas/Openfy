@@ -30,6 +30,7 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     Response,
+    JSONResponse,
 )
 from PIL import Image
 from sqlalchemy.orm import Session, selectinload
@@ -1372,9 +1373,20 @@ def get_playlist(
     is_public = playlist.is_public and not playlist.is_liked
 
     if not is_owner and not is_admin and not is_public:
-        if not x_auth_hash:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        raise HTTPException(status_code=403, detail="Not your playlist")
+        # Return limited data for private playlists to non-owners
+        # This allows the frontend to show blurred name/cover with "Private playlist" overlay
+        return JSONResponse(content={
+            "id": playlist.id,
+            "name": playlist.name,
+            "description": playlist.description,
+            "is_liked": playlist.is_liked,
+            "pinned": playlist.pinned,
+            "shuffle": playlist.shuffle,
+            "is_public": playlist.is_public,
+            "created_at": playlist.created_at.isoformat() if playlist.created_at else None,
+            "user": None,  # Don't expose owner info for private playlists
+            "access_denied": True  # Frontend flag to show blur UI
+        })
 
     return playlist
 
@@ -1413,9 +1425,8 @@ def get_playlist_cover(
     is_public = playlist.is_public and not playlist.is_liked
 
     if not is_owner and not is_admin and not is_public:
-        if not x_auth_hash:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        raise HTTPException(status_code=403, detail="Not your playlist")
+        # Return 404 for private playlist covers - frontend will show placeholder
+        raise HTTPException(status_code=404, detail="Cover not available for private playlist")
     if playlist.is_liked:
         raise HTTPException(status_code=404, detail="Liked Songs has no collage")
 
@@ -1543,9 +1554,9 @@ def list_playlist_tracks(
     is_public = playlist.is_public and not playlist.is_liked
 
     if not is_owner and not is_admin and not is_public:
-        if not x_auth_hash:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        raise HTTPException(status_code=403, detail="Not your playlist")
+        # Return empty list for non-owners of private playlists
+        # Frontend will show blur UI based on access_denied flag from /playlists endpoint
+        return []
 
     stmt = (
         select(PlaylistTrack)

@@ -837,7 +837,79 @@ export async function openPlaylist(playlistId) {
   state.currentPlaylistId = playlistId;
   try {
     var pl = await api("/playlists/" + playlistId);
+
+    // Check if access is denied (private playlist for non-owner)
+    if (pl.access_denied) {
+      // Show blurred UI for private playlist
+      document.getElementById('playlist-name').textContent = pl.name;
+      document.getElementById('playlist-name').classList.add('blurred-text');
+      document.getElementById('playlist-type').textContent = 'Private Playlist';
+      document.getElementById('playlist-type').classList.add('blurred-text');
+
+      // Show blur overlay on playlist cover
+      const mosaic = document.getElementById('playlist-mosaic');
+      if (mosaic) {
+        mosaic.classList.add('blurred-cover');
+        // Add private overlay
+        let overlay = mosaic.querySelector('.private-overlay');
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.className = 'private-overlay';
+          overlay.innerHTML = '<i class="fa-solid fa-lock"></i><span>Private Playlist</span>';
+          mosaic.appendChild(overlay);
+        }
+        overlay.style.display = 'flex';
+      }
+
+      // Hide playlist actions and show full blur on songs container
+      document.getElementById('playlist-actions').classList.add('hidden');
+      const songsContainer = document.getElementById('playlist-songs-list');
+      songsContainer.innerHTML = '';
+      songsContainer.classList.add('blurred-songs');
+
+      // Blur the songs header (table headers)
+      const songsHeader = document.querySelector('.playlist-songs-header');
+      if (songsHeader) songsHeader.classList.add('blurred-text');
+
+      // Add full-cover blur overlay
+      const blurOverlay = document.createElement('div');
+      blurOverlay.className = 'private-playlist-full-blur';
+      blurOverlay.innerHTML = '<i class="fa-solid fa-lock"></i><span>Private Playlist</span>';
+      songsContainer.appendChild(blurOverlay);
+
+      // Hide playlist meta (owner info)
+      const playlistMeta = document.getElementById('playlist-meta');
+      if (playlistMeta) playlistMeta.style.display = 'none';
+
+      // Set playlist data but don't load tracks
+      window.currentPlaylistData = pl;
+      return;
+    }
+
     var tracks = await api("/playlists/" + playlistId + "/tracks");
+
+    // Remove any blur classes if access is granted
+    document.getElementById('playlist-name').classList.remove('blurred-text');
+    document.getElementById('playlist-type').classList.remove('blurred-text');
+    const songsHeader = document.querySelector('.playlist-songs-header');
+    if (songsHeader) songsHeader.classList.remove('blurred-text');
+    const mosaic = document.getElementById('playlist-mosaic');
+    if (mosaic) {
+      mosaic.classList.remove('blurred-cover');
+      const overlay = mosaic.querySelector('.private-overlay');
+      if (overlay) overlay.style.display = 'none';
+    }
+    document.getElementById('playlist-actions').classList.remove('hidden');
+    const songsContainer = document.getElementById('playlist-songs-list');
+    songsContainer.classList.remove('blurred-songs');
+    const blurMessage = songsContainer.querySelector('.private-playlist-blur-message');
+    if (blurMessage) blurMessage.remove();
+    const fullBlur = songsContainer.querySelector('.private-playlist-full-blur');
+    if (fullBlur) fullBlur.remove();
+
+    // Show playlist meta
+    const playlistMeta = document.getElementById('playlist-meta');
+    if (playlistMeta) playlistMeta.style.display = '';
 
     var ownerName = pl.user ? pl.user.name : 'User';
     var ownerAvatar = pl.user?.avatar_path;

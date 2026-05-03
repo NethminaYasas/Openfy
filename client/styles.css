@@ -4718,6 +4718,7 @@ input:checked + .toggle-slider:before {
     flex-shrink: 0;
     overflow: hidden;
     background: #282828;
+    position: relative;
 }
 
 .artist-page-image {
@@ -4759,6 +4760,115 @@ input:checked + .toggle-slider:before {
 .playlist-mosaic-item i {
     color: #535353;
     font-size: 2rem;
+}
+
+/* Blurred cover for private playlists */
+.playlist-mosaic.blurred-cover {
+    filter: blur(20px);
+    opacity: 0.5;
+}
+
+.playlist-mosaic .private-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 4px;
+    z-index: 10;
+}
+
+.playlist-mosaic .private-overlay i {
+    font-size: 2.5rem;
+    color: #fff;
+}
+
+.playlist-mosaic .private-overlay span {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+/* Blurred text for private playlist name */
+.blurred-text {
+    filter: blur(8px);
+    user-select: none;
+}
+
+/* Blurred songs container for private playlists */
+.playlist-songs-list.blurred-songs {
+    position: relative;
+}
+
+.private-playlist-blur-message {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    background: rgba(18, 18, 18, 0.9);
+    backdrop-filter: blur(10px);
+    z-index: 20;
+}
+
+.private-playlist-blur-message i {
+    font-size: 3rem;
+    color: #b3b3b3;
+}
+
+.private-playlist-blur-message span {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+/* Hide playlist actions for private playlists */
+#playlist-actions.hidden {
+    display: none;
+}
+
+/* Full blur overlay for private playlists - covers entire content */
+.private-playlist-full-blur {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    background: rgba(18, 18, 18, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 50;
+}
+
+.private-playlist-full-blur i {
+    font-size: 4rem;
+    color: #b3b3b3;
+}
+
+.private-playlist-full-blur span {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 /* Playlist Header Info */
