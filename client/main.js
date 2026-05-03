@@ -2558,6 +2558,199 @@ function pollJobStatusUI(jobId) {
   state.activeDownloadPoll = poll;
 }
 
+// Download a track from Spotify/Apple Music link and auto-play when complete
+window.downloadAndPlayTrack = async function(track) {
+  if (!state.currentUser || (!state.currentUser.is_admin && !state.manualAudioUploadEnabled)) {
+    alert("Uploads are disabled for your account.");
+    return;
+  }
+
+  const spotifyUrl = track.spotify_url;
+  if (!spotifyUrl) {
+    console.error("No Spotify URL for track");
+    return;
+  }
+
+  // Store the track info for matching later
+  const downloadTrackTitle = track.track_name;
+  const downloadTrackArtist = track.artist_name;
+
+  // Get current user upload IDs before download so we can find the new one after
+  // Only track user's own uploads - this is session-specific and avoids cross-user issues
+  let existingUploadIds = new Set();
+  if (state.authHash) {
+    try {
+      const existingUploads = await api("/tracks?limit=50&user_hash=" + encodeURIComponent(state.authHash));
+      if (Array.isArray(existingUploads)) {
+        existingUploads.forEach(t => existingUploadIds.add(t.id));
+      }
+    } catch (e) {
+      console.error("Failed to get existing uploads:", e);
+    }
+  }
+
+  // Show download progress UI
+  var progressDiv = document.getElementById("download-progress");
+  var statusText = document.getElementById("download-status-text");
+  var progressBar = document.getElementById("download-progress-bar");
+
+  progressDiv.style.display = "block";
+  statusText.textContent = "Queuing download: " + (downloadTrackTitle || "...");
+  progressBar.style.width = "0%";
+  progressBar.classList.remove("progress-indeterminate", "progress-error", "progress-complete");
+
+  try {
+    // Start the download
+    const jobId = await downloadFromLink(spotifyUrl);
+
+    // Poll for completion with custom callback for auto-play
+    await pollJobStatusForPlayback(jobId, downloadTrackTitle, downloadTrackArtist, existingUploadIds);
+  } catch (err) {
+    console.error("Download failed:", err);
+    statusText.textContent = "Download failed: " + (err.message || "Unknown error");
+    progressBar.classList.add("progress-error");
+  }
+};
+
+// Poll for job status and auto-play when complete
+function pollJobStatusForPlayback(jobId, downloadTrackTitle, downloadTrackArtist, existingUploadIds) {
+  return new Promise((resolve, reject) => {
+    var progressDiv = document.getElementById("download-progress");
+    var statusText = document.getElementById("download-status-text");
+    var progressBar = document.getElementById("download-progress-bar");
+
+    // Normalize the search terms
+    const searchTitle = (downloadTrackTitle || "").toLowerCase().trim();
+    const searchArtist = (downloadTrackArtist || "").toLowerCase().trim();
+
+    var poll = setInterval(async function() {
+      try {
+        var job = await pollJobStatus(jobId);
+        if (job.status === "completed") {
+          clearInterval(poll);
+          state.activeDownloadPoll = null;
+          statusText.textContent = "Download completed. Loading track...";
+          progressBar.style.width = "100%";
+          progressBar.classList.add("progress-complete");
+
+          // Fetch only current user's uploads - session-specific, avoids cross-user issues
+          const userUploads = state.authHash
+            ? await api("/tracks?limit=50&user_hash=" + encodeURIComponent(state.authHash))
+            : [];
+
+          // Find the new track - one that wasn't in existingUploadIds
+          let foundTrack = null;
+          if (Array.isArray(userUploads)) {
+            for (const t of userUploads) {
+              if (!existingUploadIds.has(t.id)) {
+                // This is a new upload - verify it matches our search
+                const tTitle = (t.title || "").toLowerCase().trim();
+                const tArtist = ((t.artist && t.artist.name) || "").toLowerCase().trim();
+
+                // Match by title (and artist if available)
+                if (tTitle.includes(searchTitle) || searchTitle.includes(tTitle)) {
+                  foundTrack = t;
+                  break;
+                }
+              }
+            }
+
+            // If still not found, take the first new upload
+            if (!foundTrack) {
+              for (const t of userUploads) {
+                if (!existingUploadIds.has(t.id)) {
+                  foundTrack = t;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (foundTrack) {
+            setQueueFromList([foundTrack], 0);
+            playTrack(foundTrack);
+            statusText.textContent = "Now playing: " + foundTrack.title;
+          } else {
+            // Fallback: try any track
+            const allTracksData = await api("/tracks?limit=1");
+            if (allTracksData && allTracksData.length > 0) {
+              setQueueFromList([allTracksData[0]], 0);
+              playTrack(allTracksData[0]);
+              statusText.textContent = "Now playing: " + allTracksData[0].title;
+            } else {
+              statusText.textContent = "Download complete. Track added to library.";
+            }
+          }
+
+          // Clear the download URL input
+          document.getElementById("download-url").value = "";
+
+          // Hide progress after a delay
+          setTimeout(function() {
+            progressDiv.style.display = "none";
+            progressBar.classList.remove("progress-complete");
+            progressBar.style.width = "0%";
+          }, 3000);
+
+          resolve();
+        } else if (job.status === "failed") {
+          clearInterval(poll);
+          state.activeDownloadPoll = null;
+          statusText.textContent = "Download failed.";
+          progressBar.classList.add("progress-error");
+          reject(new Error(job.log || "Download failed"));
+        } else {
+          // Still processing - update progress
+          var log = job.log || "";
+          var lines = log.split("\n").filter(function(l) { return l.trim(); });
+          var trackName = "";
+          var progressPercent = 0;
+
+          for (var i = lines.length - 1; i >= 0; i--) {
+            var line = lines[i];
+            if (line.includes("Downloaded:")) {
+              var mb = line.split("Downloaded:")[1].split(" MB |")[0];
+              progressPercent = Math.min(85, (parseFloat(mb) / 8) * 100);
+            } else if (line.includes("Metadata embedded")) {
+              progressPercent = Math.max(progressPercent, 92);
+            } else if (line.includes("Download complete:")) {
+              progressPercent = Math.max(progressPercent, 95);
+            } else if (line.includes("Scan complete")) {
+              progressPercent = Math.max(progressPercent, 98);
+            } else if (line.includes("Starting")) {
+              progressPercent = Math.max(progressPercent, 5);
+            }
+          }
+
+          if (trackName) {
+            statusText.textContent = "Downloading: " + trackName;
+          } else {
+            var lastLine = lines[lines.length - 1] || (job.status + "...");
+            if (lastLine.length > 60) lastLine = lastLine.substring(0, 60) + "...";
+            statusText.textContent = lastLine;
+          }
+
+          if (progressPercent > 0) {
+            progressBar.classList.remove("progress-indeterminate");
+            progressBar.style.width = progressPercent + "%";
+          } else {
+            progressBar.classList.add("progress-indeterminate");
+          }
+        }
+      } catch (err) {
+        clearInterval(poll);
+        state.activeDownloadPoll = null;
+        statusText.textContent = "Poll error: " + err.message;
+        progressBar.classList.remove("progress-indeterminate");
+        progressBar.classList.add("progress-error");
+        reject(err);
+      }
+    }, 2000);
+
+    state.activeDownloadPoll = poll;
+  });
+}
+
 async function handleManualUpload() {
   if (!state.manualAudioUploadEnabled) {
     alert("Manual audio file uploads are currently disabled by admin.");

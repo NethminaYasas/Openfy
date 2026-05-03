@@ -1380,10 +1380,10 @@ function buildSpotifyTrackCard(track) {
   card.appendChild(title);
   card.appendChild(info);
 
-  // Click to open in Spotify
+  // Click to download and play
   card.addEventListener("click", () => {
-    if (track.spotify_url) {
-      window.open(track.spotify_url, '_blank');
+    if (track.spotify_url && window.downloadAndPlayTrack) {
+      window.downloadAndPlayTrack(track);
     }
   });
 
@@ -1564,7 +1564,7 @@ export function renderSearchDropdown(results) {
     if (localTracks.length > 0) {
       const divider = document.createElement("div");
       divider.className = "search-dropdown-divider";
-      divider.textContent = "Spotify Results";
+      divider.textContent = "Search Results";
       inner.appendChild(divider);
     }
 
@@ -1606,7 +1606,7 @@ export function renderSearchDropdown(results) {
       // Add Spotify badge
       const spotifyBadge = document.createElement("span");
       spotifyBadge.className = "spotify-badge";
-      spotifyBadge.innerHTML = '<i class="fa-brands fa-spotify"></i> Open in Spotify';
+      spotifyBadge.innerHTML = '<i class="fa-solid fa-download"></i> Download';
 
       meta.appendChild(titleEl);
       meta.appendChild(artistEl);
@@ -1617,9 +1617,9 @@ export function renderSearchDropdown(results) {
 
       btn.addEventListener("click", function(ev) {
         ev.preventDefault();
-        // Open Spotify URL in new tab
-        if (track.spotify_url) {
-          window.open(track.spotify_url, '_blank');
+        // Download and play the track instead of opening in browser
+        if (track.spotify_url && window.downloadAndPlayTrack) {
+          window.downloadAndPlayTrack(track);
         }
         hideSearchDropdown();
         document.getElementById("search-input").blur();
