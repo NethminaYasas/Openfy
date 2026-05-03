@@ -125,6 +125,8 @@ class PlaylistOut(BaseModel):
     is_public: bool = False
     created_at: datetime
     user: Optional['UserOutPublic'] = None
+    is_followed: bool = False
+    is_owner: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,7 +1,6 @@
 import secrets
 import shutil
 import tempfile
-import imghdr
 from pathlib import Path
 import json
 import time
@@ -12,6 +11,8 @@ from collections import defaultdict
 from time import monotonic
 from threading import Lock
 from contextlib import asynccontextmanager
+import io
+from PIL import Image
 
 from fastapi import (
     FastAPI,
@@ -1318,12 +1319,48 @@ def list_playlists(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    user = _require_user(db, x_auth_hash)
-    stmt = select(Playlist).order_by(
-        Playlist.is_liked.desc(), Playlist.pinned.desc(), Playlist.created_at.desc()
-    )
-    stmt = stmt.where(Playlist.user_hash == user.auth_hash)
-    return db.execute(stmt).scalars().all()
+    user = None
+    if x_auth_hash:
+        user = _get_user(db, x_auth_hash)
+
+    # Get user's own playlists
+    own_playlists = []
+    if user:
+        stmt = (
+            select(Playlist)
+            .options(joinedload(Playlist.user))
+            .where(Playlist.user_hash == user.auth_hash)
+            .order_by(Playlist.created_at.desc())
+        )
+        own_playlists = db.execute(stmt).scalars().all()
+
+    # Get followed playlists
+    followed_playlists = []
+    if user:
+        followed_stmt = (
+            select(Playlist)
+            .options(joinedload(Playlist.user))
+            .join(FollowedPlaylist, FollowedPlaylist.playlist_id == Playlist.id)
+            .where(FollowedPlaylist.user_hash == user.auth_hash)
+            .order_by(FollowedPlaylist.followed_at.desc())
+        )
+        followed_playlists = db.execute(followed_stmt).scalars().all()
+
+    # Combine and mark is_owner and is_followed
+    result = []
+    for pl in own_playlists:
+        pl_dict = pl.__dict__.copy()
+        pl_dict['is_owner'] = True
+        pl_dict['is_followed'] = False
+        result.append(pl_dict)
+
+    for pl in followed_playlists:
+        pl_dict = pl.__dict__.copy()
+        pl_dict['is_owner'] = False
+        pl_dict['is_followed'] = True
+        result.append(pl_dict)
+
+    return result
 
 
 @app.post("/playlists", response_model=PlaylistOut)
@@ -1395,6 +1432,17 @@ def get_playlist(
     is_admin = user and user.is_admin
     is_public = playlist.is_public and not playlist.is_liked
 
+    # Check if user is following this playlist
+    is_followed = False
+    if user:
+        followed = db.execute(
+            select(FollowedPlaylist).where(
+                FollowedPlaylist.user_hash == user.auth_hash,
+                FollowedPlaylist.playlist_id == playlist_id,
+            )
+        ).scalar_one_or_none()
+        is_followed = followed is not None
+
     if not is_owner and not is_admin and not is_public:
         # Return limited data for private playlists to non-owners
         # This allows the frontend to show blurred name/cover with "Private playlist" overlay
@@ -1408,9 +1456,14 @@ def get_playlist(
             "is_public": playlist.is_public,
             "created_at": playlist.created_at.isoformat() if playlist.created_at else None,
             "user": None,  # Don't expose owner info for private playlists
-            "access_denied": True  # Frontend flag to show blur UI
+            "access_denied": True,  # Frontend flag to show blur UI
+            "is_followed": is_followed,
+            "is_owner": is_owner,
         })
 
+    # Add is_followed and is_owner attributes for the full response
+    playlist.is_followed = is_followed
+    playlist.is_owner = is_owner
     return playlist
 
 
@@ -2012,17 +2065,24 @@ def upload_user_avatar(
     if len(content) > MAX_SIZE:
         raise HTTPException(400, "File too large — maximum 5MB")
 
-    # Validate image type
-    image_type = imghdr.what(None, h=content)
-    if image_type not in ("jpeg", "png", "gif", "webp"):
+    # Validate image type using PIL
+    try:
+        img = Image.open(io.BytesIO(content))
+        img.verify()  # Verify that it is, in fact, an image
+        image_type = img.format.lower()
+        # Map PIL format to our expected extension
+        format_to_ext = {
+            'jpeg': 'jpg',
+            'png': 'png',
+            'gif': 'gif',
+            'webp': 'webp',
+        }
+        ext = format_to_ext.get(image_type)
+        if not ext:
+            raise HTTPException(400, "Invalid image format — use jpg, png, gif, or webp")
+        ext = '.' + ext
+    except Exception:
         raise HTTPException(400, "Invalid image format — use jpg, png, gif, or webp")
-
-    ext = {
-        "jpeg": ".jpg",
-        "png": ".png",
-        "gif": ".gif",
-        "webp": ".webp",
-    }[image_type]
 
     # Generate unique filename and store using store_avatar
     from .services.storage import store_avatar
