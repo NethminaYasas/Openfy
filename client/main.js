@@ -1135,10 +1135,12 @@ function initPlaylistHandlers() {
   function updateFollowButtonState(isFollowing) {
     const followBtn = document.getElementById('playlist-follow-btn');
     if (!followBtn) return;
+    // Keep both states with same dimensions
+    const baseStyle = 'padding: 8px !important; width: auto !important; height: auto !important; min-width: 24px !important; min-height: 24px !important;';
     if (isFollowing) {
-      // Show green circle with black checkmark - matches track in playlist icon (24x24px)
+      // Show green circle with black checkmark - matches track in playlist icon
       followBtn.innerHTML = '';
-      followBtn.style.cssText = 'background: #1db954 !important; border: none !important; border-radius: 50% !important; width: 24px !important; height: 24px !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
+      followBtn.style.cssText = baseStyle + ' background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
       if (!document.getElementById('follow-btn-style')) {
         const style = document.createElement('style');
         style.id = 'follow-btn-style';
@@ -1150,8 +1152,7 @@ function initPlaylistHandlers() {
     } else {
       // Show plus in circle (not following)
       followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
-      followBtn.style.cssText = '';
-      followBtn.style.setProperty('display', 'flex', 'important');
+      followBtn.style.cssText = baseStyle + ' background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
       followBtn.classList.remove('followed');
       followBtn.title = 'Follow playlist';
     }

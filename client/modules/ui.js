@@ -950,34 +950,35 @@ export async function openPlaylist(playlistId) {
       // Show follow button for public playlists where user is NOT owner and IS logged in
       // (either to follow, or to show the checkmark if already following)
       const isLoggedIn = !!state.currentUser;
-      console.log('Follow button check:', { isPublic, isLiked, isOwner, isLoggedIn, showFollow: (isPublic && !isLiked && !isOwner && isLoggedIn), pl: pl.name });
+      console.log('Follow button debug:', { isPublic, isLiked, isOwner, isLoggedIn, pl_is_liked: pl.is_liked, pl_is_owner: pl.is_owner });
       const showFollow = isPublic && !isLiked && !isOwner && isLoggedIn;
+      console.log('showFollow result:', showFollow);
       if (showFollow) {
         followBtn.style.setProperty('display', 'flex', 'important');
+        // Update icon based on follow state - keep both states with same dimensions
+        const baseStyle = 'padding: 8px !important; width: auto !important; height: auto !important; min-width: 24px !important; min-height: 24px !important;';
+        if (isFollowed) {
+          // Show green circle with black checkmark - matches track in playlist icon
+          followBtn.innerHTML = '';
+          followBtn.style.cssText = baseStyle + ' background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
+          // Add checkmark via CSS pseudo-element
+          if (!document.getElementById('follow-btn-style')) {
+            const style = document.createElement('style');
+            style.id = 'follow-btn-style';
+            style.textContent = '#playlist-follow-btn.followed::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; margin-bottom: 2px; }';
+            document.head.appendChild(style);
+          }
+          followBtn.classList.add('followed');
+          followBtn.title = 'Unfollow playlist';
+        } else {
+          // Show plus in circle (not following)
+          followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
+          followBtn.style.cssText = baseStyle + ' background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+          followBtn.classList.remove('followed');
+          followBtn.title = 'Follow playlist';
+        }
       } else {
         followBtn.style.setProperty('display', 'none', 'important');
-      }
-      // Update icon based on follow state
-      if (isFollowed) {
-        // Show green circle with black checkmark - matches track in playlist icon (24x24px)
-        followBtn.innerHTML = '';
-        followBtn.style.cssText = 'background: #1db954 !important; border: none !important; border-radius: 50% !important; width: 24px !important; height: 24px !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
-        // Add checkmark via CSS pseudo-element
-        if (!document.getElementById('follow-btn-style')) {
-          const style = document.createElement('style');
-          style.id = 'follow-btn-style';
-          style.textContent = '#playlist-follow-btn.followed::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; margin-bottom: 2px; }';
-          document.head.appendChild(style);
-        }
-        followBtn.classList.add('followed');
-        followBtn.title = 'Unfollow playlist';
-      } else {
-        // Show plus in circle (not following)
-        followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
-        followBtn.style.cssText = '';
-        followBtn.style.setProperty('display', 'flex', 'important');
-        followBtn.classList.remove('followed');
-        followBtn.title = 'Follow playlist';
       }
     }
 
