@@ -18,6 +18,20 @@ Visit http://localhost:8000
 - Admin interface for user and track management
 - Docker deployment
 
+## Screenshots
+
+### Home Page
+![Home Page](repo_images/home_page.png)
+
+### Upload Page
+![Upload Page](repo_images/upload_page.png)
+
+### Artist Page
+![Artist Page](repo_images/artist_page.png)
+
+### Playlist Page
+![Playlist Page](repo_images/playlist_page.png)
+
 ## Configuration
 
 Create `server/.env`:
