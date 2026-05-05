@@ -327,9 +327,9 @@ function initEventListeners() {
   });
 
   const btnPlay = document.getElementById("btn-play");
-  btnPlay.addEventListener("click", function(event) {
+  btnPlay.addEventListener("click", async function(event) {
     event.preventDefault();
-    togglePlay();
+    await togglePlay();
   });
 
   const btnPrev = document.getElementById("btn-prev");
@@ -2338,10 +2338,10 @@ function initMediaSession() {
 }
 
 function initKeyboardControls() {
-  document.addEventListener('keydown', function(event) {
+  document.addEventListener('keydown', async function(event) {
     if (event.code === 'Space' && event.target.tagName !== 'INPUT') {
       if (audioPlayer.src && audioPlayer.src !== window.location.href) {
-        togglePlay();
+        await togglePlay();
       }
       event.preventDefault();
     }

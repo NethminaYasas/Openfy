@@ -190,7 +190,7 @@ function handleTrackEnded() {
   }
 }
 
-export function togglePlay() {
+export async function togglePlay() {
   if (!audioPlayer.src || audioPlayer.src === window.location.href) {
     if (state.currentTrackId && state.currentQueue.length && state.currentIndex >= 0) {
       playTrack(state.currentQueue[state.currentIndex]);
@@ -198,7 +198,32 @@ export function togglePlay() {
     }
     return;
   }
-  if (audioPlayer.paused) { audioPlayer.play().catch(function(err) { console.error(err); }); } else { audioPlayer.pause(); }
+  if (audioPlayer.paused) {
+    try {
+      await audioPlayer.play();
+    } catch (err) {
+      console.error("Play failed:", err.message);
+      // Check if it's an HTTP error (expired token) - try fetching fresh stream URL
+      if (err.name === "AbortError" || err.message?.includes("404") || err.message?.includes("401") || err.message?.includes("500")) {
+        const currentTrack = state.currentQueue[state.currentIndex];
+        if (currentTrack) {
+          console.log("Stream URL expired, fetching fresh URL...");
+          // Clear the stale token so getTrackStreamUrl fetches a new one
+          state.currentStreamToken = null;
+          state.currentStreamTokenTrackId = null;
+          try {
+            const streamUrl = await getTrackStreamUrl(currentTrack.id);
+            audioPlayer.src = streamUrl;
+            await audioPlayer.play();
+          } catch (retryErr) {
+            console.error("Retry failed:", retryErr.message);
+          }
+        }
+      }
+    }
+  } else {
+    audioPlayer.pause();
+  }
 }
 
 export function playByIndex(index, fromRepeat) {
