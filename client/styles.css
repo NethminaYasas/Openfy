@@ -958,11 +958,13 @@ a {
     font-size: 1.25rem;
     display: flex;
     transition: opacity 0.2s ease;
+    position: relative;
 }
 
 .icons i {
     opacity: 0.7;
     margin-right: 1rem;
+    cursor: pointer;
 }
 
 .icons i:hover {
@@ -3620,6 +3622,8 @@ input:checked + .toggle-slider:before {
 .context-menu-delete-icon {
     width: 16px;
     height: 16px;
+    min-width: 16px;
+    min-height: 16px;
     border-radius: 50%;
     border: 2px solid #b3b3b3;
     display: flex;
@@ -3627,6 +3631,7 @@ input:checked + .toggle-slider:before {
     justify-content: center;
     position: relative;
     flex-shrink: 0;
+    box-sizing: border-box;
 }
 .context-menu-delete-icon::after {
     content: '';
@@ -5189,6 +5194,43 @@ input:checked + .toggle-slider:before {
 
 .playlist-menu-dropdown.visible {
     display: block;
+}
+
+/* Playlist Action Dropdown (Create/Import) */
+.playlist-action-dropdown {
+    position: fixed;
+    background: #282828;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    min-width: 150px;
+    padding: 0.5rem 0;
+    z-index: 1000;
+}
+
+.playlist-action-dropdown.visible {
+    display: block !important;
+}
+
+.playlist-action-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    color: #fff;
+    transition: background 0.2s;
+    font-size: 0.875rem;
+}
+
+.playlist-action-item:hover {
+    background: #3e3e3e;
+    border-radius: 4px;
+}
+
+.playlist-action-item i {
+    color: #b3b3b3;
+    width: 1.25rem;
+    text-align: center;
 }
 
 .playlist-menu-item {

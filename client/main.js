@@ -845,8 +845,34 @@ function initEventListeners() {
     clearAuthStatus("signup-status");
   });
 
-  document.getElementById("new-playlist-btn").addEventListener("click", async function() {
+  document.getElementById("new-playlist-btn").addEventListener("click", function(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById("playlist-action-dropdown");
+    const btn = this.getBoundingClientRect();
+    dropdown.style.top = (btn.bottom + 8) + "px";
+    dropdown.style.left = (btn.left - 100) + "px";
+    dropdown.classList.toggle("visible");
+  });
+
+  // Create a Playlist option
+  document.getElementById("create-playlist-option").addEventListener("click", async function() {
+    document.getElementById("playlist-action-dropdown").classList.remove("visible");
     try { await createPlaylist("My Playlist"); await loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
+  });
+
+  // Import a Playlist option (placeholder)
+  document.getElementById("import-playlist-option").addEventListener("click", function() {
+    document.getElementById("playlist-action-dropdown").classList.remove("visible");
+    alert("Import playlist feature coming soon!");
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", function(e) {
+    const dropdown = document.getElementById("playlist-action-dropdown");
+    const btn = document.getElementById("new-playlist-btn");
+    if (dropdown.classList.contains("visible") && !dropdown.contains(e.target) && e.target !== btn) {
+      dropdown.classList.remove("visible");
+    }
   });
 
   const adminBtn = document.getElementById("admin-btn");
