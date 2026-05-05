@@ -14,6 +14,12 @@ body {
     overflow: hidden;
 }
 
+html, body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
 .top-bar {
     position: fixed;
     top: 0;
@@ -85,7 +91,7 @@ body {
 
 .main {
     display: flex;
-    height: calc(100vh - 60px - 90px - 0.5rem);
+    height: calc(100dvh - 60px - 90px - 0.5rem);
     margin-top: 60px;
     padding: 0.5rem;
     padding-bottom: 0.5rem;
@@ -141,6 +147,8 @@ body {
     min-width: 0;
     border-radius: 0.5rem;
     overflow: auto;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
     padding: 1rem 1.5rem;
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -1389,6 +1397,13 @@ a {
     flex-wrap: wrap;
 }
 
+#page-home,
+#most-played-grid,
+#tracks-grid {
+    overflow-x: clip;
+    max-width: 100%;
+}
+
 #page-library .cards-container {
     display: flex;
     flex-wrap: wrap;
@@ -1948,14 +1963,106 @@ a {
 }
 
 
+@media (max-width: 1200px) {
+    .main {
+        height: calc(100dvh - 60px - 90px - 0.25rem);
+        padding: 0.25rem;
+    }
+
+    .sidebar {
+        width: clamp(220px, 24vw, 280px);
+    }
+
+    .now-playing-panel {
+        width: clamp(240px, 26vw, 300px);
+    }
+
+    .main-content {
+        padding: 0.875rem 1rem;
+    }
+}
+
+@media (max-width: 1024px) {
+    .top-bar-center {
+        max-width: 460px;
+        gap: 0.75rem;
+    }
+
+    .main {
+        height: calc(100dvh - 60px - 88px - 0.25rem);
+    }
+
+    .music-player {
+        height: 88px;
+        padding: 0 0.75rem;
+    }
+
+    .player-top {
+        grid-template-columns: minmax(160px, 36%) 1fr minmax(110px, 24%);
+    }
+
+    .controls {
+        padding-right: 8px;
+    }
+
+    .volume-bar {
+        width: 88px;
+    }
+}
+
+@media (max-width: 920px) {
+    .sidebar {
+        width: clamp(180px, 22vw, 240px);
+    }
+
+    .top-bar-center {
+        gap: 0.5rem;
+        max-width: 380px;
+    }
+
+    .top-bar-right {
+        margin-right: 1rem;
+    }
+
+    .playlist-header-main {
+        align-items: center;
+    }
+
+    .playlist-mosaic,
+    .artist-page-image {
+        width: clamp(160px, 22vw, 200px);
+        height: clamp(160px, 22vw, 200px);
+    }
+}
+
 @media (max-width: 800px) {
     .sidebar { display: none; }
     .now-playing-panel { display: none; }
-    .main-content { border-radius: 0; }
-    .music-player { height: 84px; left: 0; right: 0; bottom: 0; border-radius: 0; }
-    .top-bar { left: 0; right: 0; }
+    .main-content { border-radius: 0; overflow-x: hidden; }
+    .main { height: calc(100dvh - 60px - 84px); padding: 0; gap: 0; }
+    .music-player { height: 84px; left: 0; right: 0; bottom: 0; border-radius: 0; padding: 0 0.5rem; }
+    .top-bar { left: 0; right: 0; padding: 0 0.25rem; }
+    .top-bar-logo { height: 30px; margin-left: 8px; }
+    .top-bar-right { margin-right: 0.5rem; }
     .album, .controls { display: none; }
     .player { width: 100%; }
+    .player-controls { gap: 12px; }
+    .curr-time, .tot-time { min-width: 34px; font-size: 0.65rem; }
+    .playback-bar { gap: 4px; }
+
+    /* Prevent horizontal page drag on home track rows */
+    .track-row-wrapper {
+        padding: 0 0.5rem;
+    }
+
+    .track-row-container {
+        margin: 0;
+        width: 100%;
+    }
+
+    .track-row {
+        padding: 0 0.25rem;
+    }
 }
 
 .auth-overlay {
