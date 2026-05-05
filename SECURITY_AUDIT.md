@@ -5,68 +5,46 @@
 **Initial Audit:** April 07, 2026  
 **Recheck:** April 16, 2026  
 **Previous Update:** April 26, 2026  
-**Latest Update:** April 27, 2026  
+**Latest Update:** May 05, 2026  
 **Scope:** `server/app/`, `server/app/services/`, `client/`
 
 ---
 
 ## Executive Summary
 
-As of **April 27, 2026**, a comprehensive security, performance, and bug-fix pass was performed. All previously identified high/medium issues remain resolved. This pass focused on code correctness, deprecation removal, and test reliability. Bandit now reports **0 unflagged issues** (all remaining Low-severity `except: pass` patterns carry explicit `# nosec` justifications). Ruff lint is fully clean with 0 errors. All 17 tests pass.
+As of **May 05, 2026**, an additional targeted security hardening pass was completed on backend access control, upload abuse protections, sensitive logging, and frontend DOM injection points. Newly identified exploitable paths were patched and validated with backend tests.
 
 ---
 
-## Status Snapshot (April 27, 2026)
+## Status Snapshot (May 05, 2026)
 
 ### Fixed In This Update
 
-1. **Import ordering violations (E402) — Ruff**
-   - Module-level imports in `main.py` and `db.py` were placed after executable code, violating PEP 8 and Ruff E402.
-   - All local imports moved to the top; logging configuration relocated below imports.
-   - **Files:** `server/app/main.py`, `server/app/db.py`
-
-2. **Unused variable assignments removed (F841) — Ruff**
-   - `user =` in `get_track()` (assigned but never used after auth check).
-   - `is_spotify =` in `spotiflac.py` (dead assignment from removed branch).
-   - `user1`, `auth2`, `user1` in test file (dead variables in test helpers).
-   - **Files:** `server/app/main.py`, `server/app/services/spotiflac.py`, `server/tests/test_track_playlists.py`
-
-3. **Deprecated `@app.on_event("startup")` migrated to lifespan**
-   - FastAPI's `on_event` is deprecated since v0.93. Migrated to `@asynccontextmanager` lifespan pattern.
+1. **Unauthenticated artwork access closed**
+   - `/tracks/{track_id}/artwork` now requires `x-auth-hash`.
+   - Prevents unauthenticated media metadata/artwork enumeration.
    - **Files:** `server/app/main.py`
 
-4. **Deprecated Pydantic `class Config` migrated to `model_config = ConfigDict(...)`**
-   - All 8 schema classes updated from `class Config: from_attributes = True` to the Pydantic v2 `model_config = ConfigDict(from_attributes=True)` pattern.
-   - **Files:** `server/app/schemas.py`
-
-5. **`datetime.utcnow()` deprecation fixed**
-   - Python 3.12+ deprecated `datetime.utcnow()`. All call sites migrated to `datetime.now(timezone.utc).replace(tzinfo=None)` for SQLite-compatible naive UTC storage.
-   - All ORM model `default=` lambdas fixed: `datetime.UTC` → `timezone.utc` (correct attribute on the `timezone` class, not `datetime` class).
-   - **Files:** `server/app/main.py`, `server/app/models.py`
-
-6. **Bug: `datetime.UTC` AttributeError on model insert**
-   - The auto-replace script introduced `lambda: datetime.now(datetime.UTC)` — but `datetime.UTC` doesn't exist on the `datetime` *class*. The correct reference is `timezone.utc` from the `datetime` *module*.
-   - Fixed and `timezone` imported in `models.py`.
-   - **Files:** `server/app/models.py`
-
-7. **Bug: Offset-naive vs offset-aware datetime subtraction**
-   - SQLite stores datetimes without timezone info (offset-naive), causing `TypeError` when subtracting `datetime.now(timezone.utc)` (offset-aware) from stored values.
-   - Fixed `_get_user()` and the admin stats `five_mins_ago` calculation to use naive UTC via `.replace(tzinfo=None)`.
+2. **Unauthenticated backend proxy/search abuse closed**
+   - `/spotify-search` now requires authenticated user context.
+   - Prevents public abuse of server-side search resources.
    - **Files:** `server/app/main.py`
 
-8. **Bug: `_migrate()` called at module import time (before tables exist)**
-   - The `_migrate()` function ran at import, before ORM tables were created, causing `OperationalError: no such table: users` during test collection.
-   - Removed standalone `_migrate()` and inlined the `queue_data` column migration into `_startup()`, which runs after `Base.metadata.create_all()`.
+3. **Upload DoS guard added (server-side size enforcement)**
+   - `/tracks/upload` now enforces max file size while streaming to disk.
+   - New configurable setting: `OPENFY_MAX_UPLOAD_SIZE_MB` (default `200`).
+   - Returns HTTP `413` when size limit is exceeded.
+   - **Files:** `server/app/main.py`, `server/app/settings.py`
+
+4. **Sensitive queue logging removed**
+   - Removed warning log line that emitted user auth-hash prefix and track IDs.
+   - Reduces accidental sensitive data leakage in logs.
    - **Files:** `server/app/main.py`
 
-9. **Bug: Wrong endpoint URL in upload-toggle tests**
-   - `test_manual_upload_toggle_off_blocks_*` tests called `/admin/settings/manual-upload` which doesn't exist; the actual endpoint is `PUT /admin/settings`.
-   - **Files:** `server/tests/test_track_playlists.py`
-
-10. **Bandit B110/B112 intentional patterns annotated with `# nosec`**
-    - All 7 Low-severity `except: pass/continue` patterns are intentional best-effort handlers (queue sync, file cleanup, image pixel failure, stat sizing).
-    - Annotated with `# nosec BXX – <reason>` so future scans suppress them with context.
-    - **Files:** `server/app/main.py`, `server/app/services/library.py`
+5. **Frontend DOM XSS sinks hardened**
+   - Escaped user-controlled artist/title strings before insertion into `innerHTML`.
+   - Preserved clickable artist rendering while neutralizing script/HTML injection payloads.
+   - **Files:** `client/modules/audio-player.js`, `client/modules/ui.js`
 
 ---
 
@@ -95,9 +73,8 @@ As of **April 27, 2026**, a comprehensive security, performance, and bug-fix pas
 
 The initial April 07, 2026 report identified major issues in auth coverage, access control, and path safety.  
 Most of those issues were addressed by April 16, 2026 and further tightened by April 26, 2026.  
-The April 27, 2026 pass resolved all remaining linting, deprecation, and test-correctness issues.
-
-This document is now the canonical **current-state** summary.
+The April 27, 2026 pass resolved linting/deprecation/test correctness items.  
+The May 05, 2026 pass added targeted protections for unauthenticated endpoint abuse, upload-size DoS risk, log hygiene, and frontend XSS sinks.
 
 ---
 
@@ -107,19 +84,20 @@ This document is now the canonical **current-state** summary.
 2. Move rate limiting to Redis-backed or gateway-level controls.
 3. Add structured security logging for auth failures/token misuse patterns.
 4. Resolve the `tracks ↔ users` FK cycle with `use_alter=True` on `users.last_track_id`.
-5. Add automated SAST/dependency scanning in CI (`bandit`, `pip-audit`, `ruff`).
+5. Add automated SAST/dependency scanning in CI (`bandit`, `pip-audit`, `ruff`) and fail builds on new high-severity findings.
 
 ---
 
 ## Verification Notes (Latest Update)
 
-Validation run during April 27, 2026 update:
+Validation run during May 05, 2026 update:
 
-1. `ruff check server/app server/tests` → **All checks passed!**
-2. `bandit -r server/app` → **0 unflagged issues** (7 Low annotated with `# nosec`)
-3. `pytest server/tests -q` → **17 passed**
-4. `node --check client/script.js` → **passed**
+1. `pytest -q` (from `server/`) → **17 passed**.
+2. `python -m compileall app` (from `server/`) → **passed**.
+3. `node --check client/modules/audio-player.js` → **passed**.
+4. `node --check client/modules/ui.js` → **passed**.
+5. `ruff`, `bandit`, and `pip-audit` were not available in the local environment during this run and should be executed in CI.
 
 ---
 
-*Last updated: April 27, 2026*
+*Last updated: May 05, 2026*

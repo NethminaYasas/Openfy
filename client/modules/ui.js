@@ -310,7 +310,7 @@ export async function loadArtistPage(artistId) {
                     '<span class="ps-row-num">' + (index + 1) + '</span>' +
                     '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +
                     '<span class="ps-row-title">' +
-                    '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
+                    '<span class="ps-row-title-song">' + escapeHtml(track.title || '') + '</span>' +
                     '</span>' +
                     '<span class="ps-row-plays">' + plays + '</span>' +
                     '<span class="ps-row-duration">' + duration + '</span>';
@@ -382,7 +382,7 @@ export function buildTrackCard(track, list, index) {
   if (artistNames.length > 0) {
     info.innerHTML = artistNames.map(function(name, i) {
       var id = artistIds[i] || '';
-      return '<span class="clickable-artist"' + (id ? ' data-artist-id="' + id + '"' : '') + '>' + name + '</span>';
+      return '<span class="clickable-artist"' + (id ? ' data-artist-id="' + id + '"' : '') + '>' + escapeHtml(name || '') + '</span>';
     }).join(', ');
   } else {
     info.textContent = "Unknown";
@@ -1039,8 +1039,8 @@ export async function openPlaylist(playlistId) {
           '<span class="ps-row-num">' + (i + 1) + '</span>' +
           '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +
           '<span class="ps-row-title">' +
-          '<span class="ps-row-title-song">' + (track.title || '') + '</span>' +
-          '<span class="ps-row-title-artist">' + artistName + '</span>' +
+          '<span class="ps-row-title-song">' + escapeHtml(track.title || '') + '</span>' +
+          '<span class="ps-row-title-artist">' + escapeHtml(artistName) + '</span>' +
           '</span>' +
           '<span class="ps-row-duration">' + duration + '</span>';
 
@@ -1375,7 +1375,7 @@ function buildSpotifyTrackCard(track) {
 
   const info = document.createElement("p");
   info.className = "card-info";
-  info.innerHTML = '<span class="spotify-artist">' + track.artist_name + '</span>';
+  info.innerHTML = '<span class="spotify-artist">' + escapeHtml(track.artist_name || '') + '</span>';
 
   card.appendChild(title);
   card.appendChild(info);

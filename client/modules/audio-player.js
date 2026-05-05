@@ -1,6 +1,6 @@
 import { state, withBase } from './state.js';
 import { getTrackStreamUrl, saveQueueToServer, savePlayerState, checkIfLiked as apiCheckIfLiked } from './api.js';
-import { getArtistDisplay, formatDuration, drawCanvas, clearCanvas, queueArtworkUrl, seededColor, extractVibrantColors } from './utils.js';
+import { getArtistDisplay, formatDuration, drawCanvas, clearCanvas, queueArtworkUrl, seededColor, extractVibrantColors, escapeHtml } from './utils.js';
 import { emitTrackChanged, getGradientManager } from './gradient-manager.js';
 import { setUrl, setActivePage } from './ui.js';
 
@@ -393,10 +393,11 @@ function makeArtistClickable(track) {
   if (artistNames.length > 0) {
     return artistNames.map(function(name, i) {
       var id = artistIds[i] || '';
+      var safeName = escapeHtml(name || "");
       if (id) {
-        return '<span class="clickable-artist" onclick="window.handleArtistClick(event, \'' + id + '\')">' + name + '</span>';
+        return '<span class="clickable-artist" onclick="window.handleArtistClick(event, \'' + id + '\')">' + safeName + '</span>';
       }
-      return '<span class="clickable-artist">' + name + '</span>';
+      return '<span class="clickable-artist">' + safeName + '</span>';
     }).join(', ');
   }
   return "Unknown";
@@ -720,10 +721,11 @@ export function buildQueueItem(track, index, opts) {
   if (artistNames.length > 0) {
     artistEl.innerHTML = artistNames.map(function(name, i) {
       var id = artistIds[i] || '';
+      var safeName = escapeHtml(name || "");
       if (id) {
-        return '<span class="clickable-artist" onclick="window.handleArtistClick(event, \'' + id + '\')">' + name + '</span>';
+        return '<span class="clickable-artist" onclick="window.handleArtistClick(event, \'' + id + '\')">' + safeName + '</span>';
       }
-      return '<span>' + name + '</span>';
+      return '<span>' + safeName + '</span>';
     }).join(', ');
   } else {
     artistEl.textContent = "Unknown";

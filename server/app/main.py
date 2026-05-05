@@ -1,5 +1,4 @@
 import secrets
-import shutil
 import tempfile
 from pathlib import Path
 import json
@@ -33,7 +32,6 @@ from fastapi.responses import (
     Response,
     JSONResponse,
 )
-from PIL import Image
 from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import select, text, func
 from sqlalchemy import delete
@@ -871,7 +869,10 @@ def get_track(
 
 
 @app.get("/tracks/{track_id}/artwork")
-def track_artwork(track_id: str, db: Session = Depends(get_db)):
+def track_artwork(
+    track_id: str,
+    db: Session = Depends(get_db),
+):
     # Validate track_id as UUID
     import uuid
 
@@ -1073,8 +1074,20 @@ def upload_track_file(
     tmp_file.close()
 
     try:
+        max_upload_bytes = max(1, settings.max_upload_size_mb) * 1024 * 1024
+        total_written = 0
         with tmp_path.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_written += len(chunk)
+                if total_written > max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum allowed size is {settings.max_upload_size_mb}MB.",
+                    )
+                out.write(chunk)
         final_path = store_upload(tmp_path, settings.music_dir)
         scan_paths(db, [final_path], user_hash=user.auth_hash)
         track = db.execute(
@@ -1303,8 +1316,11 @@ def search(
 def spotify_search(
     q: str = Query(..., min_length=1, max_length=255, description="Search query"),
     limit: int = Query(10, ge=1, le=20),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
 ):
     """Search Spotify for tracks using web search."""
+    _require_user(db, x_auth_hash)
     # Import here to avoid circular imports
     try:
         from spotify_search import search_spotify
@@ -2372,9 +2388,6 @@ def update_user_queue(
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
-
-    import logging
-    logging.warning(f"[QUEUE SAVE] user={user.auth_hash[:8]}, track_ids={payload.track_ids}, current_index={payload.current_index}")
 
     user.queue_data = json.dumps({
         "track_ids": payload.track_ids,

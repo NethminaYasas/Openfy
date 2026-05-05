@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     spotiflac_cmd: str = "spotiflac"
     spotiflac_timeout_sec: int = 900
+    max_upload_size_mb: int = 200
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"), env_prefix="OPENFY_"
