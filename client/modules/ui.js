@@ -989,7 +989,7 @@ export async function openPlaylist(playlistId) {
       document.getElementById('playlist-gradient').style.background =
         'linear-gradient(180deg, #4a1a6b 0%, #121212 100%)';
     } else {
-      const coverPath = "/playlists/" + pl.id + "/cover?v=" + Date.now();
+      const coverPath = "/playlists/" + pl.id + "/cover";
       fetch(withBase(coverPath), { headers: { 'x-auth-hash': state.authHash } })
         .then(res => {
           if (!res.ok) throw new Error("HTTP " + res.status);
@@ -1179,7 +1179,7 @@ export function renderLibrary() {
       cover.appendChild(img);
       setAuthenticatedImage(
         img,
-        "/playlists/" + pl.id + "/cover?v=" + Date.now(),
+        "/playlists/" + pl.id + "/cover",
         function() {
           if (renderLibraryId !== currentRenderId) return;
           img.style.display = "none";

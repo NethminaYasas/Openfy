@@ -113,6 +113,7 @@ class PlaylistUpdate(BaseModel):
     pinned: bool | None = None
     shuffle: bool | None = None
     is_public: bool | None = None
+    image_url: str | None = None
 
 
 class PlaylistOut(BaseModel):
@@ -212,11 +213,16 @@ class DownloadRequest(BaseModel):
     source: str | None = "auto"
 
 
+class SpotifyImportRequest(BaseModel):
+    url: str = Field(..., min_length=1, description="Spotify playlist URL")
+
+
 class DownloadJobOut(BaseModel):
     id: str
     source: str
     query: str
     status: str
+    track_id: str | None = None
     output_path: str | None = None
     log: str | None = None
     created_at: datetime

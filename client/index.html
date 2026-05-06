@@ -111,6 +111,21 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Import Playlist Modal -->
+<div class="import-playlist-modal" id="import-playlist-modal" style="display: none;">
+    <div class="import-modal-overlay" id="import-modal-overlay"></div>
+    <div class="import-modal-content">
+        <h2>Import Spotify Playlist</h2>
+        <div class="import-modal-input-wrapper">
+            <input type="text" id="import-playlist-url" placeholder="https://open.spotify.com/playlist/..." autocomplete="off" />
+        </div>
+        <div class="import-modal-buttons">
+            <button class="import-modal-cancel" id="import-modal-cancel">Cancel</button>
+            <button class="import-modal-import" id="import-modal-import">Import</button>
+        </div>
+        <div class="import-modal-status" id="import-modal-status" style="display: none;"></div>
+    </div>
+</div>
                 </div>
                 <div class="lib-box" id="lib-box"></div>
             </div>

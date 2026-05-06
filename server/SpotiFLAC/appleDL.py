@@ -567,6 +567,30 @@ class AppleMusicDownloader:
 
         return score
 
+    def _title_matches_strict(self, result_title: str, track_name: str) -> bool:
+        def normalize(text: str) -> str:
+            text = re.sub(r'[\-_\(\)\[\]\{\}:;.,!?]', ' ', text.lower())
+            text = re.sub(r'\s+', ' ', text)
+            return text.strip()
+
+        norm_title = normalize(result_title)
+        norm_track = normalize(track_name)
+        if not norm_title or not norm_track:
+            return False
+        return norm_track in norm_title or norm_title in norm_track
+
+    def _artist_matches_strict(self, result_artists: str, artist_name: str) -> bool:
+        def tokens(text: str) -> set[str]:
+            cleaned = re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()
+            return {t for t in cleaned.split() if len(t) >= 3}
+
+        result_tokens = tokens(result_artists)
+        expected_tokens = tokens(artist_name)
+        if not result_tokens or not expected_tokens:
+            return False
+        overlap = result_tokens & expected_tokens
+        return len(overlap) >= 1
+
     def _verify_youtube_video(self, video_id: str, expected_track: str, expected_artist: str) -> bool:
         """Verify the YouTube video matches the expected track and artist."""
         video_title = ""
@@ -605,11 +629,16 @@ class AppleMusicDownloader:
                         score = self._score_candidate(video_title, video_artists, expected_track, expected_artist)
                         print(f"[DEBUG] Verification score: {score}")
 
-                        if score >= 20:
+                        title_ok = self._title_matches_strict(video_title, expected_track)
+                        artist_ok = self._artist_matches_strict(video_artists, expected_artist)
+                        print(f"[DEBUG] Title match: {title_ok}")
+                        print(f"[DEBUG] Artist match: {artist_ok}")
+
+                        if title_ok and artist_ok and score >= 20:
                             print(f"[DEBUG] ✓ Verification PASSED (score >= 20)")
                             return True
                         else:
-                            print(f"[DEBUG] ✗ Verification FAILED (score < 20)")
+                            print(f"[DEBUG] ✗ Verification FAILED (strict title/artist check)")
 
             except ImportError:
                 print("[!] yt-dlp not available for verification")
@@ -618,15 +647,13 @@ class AppleMusicDownloader:
                 import traceback
                 traceback.print_exc()
 
-            # Fallback: Check if the video title contains the track name
-            # This is less reliable but better than nothing
+            # Fallback: require both title and artist consistency even without
+            # strong yt-dlp metadata, rather than allowing title-only matches.
             print(f"[DEBUG] Trying fallback verification...")
             if video_title:
-                expected_track_lower = expected_track.lower()
-                video_title_lower = video_title.lower()
-                print(f"[DEBUG] Checking if '{expected_track_lower}' is in '{video_title_lower}'")
-
-                if expected_track_lower in video_title_lower:
+                if self._title_matches_strict(video_title, expected_track) and (
+                    not video_artists or self._artist_matches_strict(video_artists, expected_artist)
+                ):
                     print(f"[DEBUG] ✓ Fallback verification PASSED")
                     return True
             else:

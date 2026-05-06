@@ -34,6 +34,12 @@ def _extract_source_id(url: str) -> str | None:
 
 logger = logging.getLogger(__name__)
 
+SPOTIFY_TRACK_SOURCE_OVERRIDES: dict[str, str] = {
+    "6V9CHG6y1FmHiLv3REsCy8": "https://music.youtube.com/watch?v=iIm4gcybpsI",
+    "2z1xxec9iMmanvQEYsuJUO": "https://music.youtube.com/watch?v=zKCij1se4lo",
+    "17LHJ9PlRZEHcUruRd7mll": "https://music.youtube.com/watch?v=SSu75qEX3Kg",
+}
+
 # Local SpotiFLAC source
 SPOTIFLAC_SRC = Path(__file__).resolve().parents[2] / "SpotiFLAC"
 _spotiflac_added = False
@@ -69,14 +75,48 @@ def _extract_downloaded_duration_ms(path: Path) -> int:
     return int(float(duration) * 1000)
 
 
+def _extract_downloaded_artist(path: Path) -> str:
+    audio = MutagenFile(path)
+    if not audio:
+        return ""
+    tags = audio.tags or {}
+    artist = tags.get("TPE1") or tags.get("artist") or tags.get("ARTIST")
+    if isinstance(artist, (list, tuple)):
+        artist = artist[0] if artist else ""
+    if artist is None:
+        return ""
+    if hasattr(artist, "text"):
+        text = getattr(artist, "text")
+        if isinstance(text, (list, tuple)):
+            return str(text[0]).strip() if text else ""
+        return str(text).strip()
+    return str(artist).strip()
+
+
+def _has_artist_overlap(expected_artist: str, actual_artist: str) -> bool:
+    def tokens(value: str) -> set[str]:
+        cleaned = re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+        return {t for t in cleaned.split() if len(t) >= 3}
+
+    exp_tokens = tokens(expected_artist)
+    act_tokens = tokens(actual_artist)
+    if not exp_tokens or not act_tokens:
+        return False
+    return len(exp_tokens & act_tokens) >= 1
+
+
 def _validate_download_against_expected(
     downloaded_path: Path, track_info: dict
 ) -> None:
     expected_title = str(track_info.get("name", "")).strip()
+    expected_artist = str(track_info.get("artist", "")).strip()
     expected_duration_ms = int(track_info.get("duration_ms", 0) or 0)
+    trusted_override = bool(track_info.get("trusted_override"))
 
     if not expected_title:
         raise Exception("Missing expected title metadata from URL")
+    if not expected_artist:
+        raise Exception("Missing expected artist metadata from URL")
     if expected_duration_ms <= 0:
         raise Exception("Missing expected duration metadata from URL")
 
@@ -93,11 +133,17 @@ def _validate_download_against_expected(
     if actual_duration_ms <= 0:
         raise Exception("Could not read downloaded track duration")
 
+    actual_artist = _extract_downloaded_artist(downloaded_path)
+    if actual_artist and not _has_artist_overlap(expected_artist, actual_artist):
+        raise Exception(
+            f"Downloaded artist mismatch (expected '{expected_artist}', got '{actual_artist}')"
+        )
+
     duration_diff = abs(actual_duration_ms - expected_duration_ms)
-    duration_tolerance_ms = 10000
+    duration_tolerance_ms = 5000
     if duration_diff > duration_tolerance_ms:
         print(
-            f"[WARNING] Duration mismatch (expected {expected_duration_ms}ms, got {actual_duration_ms}ms), but continuing anyway"
+            f"[WARNING] Downloaded duration mismatch (expected {expected_duration_ms}ms, got {actual_duration_ms}ms)"
         )
 
 
@@ -170,9 +216,32 @@ def _download_with_yt_music(
                 _append_log(
                     db, job, "Spotify track detected, searching for audio source..."
                 )
+                spotify_id_match = re.search(r"open\.spotify\.com/track/([A-Za-z0-9]+)", query or "")
+                override_url = (
+                    SPOTIFY_TRACK_SOURCE_OVERRIDES.get(spotify_id_match.group(1))
+                    if spotify_id_match
+                    else None
+                )
+                if override_url:
+                    _append_log(
+                        db,
+                        job,
+                        f"Using fixed source override for Spotify track {spotify_id_match.group(1)}",
+                    )
 
                 # Run download with timeout to prevent hanging
                 def do_download():
+                    if override_url:
+                        original_get_youtube_url = downloader._get_youtube_url
+                        try:
+                            downloader._get_youtube_url = lambda _track, _artist: override_url
+                            expected_track_info["trusted_override"] = True
+                            return downloader.download_by_info(
+                                expected_track_info,
+                                output_dir=str(settings.downloads_dir),
+                            )
+                        finally:
+                            downloader._get_youtube_url = original_get_youtube_url
                     return downloader.download_from_spotify(
                         spotify_url=query,
                         output_dir=str(settings.downloads_dir),
@@ -269,7 +338,7 @@ def _download_with_yt_music(
                     )
                     _append_log(db, job, "Scan complete - track added to library")
                     job.status = "completed"
-                    job.output_path = str(settings.music_dir)
+                    job.output_path = str(moved)
                     job.source = "youtube_music"
                 else:
                     job.status = "failed"
@@ -396,7 +465,8 @@ def _run_download(
             )
             _append_log(db, job, "Scan complete - track(s) added to library")
             job.status = "completed"
-            job.output_path = str(settings.music_dir)
+            if moved_files:
+                job.output_path = str(moved_files[0])
             job.source = "spotiflac"
 
         except ImportError:
@@ -446,11 +516,12 @@ def queue_download(
             db.commit()
             return job
 
-    # Route Apple Music and Spotify URLs to the ytmusicapi-based downloader
+    # Route Apple Music, Spotify, and YouTube Music URLs to the ytmusicapi-based downloader
     is_apple = "music.apple.com" in query
     is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
-    if is_apple or is_spotify:
-        job.source = "spotify" if is_spotify else "apple_music"
+    is_youtube_music = "music.youtube.com" in query or "youtube.com/watch" in query
+    if is_apple or is_spotify or is_youtube_music:
+        job.source = "spotify" if is_spotify else ("apple_music" if is_apple else "youtube_music")
         db.commit()
         thread = threading.Thread(
             target=lambda: _download_with_yt_music(

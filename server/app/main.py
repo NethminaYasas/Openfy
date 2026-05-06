@@ -5,12 +5,14 @@ import json
 import time
 import re
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional, Dict, Any
 from collections import defaultdict
 from time import monotonic
 from threading import Lock
 from contextlib import asynccontextmanager
 import io
+from urllib.parse import urlparse
+from urllib.request import Request as UrlRequest, urlopen
 from PIL import Image
 
 from fastapi import (
@@ -72,11 +74,19 @@ from .schemas import (
     UserQueueUpdate,
     SystemSettingsUpdate,
     SystemSettingsOut,
+    SpotifyImportRequest,
 )
 from .settings import settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
+
+# Deterministic source overrides for known problematic Spotify tracks.
+# Key: Spotify track ID, Value: preferred downloadable URL.
+SPOTIFY_TRACK_SOURCE_OVERRIDES: dict[str, str] = {
+    "6V9CHG6y1FmHiLv3REsCy8": "https://music.youtube.com/watch?v=iIm4gcybpsI",
+    "2z1xxec9iMmanvQEYsuJUO": "https://music.youtube.com/watch?v=zKCij1se4lo",
+}
 
 # Configure logging for security events
 logging.basicConfig(
@@ -165,6 +175,14 @@ def _delete_playlist_collage(playlist_id: str):
     """Delete cached collage for given playlist if it exists."""
     collages_dir = settings.artwork_dir / "collages"
     path = collages_dir / f"{playlist_id}.jpg"
+    if path.exists():
+        path.unlink()
+
+
+def _delete_playlist_external_cover(playlist_id: str):
+    """Delete cached proxied external cover for given playlist if it exists."""
+    external_dir = settings.artwork_dir / "playlist_external"
+    path = external_dir / f"{playlist_id}.jpg"
     if path.exists():
         path.unlink()
 
@@ -380,6 +398,17 @@ def _startup():
                 except Exception as e:
                     # If index creation fails (e.g., duplicates already exist), log but continue
                     print(f"Warning: Could not create unique index on playlists: {e}")
+
+            # Add image_url column to playlists if it doesn't exist
+            pcols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(playlists)")).fetchall()
+            ]
+            if "image_url" not in pcols:
+                conn.execute(
+                    text("ALTER TABLE playlists ADD COLUMN image_url VARCHAR(512)")
+                )
+                conn.commit()
 
             djcols = [
                 row[1]
@@ -863,6 +892,28 @@ def get_track(
         .where(Track.id == track_id)
     )
     track = db.execute(stmt).scalar_one_or_none()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return track
+
+
+@app.get("/tracks/by-spotify-id/{spotify_id}", response_model=TrackOut)
+def get_track_by_spotify_id(
+    spotify_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_user(db, x_auth_hash)
+    if not re.match(r"^[A-Za-z0-9]+$", spotify_id):
+        raise HTTPException(status_code=400, detail="Invalid Spotify track ID format")
+
+    track = db.execute(
+        select(Track)
+        .options(selectinload(Track.artists))
+        .where(Track.source_id == f"spotify:{spotify_id}")
+        .order_by(Track.created_at.desc())
+    ).scalars().first()
+
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
@@ -1522,11 +1573,47 @@ def get_playlist_cover(
     if playlist.is_liked:
         raise HTTPException(status_code=404, detail="Liked Songs has no collage")
 
+    # If playlist has a custom image_url set, proxy and cache it locally so
+    # covers render quickly and consistently without cross-origin/CORS issues.
+    if playlist.image_url:
+        parsed = urlparse(playlist.image_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise HTTPException(status_code=400, detail="Invalid playlist image URL")
+        external_covers_dir = settings.artwork_dir / "playlist_external"
+        external_covers_dir.mkdir(parents=True, exist_ok=True)
+        cached_cover_path = external_covers_dir / f"{playlist_id}.jpg"
+        if cached_cover_path.exists():
+            return FileResponse(
+                cached_cover_path,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "private, max-age=86400"},
+            )
+        try:
+            req = UrlRequest(
+                playlist.image_url,
+                headers={"User-Agent": "Openfy/1.0"},
+            )
+            with urlopen(req, timeout=10) as resp:
+                image_bytes = resp.read()
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            img.save(cached_cover_path, format="JPEG", quality=95, optimize=True)
+            return FileResponse(
+                cached_cover_path,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "private, max-age=86400"},
+            )
+        except Exception:
+            raise HTTPException(status_code=404, detail="Playlist cover not available")
+
     collages_dir = settings.artwork_dir / "collages"
     collages_dir.mkdir(parents=True, exist_ok=True)
     out_path = collages_dir / f"{playlist_id}.jpg"
     if out_path.exists():
-        return FileResponse(out_path, media_type="image/jpeg")
+        return FileResponse(
+            out_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     # Get first 4 tracks (ordered by position)
     tracks_stmt = (
@@ -1539,9 +1626,6 @@ def get_playlist_cover(
         .limit(4)
     )
     playlist_tracks = db.execute(tracks_stmt).scalars().all()
-
-    if len(playlist_tracks) < 4:
-        raise HTTPException(status_code=404, detail="Playlist has fewer than 4 tracks")
 
     # Collage dimensions: 2x2 grid of 250px tiles = 500x500 total
     tile_size = 250
@@ -1575,7 +1659,11 @@ def get_playlist_cover(
         # Missing artwork — leave gray (already the background)
 
     collage.save(out_path, format="JPEG", quality=85)
-    return FileResponse(out_path, media_type="image/jpeg")
+    return FileResponse(
+        out_path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @app.put("/playlists/{playlist_id}", response_model=PlaylistOut)
@@ -1621,6 +1709,11 @@ def update_playlist(
     # Allow is_public changes for non-liked playlists (Liked Songs is always private)
     if payload.is_public is not None and not playlist.is_liked:
         playlist.is_public = 1 if payload.is_public else 0
+    # Allow image_url changes for any playlist (except Liked Songs)
+    if payload.image_url is not None and not playlist.is_liked:
+        if playlist.image_url != payload.image_url:
+            _delete_playlist_external_cover(playlist_id)
+        playlist.image_url = payload.image_url
     db.commit()
     db.refresh(playlist)
     return playlist
@@ -1971,6 +2064,7 @@ def delete_playlist(
 
     # Delete collage file before removing playlist
     _delete_playlist_collage(playlist_id)
+    _delete_playlist_external_cover(playlist_id)
     db.delete(playlist)
     db.commit()
     return {"status": "deleted"}
@@ -1995,6 +2089,126 @@ def create_download(
     return queue_download(db, payload.query, payload.source or "auto", user.auth_hash)
 
 
+@app.post("/playlists/import")
+def import_spotify_playlist(
+    payload: SpotifyImportRequest,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Import a Spotify playlist by URL."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    spotify_url = payload.url
+    if not spotify_url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    # Validate Spotify playlist URL with more specific pattern
+    if not re.match(r'^https?://open\.spotify\.com/playlist/[a-zA-Z0-9]+', spotify_url):
+        raise HTTPException(status_code=400, detail="Please enter a valid Spotify playlist URL")
+
+    # Parse playlist ID and owner from URL
+    # URL format: https://open.spotify.com/playlist/PLAYLIST_ID or /user/OWNER/playlist/...
+    match = re.search(r'playlist/([a-zA-Z0-9]+)', spotify_url)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid Spotify playlist URL")
+
+    playlist_id = match.group(1)
+
+    # Try to extract owner from URL path
+    owner_match = re.search(r'/user/([^/]+)/playlist/', spotify_url)
+    owner = owner_match.group(1) if owner_match else "spotify"
+
+    # Import and use SpotifyClient to get playlist info
+    try:
+        from spotify_scraper import SpotifyClient
+        client = SpotifyClient()
+        playlist_data = client.get_playlist_info(spotify_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not fetch playlist: {str(e)}")
+
+    # Return parsed data for frontend to process
+    # Extract owner name from owner dict if available
+    owner_name = owner
+    if playlist_data.get("owner") and isinstance(playlist_data.get("owner"), dict):
+        owner_name = playlist_data.get("owner").get("display_name", owner)
+
+    # Extract highest-resolution image URL from images array
+    image_url = None
+    images = playlist_data.get("images", [])
+    if isinstance(images, list) and images:
+        candidates = [img for img in images if isinstance(img, dict) and img.get("url")]
+        if candidates:
+            scored = []
+            for img in candidates:
+                width = img.get("width") or 0
+                height = img.get("height") or 0
+                scored.append((width * height, img.get("url")))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            if scored[0][0] > 0:
+                image_url = scored[0][1]
+            else:
+                # Some sources omit width/height; probe the candidates and choose
+                # the largest real image to avoid low-quality covers.
+                best_area = -1
+                best_url = None
+                for _, candidate_url in scored:
+                    try:
+                        req = UrlRequest(candidate_url, headers={"User-Agent": "Openfy/1.0"})
+                        with urlopen(req, timeout=8) as resp:
+                            raw = resp.read()
+                        img_obj = Image.open(io.BytesIO(raw))
+                        area = img_obj.width * img_obj.height
+                        if area > best_area:
+                            best_area = area
+                            best_url = candidate_url
+                    except Exception:
+                        continue
+                image_url = best_url or scored[0][1]
+
+    # Extract tracks - may be array or dict with items
+    tracks_data = playlist_data.get("tracks", [])
+    if isinstance(tracks_data, dict):
+        tracks_items = tracks_data.get("items", [])
+    elif isinstance(tracks_data, list):
+        tracks_items = tracks_data
+    else:
+        tracks_items = []
+
+    normalized_tracks = []
+    for raw_item in tracks_items:
+        if not isinstance(raw_item, dict):
+            continue
+        # Spotify playlist APIs often wrap the track payload as {"track": {...}}
+        track_obj = raw_item.get("track") if isinstance(raw_item.get("track"), dict) else raw_item
+        if not isinstance(track_obj, dict):
+            continue
+        uri = track_obj.get("uri")
+        spotify_url = (
+            uri.replace("spotify:track:", "https://open.spotify.com/track/") if uri else None
+        )
+        artists = track_obj.get("artists", [])
+        normalized_tracks.append(
+            {
+                "name": track_obj.get("name"),
+                "artists": [a.get("name") for a in artists] if isinstance(artists, list) else [],
+                "duration_ms": track_obj.get("duration_ms", 0),
+                "spotify_url": spotify_url,
+            }
+        )
+
+    return {
+        "playlist_id": playlist_id,
+        "name": playlist_data.get("name", "Imported Playlist"),
+        "owner": owner_name,
+        "image_url": image_url,
+        "tracks": normalized_tracks,
+    }
+
+
 @app.get("/downloads/{job_id}", response_model=DownloadJobOut)
 def get_download_status(
     job_id: str,
@@ -2011,7 +2225,38 @@ def get_download_status(
         raise HTTPException(status_code=404, detail="Download job not found")
     if job.user_hash != x_auth_hash and not user.is_admin:
         raise HTTPException(status_code=403, detail="Not your download job")
-    return job
+
+    resolved_track_id = None
+    if job.status == "completed":
+        if job.output_path:
+            resolved_by_path = db.execute(
+                select(Track.id).where(Track.file_path == job.output_path)
+            ).scalar_one_or_none()
+            if resolved_by_path:
+                resolved_track_id = resolved_by_path
+        if not resolved_track_id and job.query:
+            resolved_by_source = db.execute(
+                select(Track.id)
+                .where(
+                    Track.user_hash == job.user_hash,
+                    Track.source_url == job.query,
+                )
+                .order_by(Track.created_at.desc())
+            ).scalar_one_or_none()
+            if resolved_by_source:
+                resolved_track_id = resolved_by_source
+
+    return {
+        "id": job.id,
+        "source": job.source,
+        "query": job.query,
+        "status": job.status,
+        "track_id": resolved_track_id,
+        "output_path": job.output_path,
+        "log": job.log,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
 
 
 @app.post("/liked/{track_id}")

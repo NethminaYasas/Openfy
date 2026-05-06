@@ -818,7 +818,283 @@ function initEventListeners() {
     finally { setButtonLoading(btn, false); }
   });
 
-  // Enter key support for auth inputs
+// Import Spotify Playlist
+async function importSpotifyPlaylist() {
+    const urlInput = document.getElementById("import-playlist-url");
+    const statusDiv = document.getElementById("import-modal-status");
+    const importBtn = document.getElementById("import-modal-import");
+
+    const spotifyUrl = urlInput.value.trim();
+    if (!spotifyUrl) {
+        alert("Please enter a Spotify playlist URL");
+        return;
+    }
+
+    // Show loading state
+    importBtn.disabled = true;
+    statusDiv.style.display = "block";
+    statusDiv.textContent = "Fetching playlist...";
+
+    try {
+        // Step 1: Call backend to get playlist data
+        const response = await fetch("/playlists/import", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-auth-hash": state.authHash
+            },
+            body: JSON.stringify({ url: spotifyUrl })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || "Failed to fetch playlist");
+        }
+
+        const playlistData = await response.json();
+        const tracks = playlistData.tracks || [];
+
+        statusDiv.textContent = `Found ${tracks.length} tracks. Processing...`;
+
+        const normalizeText = (value) =>
+            (value || "")
+                .toLowerCase()
+                .replace(/[^\p{L}\p{N}\s]/gu, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+        const titleLooksSame = (a, b) => {
+            const na = normalizeText(a);
+            const nb = normalizeText(b);
+            return !!na && !!nb && (na === nb || na.includes(nb) || nb.includes(na));
+        };
+        const parseArtistTokens = (artistsValue) => {
+            const raw = Array.isArray(artistsValue) ? artistsValue.join(", ") : (artistsValue || "");
+            const normalized = normalizeText(raw);
+            if (!normalized) return new Set();
+            const tokens = normalized
+                .split(/,| feat | ft | & | and /)
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .flatMap((s) => s.split(" ").filter((w) => w.length >= 3));
+            return new Set(tokens);
+        };
+        const artistsOverlap = (a, b) => {
+            const setA = parseArtistTokens(a);
+            const setB = parseArtistTokens(b);
+            if (!setA.size || !setB.size) return true;
+            for (const token of setA) {
+                if (setB.has(token)) return true;
+            }
+            return false;
+        };
+
+        // Step 2: Find existing tracks and tracks to download
+        const existingTracks = [];
+        const tracksToDownload = [];
+
+        for (let i = 0; i < tracks.length; i++) {
+            const track = tracks[i];
+            statusDiv.textContent = `Checking track ${i + 1} of ${tracks.length}: ${track.name}`;
+
+            // Deterministic path: if this Spotify track ID already exists locally, use it directly.
+            const spotifyMatch = (track.spotify_url || "").match(/\/track\/([A-Za-z0-9]+)/);
+            const spotifyId = spotifyMatch ? spotifyMatch[1] : null;
+            if (spotifyId) {
+                try {
+                    const existingBySpotify = await api(`/tracks/by-spotify-id/${spotifyId}`);
+                    if (existingBySpotify && existingBySpotify.id) {
+                        existingTracks.push(existingBySpotify);
+                        continue;
+                    }
+                } catch (e) {
+                    // 404 is expected when not present; continue with fuzzy matching.
+                }
+            }
+
+            // Search by title first (artist strings from external sources can vary widely)
+            const searchQuery = encodeURIComponent(track.name || "");
+            const searchResp = await fetch(`/search?q=${searchQuery}&limit=10`, {
+                headers: { "x-auth-hash": state.authHash }
+            });
+
+            if (!searchResp.ok) {
+                tracksToDownload.push(track);
+                continue;
+            }
+            const searchResults = await searchResp.json();
+
+            // Find match by title + artist + duration (±5 seconds)
+            const trackDurationSec = Math.floor(track.duration_ms / 1000);
+            let matchedTrack = null;
+
+            const targetTitle = normalizeText(track.name);
+            const targetArtists = track.artists || [];
+            if (Array.isArray(searchResults)) {
+                for (const result of searchResults) {
+                    const resultDuration = result.duration || 0;
+                    const resultDurationSec = Math.floor(resultDuration / 1000);
+                    const durationDiff = Math.abs(resultDurationSec - trackDurationSec);
+                    const resultTitle = normalizeText(result.title);
+                    const resultArtists = Array.isArray(result.artists) ? result.artists.map((a) => a?.name || "") : [];
+                    const titleMatches = titleLooksSame(resultTitle, targetTitle);
+                    const artistMatches = artistsOverlap(targetArtists, resultArtists);
+
+                    if (titleMatches && artistMatches && durationDiff <= 12) {
+                        matchedTrack = result;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedTrack) {
+                existingTracks.push(matchedTrack);
+            } else {
+                tracksToDownload.push(track);
+            }
+        }
+
+        statusDiv.textContent = `Found ${existingTracks.length} existing tracks, ${tracksToDownload.length} to download`;
+
+        // Step 3: Create playlist
+        const playlistName = playlistData.name || "Imported Playlist";
+        // Create playlist with current user as owner (use current auth hash)
+        const playlistResp = await fetch("/playlists", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-auth-hash": state.authHash
+            },
+            body: JSON.stringify({ name: playlistName })
+        });
+
+        if (!playlistResp.ok) {
+            throw new Error("Failed to create playlist");
+        }
+
+        const newPlaylist = await playlistResp.json();
+        const playlistId = newPlaylist.id;
+
+        // Step 4: Set visibility to public and cover image
+        await fetch(`/playlists/${playlistId}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "x-auth-hash": state.authHash
+            },
+            body: JSON.stringify({
+                is_public: true,
+                image_url: playlistData.image_url || null
+            })
+        });
+
+        // Step 6: Download missing tracks via the same "upload from link" flow and add to playlist
+        const downloadedTrackIds = [];
+        let knownUploadIds = new Set();
+        try {
+            const existingUploads = await api(`/tracks?limit=200&user_hash=${encodeURIComponent(state.authHash)}`);
+            if (Array.isArray(existingUploads)) {
+                existingUploads.forEach((t) => knownUploadIds.add(t.id));
+            }
+        } catch (e) {
+            console.warn("Failed to preload user uploads before playlist import:", e);
+        }
+
+        for (let i = 0; i < tracksToDownload.length; i++) {
+            const track = tracksToDownload[i];
+            statusDiv.textContent = `Downloading ${i + 1} of ${tracksToDownload.length}: ${track.name}`;
+
+            try {
+                if (!track.spotify_url) continue;
+
+                const jobId = await downloadFromLink(track.spotify_url);
+
+                // Poll for completion with timeout (max 120 seconds)
+                let completed = false;
+                let trackId = null;
+                let timeoutCounter = 0;
+                const maxTimeout = 60; // 60 * 2 seconds = 120 seconds
+
+                while (!completed && timeoutCounter < maxTimeout) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    timeoutCounter++;
+
+                    const status = await pollJobStatus(jobId);
+
+                    if (status.status === "completed") {
+                        completed = true;
+                        if (status.track_id) {
+                            trackId = status.track_id;
+                            break;
+                        }
+                        // Find newly uploaded track by diffing user upload IDs
+                        const tracksList = await api(`/tracks?limit=200&user_hash=${encodeURIComponent(state.authHash)}`);
+                        if (Array.isArray(tracksList) && tracksList.length > 0) {
+                            const targetName = normalizeText(track.name);
+                            const targetArtist = normalizeText((track.artists && track.artists[0]) || "");
+                            for (const resultTrack of tracksList) {
+                                if (knownUploadIds.has(resultTrack.id)) continue;
+                                const resultTitle = normalizeText(resultTrack.title);
+                                const resultArtists = Array.isArray(resultTrack.artists) ? resultTrack.artists : [];
+                                const resultArtist = normalizeText(resultArtists[0]?.name || "");
+                                if (resultTitle === targetName && (!targetArtist || resultArtist === targetArtist)) {
+                                    trackId = resultTrack.id;
+                                    break;
+                                }
+                            }
+                            if (!trackId) {
+                                console.warn("Could not safely resolve downloaded track id for:", track.name);
+                            }
+                            tracksList.forEach((t) => knownUploadIds.add(t.id));
+                        }
+                    } else if (status.status === "failed" || status.status === "error") {
+                        completed = true;
+                    }
+                }
+
+                // Handle timeout case
+                if (!completed && timeoutCounter >= maxTimeout) {
+                    console.warn(`Download timeout for track: ${track.name}`);
+                    completed = true; // Exit loop but don't add track
+                }
+
+                if (trackId) {
+                    downloadedTrackIds.push(trackId);
+
+                    // Add to playlist
+                    await addTrackToPlaylist(playlistId, trackId);
+                }
+            } catch (e) {
+                console.warn("Failed to download track:", track.name, e);
+            }
+        }
+
+        // Step 7: Add existing tracks to playlist
+        for (const track of existingTracks) {
+            try {
+                await addTrackToPlaylist(playlistId, track.id);
+            } catch (e) {
+                console.warn("Failed to add existing track:", track.name);
+            }
+        }
+
+        // Note: Don't need to follow - the user is already the owner of this playlist
+
+        statusDiv.textContent = `Import complete! Added ${existingTracks.length + downloadedTrackIds.length} tracks.`;
+
+        // Close modal and refresh playlists
+        setTimeout(() => {
+            document.getElementById("import-playlist-modal").style.display = "none";
+            loadPlaylists();
+        }, 2000);
+
+    } catch (err) {
+        statusDiv.textContent = "Error: " + err.message;
+    } finally {
+        importBtn.disabled = false;
+    }
+}
+
+// Close modal when clicking overlay or cancel
   document.getElementById("signin-hash").addEventListener("keydown", function(e) {
     if (e.key === "Enter") document.getElementById("signin-btn").click();
   });
@@ -860,10 +1136,30 @@ function initEventListeners() {
     try { await createPlaylist("My Playlist"); await loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
   });
 
-  // Import a Playlist option (placeholder)
+  // Import a Playlist option - open modal
   document.getElementById("import-playlist-option").addEventListener("click", function() {
     document.getElementById("playlist-action-dropdown").classList.remove("visible");
-    alert("Import playlist feature coming soon!");
+    document.getElementById("import-playlist-modal").style.display = "flex";
+    document.getElementById("import-playlist-url").value = "";
+    document.getElementById("import-modal-status").style.display = "none";
+  });
+
+  // Close modal when clicking overlay or cancel
+  document.getElementById("import-modal-overlay").addEventListener("click", function() {
+    document.getElementById("import-playlist-modal").style.display = "none";
+  });
+
+  document.getElementById("import-modal-cancel").addEventListener("click", function() {
+    document.getElementById("import-playlist-modal").style.display = "none";
+  });
+
+  // Connect import button to function
+  document.getElementById("import-modal-import").addEventListener("click", importSpotifyPlaylist);
+
+  document.getElementById("import-playlist-url").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      importSpotifyPlaylist();
+    }
   });
 
   // Close dropdown when clicking outside
@@ -3121,7 +3417,7 @@ function buildAddToPlaylistItems(playlists, filter = '') {
         thumb.appendChild(fallback);
       };
       thumb.appendChild(img);
-      setAuthenticatedImage(img, "/playlists/" + pl.id + "/cover?v=" + Date.now(), function() {
+      setAuthenticatedImage(img, "/playlists/" + pl.id + "/cover", function() {
         img.style.display = 'none';
         const fallback = createPlaylistIconSvg();
         fallback.style.width = '20px';
