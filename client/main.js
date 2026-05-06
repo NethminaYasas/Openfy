@@ -2002,7 +2002,16 @@ function initContextMenuHandlers() {
     }
     const insertIndex = state.currentIndex + 1;
     state.currentQueue.splice(insertIndex, 0, track);
-    enforceQueueCapacity();
+    if (state.currentQueue.length > MAX_QUEUE_CAPACITY) {
+      const removeCount = state.currentQueue.length - MAX_QUEUE_CAPACITY;
+      if (removeCount > 0 && removeCount <= state.currentIndex) {
+        state.currentQueue.splice(0, removeCount);
+        state.currentIndex -= removeCount;
+      } else {
+        // If we can't remove enough from front, just trim from end but keep new track
+        state.currentQueue.length = MAX_QUEUE_CAPACITY;
+      }
+    }
     state.queueOriginal = null;
     renderNowPlayingQueue();
     scheduleQueueSave();

@@ -1273,8 +1273,8 @@ export async function renderSearch(query) {
     searchLocalResults.innerHTML = '<p class="empty-message">No tracks found in your library</p>';
   } else {
     searchLocalResults.innerHTML = '';
-    localResults.forEach(track => {
-      const card = buildTrackCard(track);
+    localResults.forEach((track, index) => {
+      const card = buildTrackCard(track, localResults, index);
       card.style.flex = '0 0 auto';
       card.style.width = '180px';
       searchLocalResults.appendChild(card);

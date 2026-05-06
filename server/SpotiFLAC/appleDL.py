@@ -112,6 +112,21 @@ class AppleMusicDownloader:
                             if album_obj:
                                 album = album_obj.get("name", "")
                                 print(f"[DEBUG] Extracted album: {album}")
+                            # Some Spotify track pages expose artwork only via visualIdentity.
+                            visual_identity = entity.get("visualIdentity", {})
+                            image_candidates = visual_identity.get("image", [])
+                            if isinstance(image_candidates, list) and image_candidates:
+                                sorted_images = sorted(
+                                    [
+                                        img for img in image_candidates
+                                        if isinstance(img, dict) and img.get("url")
+                                    ],
+                                    key=lambda img: (img.get("maxWidth") or 0) * (img.get("maxHeight") or 0),
+                                    reverse=True,
+                                )
+                                if sorted_images:
+                                    cover_url = sorted_images[0].get("url", cover_url)
+                                    print(f"[DEBUG] Extracted visualIdentity cover URL: {cover_url}")
                             # Extract duration
                             duration_ms = entity.get("duration", 0)
                             print(f"[DEBUG] Extracted duration: {duration_ms}ms")
@@ -295,18 +310,18 @@ class AppleMusicDownloader:
             print(f"[!] Album lookup error: {e}")
         return None
 
-    def _get_youtube_url(self, track_name: str, artist_name: str) -> str:
+    def _get_youtube_url(self, track_name: str, artist_name: str, expected_duration_ms: int = 0) -> str:
         """Find YouTube Music URL for a track using ytmusicapi.
         Searches YouTube Music for official audio tracks only (no music videos).
         """
         print(f"[DEBUG] === SEARCH START ===")
-        print(f"[DEBUG] Searching YouTube Music for: '{track_name}' by '{artist_name}'")
+        print(f"[DEBUG] Searching YouTube Music for: '{track_name}' by '{artist_name}' (expected duration: {expected_duration_ms}ms)")
 
         # Try multiple search strategies
         search_strategies = [
-            f"ytmusic10:{track_name} {artist_name}",  # Full query
-            f"ytmusic10:{track_name}",  # Track only
-            f"ytmusic10:{artist_name} {track_name}",  # Reversed
+            f"{track_name} {artist_name}",  # Full query
+            f"{track_name}",  # Track only
+            f"{artist_name} {track_name}",  # Reversed
         ]
 
         try:
@@ -332,6 +347,36 @@ class AppleMusicDownloader:
                 best_match = None
                 best_score = 0
 
+                # First pass: collect view counts for dynamic scoring
+                import re
+                view_counts = []
+                result_views = {}  # result index -> view count
+                for i, result in enumerate(results):
+                    views_str = result.get('views', '')
+                    if views_str:
+                        views_match = re.match(r'([\d.]+)([KMB]?)', views_str.upper())
+                        if views_match:
+                            num = float(views_match.group(1))
+                            suffix = views_match.group(2)
+                            if suffix == 'K':
+                                views = num * 1000
+                            elif suffix == 'M':
+                                views = num * 1000000
+                            elif suffix == 'B':
+                                views = num * 1000000000
+                            else:
+                                views = num
+                            view_counts.append(views)
+                            result_views[i] = views
+
+                # Compute view statistics for dynamic scoring
+                median_views = 0
+                max_views = 0
+                if view_counts:
+                    view_counts_sorted = sorted(view_counts)
+                    median_views = view_counts_sorted[len(view_counts_sorted) // 2]
+                    max_views = max(view_counts)
+
                 for i, result in enumerate(results):
                     result_title = result.get('title', '').lower()
                     result_artists = ", ".join(
@@ -341,24 +386,125 @@ class AppleMusicDownloader:
                     # Calculate match score
                     score = 0
                     # Title match (weighted higher)
-                    if track_name.lower() in result_title:
+                    title_match = track_name.lower() in result_title
+                    title_exact_match = result_title in track_name.lower()
+                    if title_match:
+                        score += 25
+                    if title_exact_match:
                         score += 20
-                    if result_title in track_name.lower():
-                        score += 15
 
-                    # Artist match
-                    if artist_name.lower() in result_artists:
+                    # STRICT Artist matching - extract primary artist from expected
+                    expected_artists = [a.strip() for a in artist_name.split(',') if a.strip()]
+                    expected_primary = expected_artists[0] if expected_artists else ""
+
+                    # Get primary artist from result
+                    result_artist_list = result.get("artists", [])
+                    result_primary = result_artist_list[0].get("name", "").lower() if result_artist_list else ""
+                    result_primary_lower = result_primary.lower()
+
+                    artist_matched = False
+                    has_partial_artist_match = False
+
+                    # Check if primary artist matches exactly
+                    if expected_primary.lower() == result_primary_lower:
+                        score += 30  # Strong boost for exact primary artist match
+                        artist_matched = True
+                    # Check if primary is in expected artists (e.g., "Yuki Navaratne" in list)
+                    elif any(exp.lower() in result_primary_lower or result_primary_lower in exp.lower() for exp in expected_artists):
+                        score += 25
+                        artist_matched = True
+                    # Check individual expected artists against result artist string
+                    for exp_artist in expected_artists:
+                        exp_lower = exp_artist.lower()
+                        if exp_lower in result_artists:
+                            score += 20
+                            artist_matched = True
+                            break
+                        # Check for significant overlap (e.g., first name matches)
+                        elif len(exp_lower) > 3 and exp_lower in result_artist_list:
+                            has_partial_artist_match = True
+                            score += 10
+
+                    # Heavy penalty for completely wrong artists
+                    if not artist_matched and not has_partial_artist_match:
+                        # Check if there's ANY artist word overlap
+                        expected_words = set(exp.lower() for exp in expected_artists if len(exp) > 3)
+                        result_words = set(result_artist_list[0].get("name", "").lower().split()) if result_artist_list else set()
+                        overlap = expected_words & result_words
+                        if not overlap:
+                            score -= 40  # Heavy penalty for completely different artists
+
+                    # Penalize non-original versions
+                    non_original_keywords = ['live', 'remix', 'cover', 'acoustic', 'instrumental',
+                                              'karaoke', 'edit', 'version', 'mix', 'remaster',
+                                              'extended', 'radio edit', 'sped up', 'slowed',
+                                              'reverb', 'echo', 'tribute', 'parody', 'nightcore',
+                                              'bass boosted', '8d', 'vibe', 'lofi', 'chill']
+                    penalty = 0
+                    for keyword in non_original_keywords:
+                        if keyword in result_title and keyword not in track_name.lower():
+                            penalty += 15  # Heavy penalty for non-original versions
+                    score -= penalty
+
+                    # Boost resultType "song" (official audio) over "video" (music video)
+                    if result.get('resultType') == 'song':
                         score += 10
-                    if result_artists in artist_name.lower():
+                    elif result.get('resultType') == 'video':
+                        score -= 5
+
+                    # Boost if title doesn't contain parenthetical additions (likely original)
+                    if '(' not in result.get('title', '') or '(' in track_name:
                         score += 5
 
-                    # Individual artist words
-                    for artist_word in artist_name.lower().split(','):
-                        artist_word = artist_word.strip()
-                        if artist_word in result_artists:
+                    # Duration matching - only trust if title also matches
+                    # If title doesn't match at all, duration is likely coincidental
+                    title_has_match = track_name.lower() in result_title or result_title in track_name.lower()
+                    if expected_duration_ms > 0 and title_has_match:
+                        result_duration_seconds = result.get('duration_seconds', 0)
+                        if result_duration_seconds > 0:
+                            expected_seconds = expected_duration_ms / 1000
+                            duration_diff = abs(result_duration_seconds - expected_seconds)
+                            if duration_diff <= 2:  # Within 2 seconds - very likely the same track
+                                score += 50
+                            elif duration_diff <= 5:  # Within 5 seconds - probably the same track
+                                score += 20
+                            elif duration_diff > 15:  # More than 15 seconds off - likely wrong version
+                                score -= 30
+                    elif expected_duration_ms > 0:
+                        # Title doesn't match at all - duration is coincidental, apply penalty
+                        result_duration_seconds = result.get('duration_seconds', 0)
+                        if result_duration_seconds > 0:
+                            expected_seconds = expected_duration_ms / 1000
+                            duration_diff = abs(result_duration_seconds - expected_seconds)
+                            if duration_diff <= 3:  # Suspicious - same duration but wrong title
+                                score -= 25  # Heavy penalty for "too good to be true" matches
+
+                    # Dynamic view count scoring - compare relative to other results in this search
+                    if i in result_views:
+                        views = result_views[i]
+                        # Calculate relative position: how does this compare to other results?
+                        # If views > median, boost. The higher above median, the more boost.
+                        if median_views > 0 and max_views > median_views:
+                            # Ratio to median (capped at 10x for extreme outliers)
+                            ratio = min(views / median_views, 10)
+                            if ratio >= 10:    # Top tier - significantly above median
+                                score += 15
+                            elif ratio >= 5:  # High tier
+                                score += 12
+                            elif ratio >= 2:  # Above median
+                                score += 8
+                            elif ratio >= 1:  # At median
+                                score += 3
+                            # Below median: no boost (or slight penalty if very low)
+                            elif ratio < 0.1:  # Extremely low views - likely unofficial
+                                score -= 10
+                        # Boost for results with very high absolute views (indication of official)
+                        if max_views >= 100000000:  # 100M+ in search = major hit
+                            score += 5
+                        elif max_views >= 10000000:  # 10M+ = popular
                             score += 3
 
-                    print(f"[DEBUG] Result {i+1}: {result.get('title')} - {result.get('artists', [{}])[0].get('name', 'Unknown')} (score: {score})")
+                    print(f"[DEBUG] Result {i+1}: {result.get('title')} - {result.get('artists', [{}])[0].get('name', 'Unknown')} (score: {score}, penalty: {penalty}, duration: {result.get('duration_seconds', '?')}s vs {expected_duration_ms/1000}s, views: {result.get('views', '?')})")
 
                     if score > best_score:
                         best_score = score
@@ -634,8 +780,27 @@ class AppleMusicDownloader:
                         print(f"[DEBUG] Title match: {title_ok}")
                         print(f"[DEBUG] Artist match: {artist_ok}")
 
+                        # Also check duration for verification
+                        video_duration = info.get('duration', 0)
+                        expected_duration = getattr(self, '_last_expected_duration', 0)
+                        duration_match = False
+                        if expected_duration > 0 and video_duration:
+                            duration_diff = abs(video_duration - (expected_duration / 1000))
+                            print(f"[DEBUG] Duration check: {video_duration}s vs {expected_duration/1000}s (diff: {duration_diff}s)")
+                            if duration_diff <= 3:  # Within 3 seconds = likely correct track
+                                duration_match = True
+                                print(f"[DEBUG] Duration MATCH (within 3s)")
+
                         if title_ok and artist_ok and score >= 20:
                             print(f"[DEBUG] ✓ Verification PASSED (score >= 20)")
+                            return True
+                        elif duration_match and artist_ok:
+                            # If duration matches and artist matches, trust it
+                            print(f"[DEBUG] ✓ Verification PASSED (duration match + artist match)")
+                            return True
+                        elif duration_match and score >= 10:
+                            # If duration matches and decent score, trust it
+                            print(f"[DEBUG] ✓ Verification PASSED (duration match + reasonable score)")
                             return True
                         else:
                             print(f"[DEBUG] ✗ Verification FAILED (strict title/artist check)")
@@ -778,7 +943,7 @@ class AppleMusicDownloader:
         print(f"✓ Found: {track_info['name']} - {track_info['artist']}")
 
         # Get YouTube URL
-        yt_url = self._get_youtube_url(track_info["name"], track_info["artist"])
+        yt_url = self._get_youtube_url(track_info["name"], track_info["artist"], track_info.get("duration_ms", 0))
         video_id = self._extract_video_id(yt_url)
         if not video_id:
             raise Exception("Could not extract YouTube video ID")
@@ -915,12 +1080,15 @@ class AppleMusicDownloader:
         original_artist = track_info["artist"]
 
         # Get YouTube URL
-        yt_url = self._get_youtube_url(original_track, original_artist)
+        yt_url = self._get_youtube_url(original_track, original_artist, track_info.get("duration_ms", 0))
         print(f"[DEBUG] Got YouTube URL: {yt_url}")
         video_id = self._extract_video_id(yt_url)
         if not video_id:
             raise Exception("Could not extract YouTube video ID")
         print(f"[DEBUG] Extracted video ID: {video_id}")
+
+        # Store expected duration for verification to use
+        self._last_expected_duration = track_info.get("duration_ms", 0)
 
         # Before downloading, verify this is actually the correct song
         # by fetching the YouTube video metadata and comparing
@@ -930,14 +1098,19 @@ class AppleMusicDownloader:
             fallback_success = False
 
             # Try searching with different artist combinations
+            primary_artist = original_artist.split(",")[0].strip() if original_artist else ""
+            last_name = primary_artist.split()[-1] if primary_artist and primary_artist.split() else ""
             artist_variations = [
-                original_artist.split(",")[0].strip(),  # Primary artist only
-                ", ".join(original_artist.split(",")[::-1]),  # Reverse artist order
+                primary_artist,  # Primary artist only
+                last_name,  # Last name only
+                original_track,  # Just the track name alone
             ]
 
             for variation in artist_variations:
+                if not variation or variation.strip() == "":
+                    continue
                 print(f"[DEBUG] Trying artist variation: {variation}")
-                yt_url_fallback = self._get_youtube_url(original_track, variation)
+                yt_url_fallback = self._get_youtube_url(original_track, variation, track_info.get("duration_ms", 0))
                 video_id_fallback = self._extract_video_id(yt_url_fallback)
                 if video_id_fallback and self._verify_youtube_video(video_id_fallback, original_track, variation):
                     print(f"[DEBUG] Fallback verification successful")
