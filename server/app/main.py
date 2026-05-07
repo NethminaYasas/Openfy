@@ -104,6 +104,7 @@ _STREAM_TOKEN_TTL_SECONDS = 120
 # Global variable to track last track update
 last_track_update = 0
 MANUAL_AUDIO_UPLOAD_SETTING_KEY = "manual_audio_upload_enabled"
+PLAYLIST_IMPORT_SETTING_KEY = "playlist_import_enabled"
 
 
 def update_track_timestamp():
@@ -1419,12 +1420,22 @@ def list_playlists(
         pl_dict = pl.__dict__.copy()
         pl_dict['is_owner'] = True
         pl_dict['is_followed'] = False
+        # Get track count
+        track_count = db.scalar(
+            select(func.count(PlaylistTrack.track_id)).where(PlaylistTrack.playlist_id == pl.id)
+        ) or 0
+        pl_dict['track_count'] = track_count
         result.append(pl_dict)
 
     for pl in followed_playlists:
         pl_dict = pl.__dict__.copy()
         pl_dict['is_owner'] = False
         pl_dict['is_followed'] = True
+        # Get track count
+        track_count = db.scalar(
+            select(func.count(PlaylistTrack.track_id)).where(PlaylistTrack.playlist_id == pl.id)
+        ) or 0
+        pl_dict['track_count'] = track_count
         result.append(pl_dict)
 
     return result
@@ -1526,11 +1537,19 @@ def get_playlist(
             "access_denied": True,  # Frontend flag to show blur UI
             "is_followed": is_followed,
             "is_owner": is_owner,
+            "track_count": 0,
         })
 
     # Add is_followed and is_owner attributes for the full response
     playlist.is_followed = is_followed
     playlist.is_owner = is_owner
+
+    # Get track count
+    track_count = db.scalar(
+        select(func.count(PlaylistTrack.track_id)).where(PlaylistTrack.playlist_id == playlist_id)
+    ) or 0
+    playlist.track_count = track_count
+
     return playlist
 
 
@@ -2102,6 +2121,11 @@ def import_spotify_playlist(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
 
+    # Check if playlist importing is enabled
+    playlist_import_enabled = _get_app_setting_bool(db, PLAYLIST_IMPORT_SETTING_KEY, default=True)
+    if not playlist_import_enabled:
+        raise HTTPException(status_code=403, detail="Playlist importing is currently disabled by admin")
+
     spotify_url = payload.url
     if not spotify_url:
         raise HTTPException(status_code=400, detail="URL is required")
@@ -2367,6 +2391,9 @@ def get_system_settings(
     return {
         "manual_audio_upload_enabled": _get_app_setting_bool(
             db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
+        ),
+        "playlist_import_enabled": _get_app_setting_bool(
+            db, PLAYLIST_IMPORT_SETTING_KEY, default=True
         )
     }
 
@@ -2689,9 +2716,11 @@ def get_admin_settings(
         raise HTTPException(status_code=403, detail="Admin access required")
     
     manual_enabled = _get_app_setting_bool(db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True)
+    playlist_import_enabled = _get_app_setting_bool(db, PLAYLIST_IMPORT_SETTING_KEY, default=True)
     timezone_row = db.get(AppSetting, "timezone")
     return {
         "manual_audio_upload_enabled": manual_enabled,
+        "playlist_import_enabled": playlist_import_enabled,
         "timezone": timezone_row.value if timezone_row else "UTC"
     }
 
@@ -2716,7 +2745,16 @@ def update_admin_settings(
         res["manual_audio_upload_enabled"] = _get_app_setting_bool(
             db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True
         )
-        
+
+    if payload.playlist_import_enabled is not None:
+        res["playlist_import_enabled"] = _set_app_setting_bool(
+            db, PLAYLIST_IMPORT_SETTING_KEY, payload.playlist_import_enabled
+        )
+    else:
+        res["playlist_import_enabled"] = _get_app_setting_bool(
+            db, PLAYLIST_IMPORT_SETTING_KEY, default=True
+        )
+
     if payload.timezone is not None:
         tz_row = db.get(AppSetting, "timezone")
         if not tz_row:

@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack } from './api.js';
 import { formatDuration, escapeHtml } from './utils.js';
+import { applyPlaylistImportUI } from './ui.js';
 
 export function updateAdminButtonVisibility() {
   const adminBtn = document.getElementById("admin-btn");
@@ -41,7 +42,8 @@ export async function loadAdminSettingsUI() {
   try {
     const data = await loadAdminSettings();
     applyManualUploadUI(!!data.manual_audio_upload_enabled);
-    
+    applyPlaylistImportUI(!!data.playlist_import_enabled);
+
     const tzSelect = document.getElementById("server-timezone-select");
     if (tzSelect && data.timezone) {
       tzSelect.value = data.timezone;
@@ -92,6 +94,23 @@ export async function toggleManualUploadSetting(checkbox, applyUI = true) {
     console.error("Failed to update manual upload setting:", err);
     checkbox.checked = !enabled;
     alert("Failed to update manual upload setting: " + err.message);
+  } finally {
+    checkbox.disabled = false;
+  }
+}
+
+export async function togglePlaylistImportSetting(checkbox, applyUI = true) {
+  const enabled = !!checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    const data = await updateAdminSettings({ playlist_import_enabled: enabled });
+    if (applyUI) {
+      applyPlaylistImportUI(!!data.playlist_import_enabled);
+    }
+  } catch (err) {
+    console.error("Failed to update playlist import setting:", err);
+    checkbox.checked = !enabled;
+    alert("Failed to update playlist import setting: " + err.message);
   } finally {
     checkbox.disabled = false;
   }
@@ -309,6 +328,7 @@ export function initAdminEventListeners() {
   const librarySearchInput = document.getElementById("library-search-input");
   
   const adminManualUploadToggle = document.getElementById("manual-upload-enabled-admin");
+  const playlistImportToggle = document.getElementById("playlist-import-enabled-admin");
   const timezoneSelect = document.getElementById("server-timezone-select");
   
   let searchTimeout = null;
@@ -361,7 +381,11 @@ export function initAdminEventListeners() {
   adminManualUploadToggle?.addEventListener("change", function() {
     toggleManualUploadSetting(this);
   });
-  
+
+  playlistImportToggle?.addEventListener("change", function() {
+    togglePlaylistImportSetting(this);
+  });
+
   timezoneSelect?.addEventListener("change", function() {
     updateTimezoneSetting(this);
   });

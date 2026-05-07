@@ -128,6 +128,7 @@ class PlaylistOut(BaseModel):
     user: Optional['UserOutPublic'] = None
     is_followed: bool = False
     is_owner: bool = False
+    track_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -160,11 +161,13 @@ class UserQueueUpdate(BaseModel):
 
 class SystemSettingsUpdate(BaseModel):
     manual_audio_upload_enabled: bool | None = None
+    playlist_import_enabled: bool | None = None
     timezone: str | None = None
 
 
 class SystemSettingsOut(BaseModel):
     manual_audio_upload_enabled: bool
+    playlist_import_enabled: bool
     timezone: str = "UTC"
 
 

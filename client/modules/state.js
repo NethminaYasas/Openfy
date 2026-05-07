@@ -20,6 +20,7 @@ export const state = {
 
   scrollPositions: {},
   manualAudioUploadEnabled: true,
+  playlistImportEnabled: true,
   
   currentStreamToken: null,
   currentStreamTokenTrackId: null,

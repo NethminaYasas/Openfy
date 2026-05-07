@@ -168,8 +168,16 @@ document.addEventListener('DOMContentLoaded', async function() {
   initContextMenuHandlers();
   
   initAdminEventListeners();
-  
+
   initUploadHandlers();
+
+  // Load admin settings when navigating to admin page
+  document.addEventListener('pageNavigated', function(e) {
+    if (e.detail.pageId === 'admin' && state.isAdmin) {
+      loadAdminStatsUI();
+      loadAdminSettingsUI();
+    }
+  });
   
   initLibraryToggle();
   
@@ -183,10 +191,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   
   initResizeObserver();
 
-  // Navigate to URL BEFORE any async operations - this sets the correct page immediately
-  // before authentication check, so there's no flash
-  navigateFromUrl();
-
+  // Navigate to URL AFTER authentication so admin status is known
   const ok = await tryAutoLogin();
   if (!ok) {
     document.getElementById("auth-overlay").style.display = "flex";
@@ -194,7 +199,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.getElementById("app-main").style.display = "none";
     saveIntendedUrl();
   } else {
-    // Already navigated above - just load data
+    // Navigate AFTER authentication so admin status is known
+    navigateFromUrl();
     await uiLoadTracks();
     await uiLoadMostPlayed();
     await loadPlaylists();
@@ -1121,8 +1127,13 @@ async function importSpotifyPlaylist() {
     clearAuthStatus("signup-status");
   });
 
-  document.getElementById("new-playlist-btn").addEventListener("click", function(e) {
+  document.getElementById("new-playlist-btn").addEventListener("click", async function(e) {
     e.stopPropagation();
+    // If playlist import is disabled, directly create a playlist
+    if (!state.playlistImportEnabled) {
+      try { await createPlaylist("My Playlist"); await loadPlaylists(); } catch (err) { alert("Failed: " + err.message); }
+      return;
+    }
     const dropdown = document.getElementById("playlist-action-dropdown");
     const btn = this.getBoundingClientRect();
     dropdown.style.top = (btn.bottom + 8) + "px";

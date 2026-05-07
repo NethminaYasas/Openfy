@@ -128,12 +128,11 @@ if (pageId === "library" && state.authHash) {
     }
   }
 
-  if (getGradientManager()) {
-    const event = new CustomEvent('pageNavigated', {
-      detail: { pageId }
-    });
-    document.dispatchEvent(event);
-  }
+  // Always dispatch pageNavigated event (not just when gradient manager exists)
+  const event = new CustomEvent('pageNavigated', {
+    detail: { pageId }
+  });
+  document.dispatchEvent(event);
 
   // Restore scroll after DOM updates — ensures content is rendered before applying scroll
   requestAnimationFrame(() => {
@@ -1164,29 +1163,51 @@ export function renderLibrary() {
       cover.style.background = "linear-gradient(135deg,#450af5,#c4efd9)";
       cover.innerHTML = '<i class="fa-solid fa-heart"></i>';
     } else {
-      cover.style.background = "transparent";
-      var img = document.createElement("img");
-      img.alt = escapeHtml(pl.name || "Playlist");
-      img.style.width = "100%";
-      img.style.height = "100%";
-      img.style.objectFit = "cover";
-      img.onerror = function() {
-        if (renderLibraryId !== currentRenderId) return;
+      // Default cover: solid gray background with music icon
+      cover.style.background = "#3a3a3a";
+      cover.style.display = "flex";
+      cover.style.alignItems = "center";
+      cover.style.justifyContent = "center";
+      var icon = document.createElement("i");
+      icon.className = "fa-solid fa-music";
+      icon.style.color = "#b3b3b3";
+      icon.style.fontSize = "20px";
+      cover.appendChild(icon);
+
+      // Only try to load custom cover if playlist has tracks (need 4+ for meaningful collage)
+      var trackCount = pl.track_count || 0;
+      if (trackCount >= 4) {
+        // Try to load custom cover (collage from tracks)
+        var img = document.createElement("img");
+        img.alt = escapeHtml(pl.name || "Playlist");
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.objectFit = "cover";
         img.style.display = "none";
-        cover.style.background = "#282828";
-        cover.appendChild(createPlaylistIconSvg());
-      };
-      cover.appendChild(img);
-      setAuthenticatedImage(
-        img,
-        "/playlists/" + pl.id + "/cover",
-        function() {
+        img.style.position = "absolute";
+        img.style.top = "0";
+        img.style.left = "0";
+        cover.style.position = "relative";
+        img.onload = function() {
           if (renderLibraryId !== currentRenderId) return;
-          img.style.display = "none";
-          cover.style.background = "#282828";
-          cover.appendChild(createPlaylistIconSvg());
-        }
-      );
+          img.style.display = "block";
+          cover.style.background = "transparent";
+          if (icon && icon.parentNode === cover) {
+            cover.removeChild(icon);
+          }
+        };
+        img.onerror = function() {
+          if (renderLibraryId !== currentRenderId) return;
+        };
+        cover.appendChild(img);
+        setAuthenticatedImage(
+          img,
+          "/playlists/" + pl.id + "/cover",
+          function() {
+            if (renderLibraryId !== currentRenderId) return;
+          }
+        );
+      }
     }
 
     var info = document.createElement("div");
@@ -1740,4 +1761,17 @@ export function hideSearchDropdown() {
   if (!searchDropdown) return;
   searchDropdown.style.display = "none";
   searchDropdown.innerHTML = "";
+}
+
+export function applyPlaylistImportUI(enabled) {
+  state.playlistImportEnabled = !!enabled;
+  const playlistImportToggle = document.getElementById("playlist-import-enabled-admin");
+  const importOption = document.getElementById("import-playlist-option");
+
+  if (playlistImportToggle) {
+    playlistImportToggle.checked = state.playlistImportEnabled;
+  }
+  if (importOption) {
+    importOption.style.display = state.playlistImportEnabled ? "flex" : "none";
+  }
 }

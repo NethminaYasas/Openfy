@@ -228,9 +228,11 @@ export async function refreshManualUploadSetting() {
     const data = await api("/system/settings");
     const enabled = !!data.manual_audio_upload_enabled;
     state.manualAudioUploadEnabled = enabled;
+    state.playlistImportEnabled = data.playlist_import_enabled !== false;
   } catch (err) {
     console.error("Failed to load system settings:", err);
     state.manualAudioUploadEnabled = true;
+    state.playlistImportEnabled = true;
   }
 }
 
