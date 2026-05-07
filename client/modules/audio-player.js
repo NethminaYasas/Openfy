@@ -437,10 +437,10 @@ export function updateNowPlaying(track) {
 
 export function syncLikeButtonState(track) {
   const npLikeBtn = document.getElementById("np-like-btn");
-  if (!npLikeBtn) return;
-  
+  if (!npLikeBtn) return;  
   npLikeBtn.disabled = false;
   npLikeBtn.classList.remove("liked", "adding", "in-playlist");
+  npLikeBtn.innerHTML = '';
   
   if (state.likedTrackIds.has(track.id)) {
     npLikeBtn.classList.add("liked");
@@ -449,11 +449,9 @@ export function syncLikeButtonState(track) {
     npLikeBtn.setAttribute("title", "Remove from Liked Songs");
   } else if (state.trackIdsInRegularPlaylists.has(track.id)) {
     npLikeBtn.classList.add("in-playlist");
-    npLikeBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #1db954;"></i>';
     npLikeBtn.setAttribute("aria-label", "Added to playlist");
     npLikeBtn.setAttribute("title", "Added to playlist");
   } else {
-    npLikeBtn.innerHTML = '<i class="fa-solid fa-circle-plus" style="color: #b3b3b3;"></i>';
     npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
     npLikeBtn.setAttribute("title", "Add to Liked Songs");
   }

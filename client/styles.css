@@ -593,6 +593,9 @@ html, body {
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
+    margin-left: 0.75rem;
+    flex-shrink: 0;
+    position: relative;
 }
 
 .player-like-btn:hover {
@@ -693,7 +696,6 @@ html, body {
     background-color: #1db954;
 }
 
-
 .player-like-btn.adding::before,
 .player-like-btn.adding::after {
     animation: pulse 0.4s ease;
@@ -736,6 +738,16 @@ html, body {
 /* Hide inner plus icon when in in-playlist state */
 .player-like-btn.in-playlist i {
     display: none;
+}
+
+/* Hidden by default, shown when track is playing */
+.player-like-btn.hidden {
+    display: none;
+}
+
+/* Track is in a regular playlist — green circle with black checkmark */
+.player-like-btn.in-playlist:hover {
+    background: #1ed760;
 }
 
 @keyframes pulse {
