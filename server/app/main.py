@@ -1219,11 +1219,45 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
     # Replace tracks with combined list
     artist.tracks = combined_tracks
 
-    # Auto-fetch artist image from Spotify if not already stored
-    if not artist.image_url and not artist.spotify_url:
-        _auto_fetch_artist_image(db, artist)
-
     return artist
+
+
+@app.get("/artists/{artist_id}/refresh-image")
+def refresh_artist_image(
+    artist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Background task to refresh artist image from Spotify."""
+    from app.models import Artist
+
+    user = _require_user(db, x_auth_hash)
+
+    artist = db.get(Artist, artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    # Only allow if user has tracks by this artist
+    has_access = (
+        any(t.user_hash == user.auth_hash for t in artist.tracks) or
+        any(t.user_hash == user.auth_hash for t in artist.many_tracks) or
+        user.is_admin
+    )
+    if not has_access:
+        raise HTTPException(status_code=403, detail="No access to this artist")
+
+    # Run in background - don't block the response
+    import threading
+    def background_fetch():
+        try:
+            _auto_fetch_artist_image(db, artist)
+            db.commit()
+        except Exception as e:
+            print(f"Background artist image fetch failed: {e}")
+
+    threading.Thread(target=background_fetch, daemon=True).start()
+
+    return {"status": "triggered"}
 
 
 def _auto_fetch_artist_image(db: Session, artist: Artist) -> None:

@@ -5399,6 +5399,39 @@ input:checked + .toggle-slider:before {
     color: #fff;
 }
 
+.artist-show-more {
+    padding: 1rem;
+    cursor: pointer;
+    color: #b3b3b3;
+    font-size: 0.875rem;
+    transition: color 0.2s ease;
+    width: fit-content;
+}
+
+.artist-show-more:hover {
+    color: #fff;
+}
+
+.artist-track-hidden {
+    display: none;
+}
+
+#artist-songs-list.artist-tracks-expanded .artist-track-hidden {
+    display: grid;
+    animation: fadeSlideIn 0.3s ease;
+}
+
+@keyframes fadeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* Empty State */
 
 /* Empty State */

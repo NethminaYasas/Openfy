@@ -298,9 +298,16 @@ export async function loadArtistPage(artistId) {
         if (artist.tracks && artist.tracks.length > 0) {
             // Sort tracks by play count descending
             var sortedTracks = [...artist.tracks].sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
-            sortedTracks.forEach((track, index) => {
+
+            // Check if already expanded (persist state)
+            let isExpanded = songsList.classList.contains('artist-tracks-expanded');
+
+            // Render all tracks (up to 10), hiding tracks 6-10 initially
+            const maxTracks = Math.min(sortedTracks.length, 10);
+            for (let index = 0; index < maxTracks; index++) {
+                const track = sortedTracks[index];
                 var row = document.createElement('div');
-                row.className = 'artist-song-row';
+                row.className = 'artist-song-row' + (index >= 5 && !isExpanded ? ' artist-track-hidden' : '');
                 var duration = track.duration ? formatDuration(track.duration) : '';
                 var plays = track.play_count !== undefined ? track.play_count : 0;
                 var artworkUrl = (track.album && track.album.artwork_path) ?
@@ -324,7 +331,28 @@ export async function loadArtistPage(artistId) {
                     if (window.showTrackContextMenu) window.showTrackContextMenu(e, track);
                 });
                 songsList.appendChild(row);
-            });
+            }
+
+            // Show more/Show less button if more than 5 tracks
+            if (sortedTracks.length > 5) {
+                var showMoreBtn = document.createElement('div');
+                showMoreBtn.className = 'artist-show-more';
+                showMoreBtn.textContent = isExpanded ? 'Show less' : 'Show more';
+                showMoreBtn.addEventListener('click', function() {
+                    isExpanded = !isExpanded;
+                    songsList.classList.toggle('artist-tracks-expanded', isExpanded);
+                    // Toggle visibility of tracks 6-10
+                    const rows = songsList.querySelectorAll('.artist-song-row');
+                    rows.forEach((row, idx) => {
+                        if (idx >= 5) {
+                            row.classList.toggle('artist-track-hidden', !isExpanded);
+                        }
+                    });
+                    // Update button text
+                    showMoreBtn.textContent = isExpanded ? 'Show less' : 'Show more';
+                });
+                songsList.appendChild(showMoreBtn);
+            }
         }
 
         // Mark as loaded to fade in content
@@ -1234,9 +1262,12 @@ export function renderLibrary() {
       typeEl.appendChild(pinSvg);
       typeEl.appendChild(document.createTextNode(" "));
     }
-    // Show "Public Playlist" for followed playlists, "Playlist" otherwise
+    // Show "Public Playlist" for followed playlists, "Playlist • X songs" for liked songs, "Playlist" otherwise
     if (pl.is_followed) {
       typeEl.appendChild(document.createTextNode("Public Playlist"));
+    } else if (pl.is_liked) {
+      var trackCount = pl.track_count || 0;
+      typeEl.appendChild(document.createTextNode("Playlist • " + trackCount + " song" + (trackCount !== 1 ? "s" : "")));
     } else {
       typeEl.appendChild(document.createTextNode("Playlist"));
     }
