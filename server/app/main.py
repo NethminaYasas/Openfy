@@ -81,13 +81,6 @@ from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
 
-# Deterministic source overrides for known problematic Spotify tracks.
-# Key: Spotify track ID, Value: preferred downloadable URL.
-SPOTIFY_TRACK_SOURCE_OVERRIDES: dict[str, str] = {
-    "6V9CHG6y1FmHiLv3REsCy8": "https://music.youtube.com/watch?v=iIm4gcybpsI",
-    "2z1xxec9iMmanvQEYsuJUO": "https://music.youtube.com/watch?v=zKCij1se4lo",
-}
-
 # Configure logging for security events
 logging.basicConfig(
     level=logging.INFO,

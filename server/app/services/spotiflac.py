@@ -216,32 +216,9 @@ def _download_with_yt_music(
                 _append_log(
                     db, job, "Spotify track detected, searching for audio source..."
                 )
-                spotify_id_match = re.search(r"open\.spotify\.com/track/([A-Za-z0-9]+)", query or "")
-                override_url = (
-                    SPOTIFY_TRACK_SOURCE_OVERRIDES.get(spotify_id_match.group(1))
-                    if spotify_id_match
-                    else None
-                )
-                if override_url:
-                    _append_log(
-                        db,
-                        job,
-                        f"Using fixed source override for Spotify track {spotify_id_match.group(1)}",
-                    )
 
                 # Run download with timeout to prevent hanging
                 def do_download():
-                    if override_url:
-                        original_get_youtube_url = downloader._get_youtube_url
-                        try:
-                            downloader._get_youtube_url = lambda _track, _artist: override_url
-                            expected_track_info["trusted_override"] = True
-                            return downloader.download_by_info(
-                                expected_track_info,
-                                output_dir=str(settings.downloads_dir),
-                            )
-                        finally:
-                            downloader._get_youtube_url = original_get_youtube_url
                     return downloader.download_from_spotify(
                         spotify_url=query,
                         output_dir=str(settings.downloads_dir),
