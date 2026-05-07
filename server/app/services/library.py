@@ -208,6 +208,7 @@ def _upsert_track(
     user_hash: str | None = None,
     source_id: str | None = None,
     source_url: str | None = None,
+    artist_url: str | None = None,
 ) -> Track:
     # 1. Parse artist names
     raw_artists = metadata.get("artist") or []
@@ -216,6 +217,9 @@ def _upsert_track(
     # 2. Get primary artist
     primary_artist_name = artist_names[0] if artist_names else None
     primary_artist = _get_primary_artist(db, primary_artist_name)
+    if primary_artist and artist_url and not primary_artist.spotify_url:
+        primary_artist.spotify_url = artist_url
+        db.add(primary_artist)
 
     album_title = _normalize(metadata.get("album"), fallback=None) if metadata.get("album") else None
     title = _normalize(metadata.get("title"), fallback=file_path.stem)
@@ -420,6 +424,7 @@ def scan_paths(
     user_hash: str | None = None,
     source_id: str | None = None,
     source_url: str | None = None,
+    artist_url: str | None = None,
 ) -> dict:
     # Collect all audio files first
     audio_files = []
@@ -453,6 +458,7 @@ def scan_paths(
             user_hash=user_hash,
             source_id=source_id,
             source_url=source_url,
+            artist_url=artist_url,
         )
         if str(file) not in existing_paths:
             created += 1

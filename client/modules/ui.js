@@ -257,33 +257,49 @@ export async function loadArtistPage(artistId) {
             artistImageEl.style.display = "none";
             artistMosaicEl.style.display = "grid";
 
+            // Trigger background refresh if missing image
+            api("/artists/" + artistId + "/refresh-image").catch(() => {});
+
             // Show default gradient for artist page
             document.getElementById('artist-gradient').style.background =
                 'linear-gradient(180deg, #442c68 0%, #121212 100%)';
 
             // Set gradient from track artwork only when no artist image
-            if (artist.tracks && artist.tracks.length > 0 && artist.tracks[0].album && artist.tracks[0].album.artwork_path) {
-                const artworkUrl = '/tracks/' + artist.tracks[0].id + '/artwork?v=' + (artist.tracks[0].updated_at || '');
-                fetch(withBase(artworkUrl), { headers: { 'x-auth-hash': state.authHash } })
-                    .then(res => {
-                        if (!res.ok) throw new Error("HTTP " + res.status);
-                        return res.blob();
-                    })
-                    .then(blob => {
-                        const objectUrl = URL.createObjectURL(blob);
-                        extractVibrantColors(objectUrl).then(colors => {
+            if (artist.tracks && artist.tracks.length > 0) {
+                // Build fallback mosaic from tracks
+                const tracksForMosaic = artist.tracks.slice(0, 4);
+                artistMosaicEl.innerHTML = '';
+                tracksForMosaic.forEach(t => {
+                    if (t.album && t.album.artwork_path) {
+                        const item = document.createElement('div');
+                        item.className = 'playlist-mosaic-item';
+                        const img = document.createElement('img');
+                        img.src = withBase('/tracks/' + t.id + '/artwork?v=' + (t.updated_at || ''));
+                        item.appendChild(img);
+                        artistMosaicEl.appendChild(item);
+                    }
+                });
+
+                if (artist.tracks[0].album && artist.tracks[0].album.artwork_path) {
+                    const artworkUrl = '/tracks/' + artist.tracks[0].id + '/artwork?v=' + (artist.tracks[0].updated_at || '');
+                    fetch(withBase(artworkUrl), { headers: { 'x-auth-hash': state.authHash } })
+                        .then(res => {
+                            if (!res.ok) throw new Error("HTTP " + res.status);
+                            return res.blob();
+                        })
+                        .then(blob => {
+                            const objectUrl = URL.createObjectURL(blob);
+                            extractVibrantColors(objectUrl).then(colors => {
+                                document.getElementById('artist-gradient').style.background =
+                                    `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
+                                URL.revokeObjectURL(objectUrl);
+                            });
+                        })
+                        .catch(() => {
                             document.getElementById('artist-gradient').style.background =
-                                `linear-gradient(180deg, ${colors[0]} 0%, ${colors[1]} 50%, #121212 100%)`;
-                            URL.revokeObjectURL(objectUrl);
+                                'linear-gradient(180deg, #282828 0%, #121212 100%)';
                         });
-                    })
-                    .catch(() => {
-                        document.getElementById('artist-gradient').style.background =
-                            'linear-gradient(180deg, #282828 0%, #121212 100%)';
-                    });
-            } else {
-                document.getElementById('artist-gradient').style.background =
-                    'linear-gradient(180deg, #282828 0%, #121212 100%)';
+                }
             }
         }
 
@@ -954,13 +970,37 @@ export async function openPlaylist(playlistId) {
     }
     document.getElementById('playlist-type').textContent = typeText;
 
-    const avatarHtml = (ownerAvatar && ownerId && pl.type !== 'album')
-      ? `<img src="${withBase('/users/' + ownerId + '/avatar?t=' + Date.now())}" class="playlist-owner-avatar" alt="${ownerName}">`
-      : '<div class="playlist-meta-avatar"></div>';
+    let avatarHtml = '';
+    if (pl.type === 'album') {
+      let artist = tracks.length > 0 && tracks[0].track && tracks[0].track.artist;
+      // Fallback to artists array if primary artist field is missing
+      if (!artist && tracks.length > 0 && tracks[0].track && tracks[0].track.artists && tracks[0].track.artists.length > 0) {
+        artist = tracks[0].track.artists[0];
+      }
 
+      if (artist && artist.image_url) {
+        avatarHtml = `<img src="${artist.image_url}" class="playlist-owner-avatar album-artist-avatar" alt="${ownerName}">`;
+      } else {
+        avatarHtml = '<div class="playlist-meta-avatar"></div>';
+        // Trigger background refresh if artist ID is known
+        if (artist && artist.id) {
+          api("/artists/" + artist.id + "/refresh-image").catch(() => {});
+        }
+      }
+    } else if (ownerAvatar && ownerId) {
+      avatarHtml = `<img src="${withBase('/users/' + ownerId + '/avatar?t=' + Date.now())}" class="playlist-owner-avatar" alt="${ownerName}">`;
+    } else {
+      avatarHtml = '<div class="playlist-meta-avatar"></div>';
+    }
+
+    const ownerNameHtml = (pl.type === 'album' && tracks.length > 0 && tracks[0].track && tracks[0].track.artist && tracks[0].track.artist.id)
+      ? `<span class="playlist-owner-name clickable-artist album-meta-artist" data-artist-id="${tracks[0].track.artist.id}">${ownerName}</span>`
+      : `<span class="playlist-owner-name">${ownerName}</span>`;
+
+    const totalDuration = formatTotalDuration(tracks);
     document.getElementById('playlist-meta').innerHTML =
       avatarHtml +
-      '<span class="playlist-owner-name">' + ownerName + '</span> • ' + formatTotalDuration(tracks);
+      ownerNameHtml + (totalDuration ? ' • ' + totalDuration : '');
 
     buildPlaylistCover(tracks, pl);
 

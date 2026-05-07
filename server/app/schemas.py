@@ -16,6 +16,7 @@ class ArtistForTrack(BaseModel):
     """Shallow artist info for embedding in TrackOut - no circular refs"""
     id: str
     name: str
+    image_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -216,10 +217,10 @@ class PlaylistTrackOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class DownloadRequest(BaseModel):
     query: str = Field(..., min_length=1)
     source: str | None = "auto"
+    artist_url: str | None = None
 
 
 class SpotifyImportRequest(BaseModel):

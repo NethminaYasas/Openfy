@@ -168,7 +168,7 @@ def _append_log(db, job: DownloadJob, text: str) -> None:
 
 
 def _download_with_yt_music(
-    job_id: str, query: str, db_url: str, user_hash: str | None = None
+    job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None
 ) -> None:
     """Download from Apple Music or Spotify URL using ytmusicapi (official audio tracks)."""
     from sqlalchemy import create_engine
@@ -312,6 +312,7 @@ def _download_with_yt_music(
                         user_hash=user_hash,
                         source_id=source_id,
                         source_url=query,
+                        artist_url=artist_url,
                     )
                     _append_log(db, job, "Scan complete - track added to library")
                     job.status = "completed"
@@ -338,7 +339,7 @@ def _download_with_yt_music(
 
 
 def _run_download(
-    job_id: str, query: str, db_url: str, user_hash: str | None = None
+    job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None
 ) -> None:
     """Download from Spotify/other URLs using SpotiFLAC."""
     from sqlalchemy import create_engine
@@ -439,6 +440,7 @@ def _run_download(
                 user_hash=user_hash,
                 source_id=source_id,
                 source_url=query,
+                artist_url=artist_url,
             )
             _append_log(db, job, "Scan complete - track(s) added to library")
             job.status = "completed"
@@ -460,7 +462,7 @@ def _run_download(
 
 
 def queue_download(
-    db: Session, query: str, source: str = "auto", user_hash: str | None = None
+    db: Session, query: str, source: str = "auto", user_hash: str | None = None, artist_url: str | None = None
 ) -> DownloadJob:
     job = DownloadJob(
         source="spotiflac", query=query, status="queued", user_hash=user_hash
@@ -502,7 +504,7 @@ def queue_download(
         db.commit()
         thread = threading.Thread(
             target=lambda: _download_with_yt_music(
-                job.id, query, settings.database_url, user_hash
+                job.id, query, settings.database_url, user_hash, artist_url=artist_url
             ),
             daemon=True,
         )
@@ -512,7 +514,7 @@ def queue_download(
     # All other URLs go through SpotiFLAC
     thread = threading.Thread(
         target=_run_download,
-        args=(job.id, query, settings.database_url, user_hash),
+        args=(job.id, query, settings.database_url, user_hash, artist_url),
         daemon=True,
     )
     thread.start()

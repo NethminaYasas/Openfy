@@ -1260,12 +1260,20 @@ def refresh_artist_image(
 
     # Run in background - don't block the response
     import threading
+    from .db import SessionLocal
+    artist_id_for_thread = artist.id
     def background_fetch():
+        new_db = SessionLocal()
         try:
-            _auto_fetch_artist_image(db, artist)
-            db.commit()
+            from app.models import Artist
+            bg_artist = new_db.get(Artist, artist_id_for_thread)
+            if bg_artist:
+                _auto_fetch_artist_image(new_db, bg_artist)
+                new_db.commit()
         except Exception as e:
             print(f"Background artist image fetch failed: {e}")
+        finally:
+            new_db.close()
 
     threading.Thread(target=background_fetch, daemon=True).start()
 
@@ -1278,18 +1286,35 @@ def _auto_fetch_artist_image(db: Session, artist: Artist) -> None:
     from sqlalchemy import select
     from app.services.artist_service import get_artist_info_from_spotify
 
-    # Look for a Spotify track URL in the artist's tracks
-    tracks = db.execute(
-        select(Track).where(Track.artist_id == artist.id).limit(10)
-    ).scalars().all()
+    artist_info = None
 
-    spotify_track_url = None
-    for track in tracks:
-        if track.source_url and "open.spotify.com" in track.source_url and "/track/" in track.source_url:
-            spotify_track_url = track.source_url
-            break
+    # 1. Try using artist's own Spotify URL if present
+    if artist.spotify_url:
+        try:
+            artist_info = get_artist_info_from_spotify(artist.spotify_url)
+        except Exception as e:
+            print(f"Direct artist info fetch failed for {artist.name}: {e}")
 
-    if not spotify_track_url:
+    # 2. Fallback to track-based discovery if needed
+    if not artist_info:
+        # Look for a Spotify track URL in the artist's tracks
+        tracks = db.execute(
+            select(Track).where(Track.artist_id == artist.id).limit(10)
+        ).scalars().all()
+
+        spotify_track_url = None
+        for track in tracks:
+            if track.source_url and "open.spotify.com" in track.source_url and "/track/" in track.source_url:
+                spotify_track_url = track.source_url
+                break
+
+        if spotify_track_url:
+            try:
+                artist_info = get_artist_info_from_spotify(spotify_track_url)
+            except Exception as e:
+                print(f"Track-based artist info fetch failed for {artist.name}: {e}")
+
+    if not artist_info:
         return
 
     try:
@@ -1889,6 +1914,7 @@ def list_playlist_tracks(
     stmt = (
         select(PlaylistTrack)
         .options(
+            selectinload(PlaylistTrack.track).selectinload(Track.artist),
             selectinload(PlaylistTrack.track).selectinload(Track.artists),
             selectinload(PlaylistTrack.track).selectinload(Track.album),
         )
@@ -2146,7 +2172,7 @@ def create_download(
             status_code=403, detail="Uploads are disabled for your account"
         )
 
-    return queue_download(db, payload.query, payload.source or "auto", user.auth_hash)
+    return queue_download(db, payload.query, payload.source or "auto", user.auth_hash, artist_url=payload.artist_url)
 
 
 @app.post("/playlists/import")
@@ -2264,12 +2290,15 @@ def import_spotify_playlist(
             uri.replace("spotify:track:", "https://open.spotify.com/track/") if uri else None
         )
         artists = track_obj.get("artists", [])
+        artist_id = artists[0].get("id") if isinstance(artists, list) and artists else None
+        artist_url = f"https://open.spotify.com/artist/{artist_id}" if artist_id else None
         normalized_tracks.append(
             {
                 "name": track_obj.get("name"),
                 "artists": [a.get("name") for a in artists] if isinstance(artists, list) else [],
                 "duration_ms": track_obj.get("duration_ms", 0),
                 "spotify_url": spotify_url,
+                "artist_url": artist_url,
             }
         )
 

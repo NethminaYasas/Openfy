@@ -1018,7 +1018,7 @@ async function importSpotifyPlaylist() {
             try {
                 if (!track.spotify_url) continue;
 
-                const jobId = await downloadFromLink(track.spotify_url);
+                const jobId = await downloadFromLink(track.spotify_url, track.artist_url);
 
                 // Poll for completion with timeout (max 120 seconds)
                 let completed = false;

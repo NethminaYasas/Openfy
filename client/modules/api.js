@@ -178,11 +178,18 @@ export async function deleteAvatar() {
   return await api("/users/avatar", { method: "DELETE" });
 }
 
-export async function downloadFromLink(url) {
+export async function downloadFromLink(url, artistUrl) {
   if (!state.currentUser || (!state.currentUser.is_admin && !state.currentUser.upload_enabled)) {
     throw new Error("Uploads are disabled for your account.");
   }
-  var jobData = await api("/downloads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: url, source: "spotiflac" }) });
+  const payload = { query: url, source: "spotiflac" };
+  if (artistUrl) payload.artist_url = artistUrl;
+
+  var jobData = await api("/downloads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
   return jobData.id;
 }
 

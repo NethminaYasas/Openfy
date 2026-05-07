@@ -5050,6 +5050,20 @@ input:checked + .toggle-slider:before {
     font-weight: 500;
 }
 
+.album-artist-avatar {
+    width: 24px;
+    height: 24px;
+}
+
+.album-meta-artist {
+    font-weight: 700;
+    color: #fff;
+}
+
+.album-meta-artist:hover {
+    text-decoration: underline;
+}
+
 /* Playlist Actions */
 .playlist-actions {
     position: relative;
