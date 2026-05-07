@@ -358,8 +358,16 @@ export async function followPlaylist(playlistId) {
   return await api("/playlists/" + playlistId + "/follow", { method: "POST" });
 }
 
+export async function followAlbum(albumId) {
+  return await api("/albums/" + albumId + "/follow", { method: "POST" });
+}
+
 export async function unfollowPlaylist(playlistId) {
   return await api("/playlists/" + playlistId + "/follow", { method: "DELETE" });
+}
+
+export async function unfollowAlbum(albumId) {
+  return await api("/albums/" + albumId + "/follow", { method: "DELETE" });
 }
 
 export async function removeTrackFromPlaylist(playlistId, trackId) {
@@ -415,6 +423,15 @@ export async function loadTracksList(searchQuery = "") {
 
 export async function deleteTrack(trackId) {
   return await api(`/admin/tracks/${trackId}`, { method: "DELETE" });
+}
+
+export async function loadAlbumsList(searchQuery = "") {
+  const url = searchQuery.trim() ? `/admin/albums?q=${encodeURIComponent(searchQuery.trim())}` : "/admin/albums";
+  return await api(url);
+}
+
+export async function deleteAlbum(albumId) {
+  return await api(`/admin/albums/${albumId}`, { method: "DELETE" });
 }
 
 export async function updateLibraryState(minimized) {

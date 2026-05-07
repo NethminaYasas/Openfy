@@ -1,5 +1,5 @@
 import { state, withBase } from './state.js';
-import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist, runSearch, runSpotifySearch } from './api.js';
+import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist, runSearch, runSpotifySearch, followAlbum } from './api.js';
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, createAlbumIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
 import { addRecentSearch, loadRecentSearches, removeRecentSearch } from './recent-searches.js';
 
@@ -159,7 +159,7 @@ export function navigateFromUrl() {
     const isAlbum = path.startsWith('/album/');
     const playlistId = path.split(isAlbum ? '/album/' : '/playlist/')[1];
     if (playlistId) {
-      openPlaylistById(playlistId);
+      openPlaylistById(playlistId, isAlbum);
     } else {
       setActivePage('home');
     }
@@ -176,11 +176,12 @@ export function navigateFromUrl() {
   }
 }
 
-export async function openPlaylistById(playlistId) {
+export async function openPlaylistById(playlistId, isAlbum = false) {
   state.currentPlaylistId = playlistId;
   const { api } = await import('./api.js');
   try {
-    var pl = await api("/playlists/" + playlistId);
+    const endpoint = isAlbum ? "/albums/" + playlistId : "/playlists/" + playlistId;
+    var pl = await api(endpoint);
     openPlaylist(playlistId);
     setActivePage("playlist", true);
   } catch (err) {
@@ -373,6 +374,22 @@ export async function loadArtistPage(artistId) {
             }
         }
 
+        // Render Albums
+        const albumsSection = document.getElementById("artist-albums-section");
+        const albumsGrid = document.getElementById("artist-albums-grid");
+        if (albumsSection && albumsGrid) {
+            albumsGrid.innerHTML = "";
+            if (artist.albums && artist.albums.length > 0) {
+                albumsSection.style.display = "block";
+                artist.albums.forEach(album => {
+                    const card = buildAlbumCard(album);
+                    albumsGrid.appendChild(card);
+                });
+            } else {
+                albumsSection.style.display = "none";
+            }
+        }
+
         // Mark as loaded to fade in content
         document.getElementById("page-artist").classList.add("loaded");
     } catch (error) {
@@ -455,52 +472,91 @@ export function buildTrackCard(track, list, index) {
 }
 
 export function buildAlbumCard(album) {
-  var card = document.createElement("div");
-  card.className = "card";
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.flex = "0 0 180px";
 
-  var artContainer = document.createElement("div");
-  artContainer.className = "artwork-container";
+    const artContainer = document.createElement("div");
+    artContainer.className = "artwork-container";
 
-  var artistName = album.artist ? album.artist.name : "Unknown Artist";
-  var art = createArtCanvas(album.title || "Unknown Album", artistName);
-  var img = document.createElement("img");
-  img.className = "card-img";
-  img.src = withBase("/albums/" + album.id + "/artwork?v=" + (album.updated_at || ""));
-  img.alt = album.title || "Unknown Album";
-  img.style.display = "none";
-
-  img.addEventListener("load", function() {
-    art.style.display = "none";
-    img.style.display = "block";
-  });
-  img.addEventListener("error", function() {
+    const artistName = album.artist ? album.artist.name : "Unknown Artist";
+    const art = createArtCanvas(album.title || "Unknown Album", artistName);
+    const img = document.createElement("img");
+    img.className = "card-img";
+    img.src = withBase("/albums/" + album.id + "/artwork?v=" + (album.updated_at || ""));
+    img.alt = album.title || "Unknown Album";
     img.style.display = "none";
-    art.style.display = "block";
-  });
 
-  artContainer.appendChild(art);
-  artContainer.appendChild(img);
-  card.appendChild(artContainer);
+    img.addEventListener("load", function() {
+        art.style.display = "none";
+        img.style.display = "block";
+    });
+    img.addEventListener("error", function() {
+        img.style.display = "none";
+        art.style.display = "block";
+    });
 
-  var title = document.createElement("p");
-  title.className = "card-title";
-  title.textContent = album.title || "Unknown Album";
-  var info = document.createElement("p");
-  info.className = "card-info clickable-artist";
-  info.textContent = artistName;
-  if (album.artist_id || album.artist?.id) {
-    info.dataset.artistId = album.artist_id || album.artist.id;
-  }
-  card.appendChild(title);
-  card.appendChild(info);
+    artContainer.appendChild(art);
+    artContainer.appendChild(img);
+    
+    // Follow button on hover (like Spotify's heart but for album)
+    const followBtn = document.createElement("button");
+    followBtn.className = "card-follow-btn";
+    followBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+    followBtn.title = "Save to Your Library";
+    followBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+            const resp = await followAlbum(album.id);
+            if (resp.success) {
+                // Refresh library sidebar
+                if (window.loadPlaylists) await window.loadPlaylists();
+                alert("Album saved to your library");
+            } else if (resp.already_followed) {
+                alert("Album is already in your library");
+            }
+        } catch (err) {
+            console.error("Failed to follow album:", err);
+            alert("Failed to save album");
+        }
+    });
+    artContainer.appendChild(followBtn);
+    
+    card.appendChild(artContainer);
 
-  // Add click handler to navigate to album page (if implemented)
-  card.addEventListener("click", function() {
-    // TODO: Implement album page navigation
-    console.log("Album clicked:", album.id);
-  });
+    const title = document.createElement("p");
+    title.className = "card-title";
+    title.textContent = album.title || "Unknown Album";
 
-  return card;
+    const info = document.createElement("p");
+    info.className = "card-info clickable-artist";
+    info.textContent = artistName;
+    const artistId = album.artist_id || (album.artist && album.artist.id);
+    if (artistId) {
+        info.dataset.artistId = artistId;
+    }
+
+    card.appendChild(title);
+    card.appendChild(info);
+
+    card.addEventListener("click", (e) => {
+        if (e.target.classList.contains('clickable-artist') || e.target.closest('.card-follow-btn')) return;
+        
+        // Push state to browser history and navigate
+        history.pushState(null, '', '/album/' + album.id);
+        if (window.navigateFromUrl) {
+            window.navigateFromUrl();
+        } else {
+            // Fallback if not exposed globally
+            import('./ui.js').then(ui => {
+                if (ui.openPlaylistById) {
+                    ui.openPlaylistById(album.id, true);
+                }
+            });
+        }
+    });
+
+    return card;
 }
 
 function createArtCanvas(title, artist) {
@@ -877,11 +933,12 @@ export function buildPlaylistCover(tracks, playlist) {
   buildPlaylistCoverUtil(tracks, playlist);
 }
 
-export async function openPlaylist(playlistId) {
+export async function openPlaylist(playlistId, isAlbum = false) {
   const { api } = await import('./api.js');
   state.currentPlaylistId = playlistId;
   try {
-    var pl = await api("/playlists/" + playlistId);
+    const endpoint = isAlbum ? "/albums/" + playlistId : "/playlists/" + playlistId;
+    var pl = await api(endpoint);
 
     // Check if access is denied (private playlist for non-owner)
     if (pl.access_denied) {
@@ -931,7 +988,10 @@ export async function openPlaylist(playlistId) {
       return;
     }
 
-    var tracks = await api("/playlists/" + playlistId + "/tracks");
+    var tracks = pl.tracks;
+    if (!tracks) {
+        tracks = await api("/playlists/" + playlistId + "/tracks");
+    }
 
     // Remove any blur classes if access is granted
     document.getElementById('playlist-name').classList.remove('blurred-text');
@@ -964,10 +1024,9 @@ export async function openPlaylist(playlistId) {
     var ownerId = pl.user?.id;
 
     document.getElementById('playlist-name').textContent = pl.name;
-    let typeText = Boolean(pl.is_public) ? 'Public Playlist' : 'Private Playlist';
-    if (pl.type === 'album') {
-      typeText = 'Album';
-    }
+    const isLiked = pl.is_liked === true;
+    let typeText = pl.type === 'album' ? 'Album' : (Boolean(pl.is_public) ? 'Public Playlist' : 'Private Playlist');
+    if (isLiked) typeText = 'Playlist';
     document.getElementById('playlist-type').textContent = typeText;
 
     let avatarHtml = '';
@@ -1013,7 +1072,6 @@ export async function openPlaylist(playlistId) {
     // Use is_owner from API response (more reliable)
     const isOwner = pl.is_owner === true;
     const isPublic = pl.is_public === true;
-    const isLiked = pl.is_liked === true;
     const isFollowed = pl.is_followed === true;
 
     updatePlaylistMenu(isPublic, isOwner, isLiked, isFollowed);
@@ -1026,30 +1084,23 @@ export async function openPlaylist(playlistId) {
       // Show follow button for public playlists where user is NOT owner and IS logged in
       // (either to follow, or to show the checkmark if already following)
       const isLoggedIn = !!state.currentUser;
-      console.log('Follow button debug:', { isPublic, isLiked, isOwner, isLoggedIn, pl_is_liked: pl.is_liked, pl_is_owner: pl.is_owner });
-      const showFollow = isPublic && !isLiked && !isOwner && isLoggedIn;
-      console.log('showFollow result:', showFollow);
+      const isAlbum = pl.type === 'album';
+      // Show follow button for public playlists user doesn't own, OR for any album
+      const showFollow = (isPublic && !isLiked && !isOwner && isLoggedIn) || (isAlbum && isLoggedIn);
       if (showFollow) {
         followBtn.style.setProperty('display', 'flex', 'important');
         // Update icon based on follow state - keep both states with same dimensions
         const baseStyle = 'padding: 8px !important; width: auto !important; height: auto !important; min-width: 24px !important; min-height: 24px !important;';
         if (isFollowed) {
-          // Show green circle with black checkmark - matches track in playlist icon
-          followBtn.innerHTML = '';
-          followBtn.style.cssText = baseStyle + ' background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
-          // Add checkmark via CSS pseudo-element
-          if (!document.getElementById('follow-btn-style')) {
-            const style = document.createElement('style');
-            style.id = 'follow-btn-style';
-            style.textContent = '#playlist-follow-btn.followed::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; margin-bottom: 2px; }';
-            document.head.appendChild(style);
-          }
+          // Show green circle with black checkmark
+          followBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #000; font-size: 14px; display: flex; align-items: center; justify-content: center;"></i>';
+          followBtn.style.cssText = baseStyle + ' background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important;';
           followBtn.classList.add('followed');
           followBtn.title = 'Unfollow playlist';
         } else {
           // Show plus in circle (not following)
-          followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
-          followBtn.style.cssText = baseStyle + ' background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+          followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; font-size: 20px; display: flex; align-items: center; justify-content: center;"></i>';
+          followBtn.style.cssText = baseStyle + ' background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important;';
           followBtn.classList.remove('followed');
           followBtn.title = 'Follow playlist';
         }
@@ -1065,7 +1116,7 @@ export async function openPlaylist(playlistId) {
       document.getElementById('playlist-gradient').style.background =
         'linear-gradient(180deg, #4a1a6b 0%, #121212 100%)';
     } else {
-      const coverPath = "/playlists/" + pl.id + "/cover";
+      const coverPath = isAlbum ? "/albums/" + pl.id + "/artwork" : "/playlists/" + pl.id + "/cover";
       fetch(withBase(coverPath), { headers: { 'x-auth-hash': state.authHash } })
         .then(res => {
           if (!res.ok) throw new Error("HTTP " + res.status);
@@ -1266,9 +1317,10 @@ export function renderLibrary() {
       }
       cover.appendChild(icon);
 
-      // Only try to load custom cover if playlist has tracks (need 4+ for meaningful collage)
+      // For albums, always try to load the artwork.
+      // For playlists, only try if it has tracks (need 4+ for meaningful collage fallback)
       var trackCount = pl.track_count || 0;
-      if (trackCount >= 4) {
+      if (pl.type === 'album' || trackCount >= 1) {
         // Try to load custom cover (collage from tracks)
         var img = document.createElement("img");
         img.alt = escapeHtml(pl.name || "Playlist");
@@ -1294,7 +1346,7 @@ export function renderLibrary() {
         cover.appendChild(img);
         setAuthenticatedImage(
           img,
-          "/playlists/" + pl.id + "/cover",
+          pl.type === 'album' ? "/albums/" + pl.id + "/artwork" : "/playlists/" + pl.id + "/cover",
           function() {
             if (renderLibraryId !== currentRenderId) return;
           }
@@ -1326,14 +1378,14 @@ export function renderLibrary() {
       typeEl.appendChild(pinSvg);
       typeEl.appendChild(document.createTextNode(" "));
     }
-    // Show "Public Playlist" for followed playlists, "Playlist • X songs" for liked songs, "Playlist" otherwise
-    if (pl.is_followed) {
-      typeEl.appendChild(document.createTextNode("Public Playlist"));
-    } else if (pl.is_liked) {
+    // Priority labeling: Liked Songs -> Album -> Followed/Own Playlists
+    if (pl.is_liked) {
       var trackCount = pl.track_count || 0;
       typeEl.appendChild(document.createTextNode("Playlist • " + trackCount + " song" + (trackCount !== 1 ? "s" : "")));
     } else if (pl.type === 'album') {
       typeEl.appendChild(document.createTextNode("Album" + (pl.owner_name ? " • " + pl.owner_name : "")));
+    } else if (pl.is_followed) {
+      typeEl.appendChild(document.createTextNode("Public Playlist"));
     } else {
       typeEl.appendChild(document.createTextNode("Playlist"));
     }
@@ -1343,7 +1395,7 @@ export function renderLibrary() {
 
     item.appendChild(cover);
     item.appendChild(info);
-    item.addEventListener("click", function() { openPlaylist(pl.id); });
+    item.addEventListener("click", function() { openPlaylist(pl.id, pl.type === 'album'); });
     item.addEventListener("contextmenu", function(e) {
       e.preventDefault();
       if (window.showContextMenu) window.showContextMenu(e, pl);

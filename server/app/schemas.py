@@ -51,6 +51,7 @@ class ArtistOut(ArtistBase):
     id: str
     created_at: datetime
     tracks: List["TrackForArtist"] = Field(default_factory=list)
+    albums: List["AlbumOut"] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

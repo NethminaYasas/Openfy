@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack } from './api.js';
+import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack, loadAlbumsList, deleteAlbum } from './api.js';
 import { formatDuration, escapeHtml } from './utils.js';
 import { applyPlaylistImportUI } from './ui.js';
 
@@ -299,7 +299,6 @@ export async function loadTracksListUI(searchQuery = "") {
         }
       });
     });
-
   } catch (err) {
     console.error("Failed to load tracks:", err);
     tableBody.innerHTML = "";
@@ -309,6 +308,92 @@ export async function loadTracksListUI(searchQuery = "") {
     td.style.textAlign = "center";
     td.style.color = "#e74c3c";
     td.textContent = "Error loading tracks. Admin access required.";
+    row.appendChild(td);
+    tableBody.appendChild(row);
+  }
+}
+
+export async function loadAlbumsListUI(searchQuery = "") {
+  const container = document.getElementById("albums-table-container");
+  const tableBody = document.getElementById("albums-table-body");
+  if (!container || !tableBody) return;
+
+  try {
+    const albums = await loadAlbumsList(searchQuery);
+    container.style.display = "block";
+    tableBody.innerHTML = "";
+    
+    if (!albums || albums.length === 0) {
+      const row = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 5;
+      td.style.textAlign = "center";
+      td.textContent = "No albums found";
+      row.appendChild(td);
+      tableBody.appendChild(row);
+      return;
+    }
+
+    albums.forEach(album => {
+      const row = document.createElement("tr");
+
+      const titleTd = document.createElement("td");
+      titleTd.textContent = album.title || "Untitled Album";
+
+      const artistTd = document.createElement("td");
+      artistTd.textContent = album.artist_name || "Unknown Artist";
+
+      const countTd = document.createElement("td");
+      countTd.textContent = String(album.track_count || 0);
+
+      const dateTd = document.createElement("td");
+      dateTd.textContent = album.created_at ? new Date(album.created_at).toLocaleDateString() : "-";
+
+      const actionsTd = document.createElement("td");
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn-delete";
+      delBtn.dataset.albumId = album.id || "";
+      delBtn.textContent = "Delete";
+      actionsTd.appendChild(delBtn);
+
+      row.appendChild(titleTd);
+      row.appendChild(artistTd);
+      row.appendChild(countTd);
+      row.appendChild(dateTd);
+      row.appendChild(actionsTd);
+      tableBody.appendChild(row);
+    });
+
+    tableBody.querySelectorAll(".btn-delete").forEach(btn => {
+      btn.addEventListener("click", async function() {
+        const albumId = this.dataset.albumId;
+        const confirmed = confirm("Are you sure you want to delete this album? ALL tracks in this album will be deleted from the server. This cannot be undone.");
+        if (!confirmed) return;
+
+        this.disabled = true;
+        this.textContent = "Deleting...";
+
+        try {
+          await deleteAlbum(albumId);
+          alert("Album and its tracks deleted successfully");
+          loadAlbumsListUI(searchQuery);
+        } catch (err) {
+          alert("Failed to delete album: " + err.message);
+          this.disabled = false;
+          this.textContent = "Delete";
+        }
+      });
+    });
+
+  } catch (err) {
+    console.error("Failed to load albums:", err);
+    tableBody.innerHTML = "";
+    const row = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.style.textAlign = "center";
+    td.style.color = "#e74c3c";
+    td.textContent = "Error loading albums. Admin access required.";
     row.appendChild(td);
     tableBody.appendChild(row);
   }
@@ -326,6 +411,11 @@ export function initAdminEventListeners() {
   const adminLibraryView = document.getElementById("admin-library-view");
   const adminLibraryBack = document.getElementById("admin-library-back");
   const librarySearchInput = document.getElementById("library-search-input");
+
+  const viewAlbumsBtn = document.getElementById("view-albums-btn");
+  const adminAlbumsView = document.getElementById("admin-albums-view");
+  const adminAlbumsBack = document.getElementById("admin-albums-back");
+  const albumsSearchInput = document.getElementById("albums-search-input");
   
   const adminManualUploadToggle = document.getElementById("manual-upload-enabled-admin");
   const playlistImportToggle = document.getElementById("playlist-import-enabled-admin");
@@ -333,6 +423,7 @@ export function initAdminEventListeners() {
   
   let searchTimeout = null;
   let librarySearchTimeout = null;
+  let albumsSearchTimeout = null;
   
   viewUsersBtn?.addEventListener("click", function() {
     adminDashboard.style.display = "none";
@@ -375,6 +466,25 @@ export function initAdminEventListeners() {
     const query = this.value.trim();
     librarySearchTimeout = setTimeout(() => {
       loadTracksListUI(query);
+    }, 300);
+  });
+
+  viewAlbumsBtn?.addEventListener("click", function() {
+    adminDashboard.style.display = "none";
+    adminAlbumsView.style.display = "flex";
+    loadAlbumsListUI();
+  });
+  
+  adminAlbumsBack?.addEventListener("click", function() {
+    adminAlbumsView.style.display = "none";
+    adminDashboard.style.display = "block";
+  });
+  
+  albumsSearchInput?.addEventListener("input", function() {
+    clearTimeout(albumsSearchTimeout);
+    const query = this.value.trim();
+    albumsSearchTimeout = setTimeout(() => {
+      loadAlbumsListUI(query);
     }, 300);
   });
   

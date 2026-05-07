@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -858,6 +858,21 @@ async function importSpotifyPlaylist() {
         }
 
         const playlistData = await response.json();
+        
+        if (playlistData.type === 'album' && playlistData.internal_album_id) {
+            // Album already exists! Just follow it.
+            statusDiv.textContent = "Album already exists in server. Following...";
+            try {
+                await followAlbum(playlistData.internal_album_id);
+            } catch (e) {
+                // Ignore if already following
+            }
+            await loadPlaylists();
+            document.getElementById("import-playlist-modal").style.display = "none";
+            openPlaylist(playlistData.internal_album_id, true);
+            return;
+        }
+
         const tracks = playlistData.tracks || [];
 
         statusDiv.textContent = `Found ${tracks.length} tracks. Processing...`;
@@ -1477,21 +1492,15 @@ function initPlaylistHandlers() {
     // Keep both states with same dimensions
     const baseStyle = 'padding: 8px !important; width: auto !important; height: auto !important; min-width: 24px !important; min-height: 24px !important;';
     if (isFollowing) {
-      // Show green circle with black checkmark - matches track in playlist icon
-      followBtn.innerHTML = '';
-      followBtn.style.cssText = baseStyle + ' background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important;';
-      if (!document.getElementById('follow-btn-style')) {
-        const style = document.createElement('style');
-        style.id = 'follow-btn-style';
-        style.textContent = '#playlist-follow-btn.followed::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; margin-bottom: 2px; }';
-        document.head.appendChild(style);
-      }
+      // Show green circle with black checkmark
+      followBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #000; font-size: 14px; display: flex; align-items: center; justify-content: center;"></i>';
+      followBtn.style.cssText = baseStyle + ' background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important;';
       followBtn.classList.add('followed');
       followBtn.title = 'Unfollow playlist';
     } else {
       // Show plus in circle (not following)
-      followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; width: 1em; height: 1em; display: flex; align-items: center; justify-content: center;"></i>';
-      followBtn.style.cssText = baseStyle + ' background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+      followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; font-size: 20px; display: flex; align-items: center; justify-content: center;"></i>';
+      followBtn.style.cssText = baseStyle + ' background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important;';
       followBtn.classList.remove('followed');
       followBtn.title = 'Follow playlist';
     }
@@ -1509,9 +1518,7 @@ function initPlaylistHandlers() {
     if (!playlist) return;
 
     try {
-      const apiModule = await import("./modules/api.js");
-      const followPlaylist = apiModule.followPlaylist || window.followPlaylist;
-      const unfollowPlaylist = apiModule.unfollowPlaylist || window.unfollowPlaylist;
+      const isAlbum = playlist.type === 'album';
 
       if (playlist.is_followed) {
         // Show confirmation modal for unfollow
@@ -1520,7 +1527,9 @@ function initPlaylistHandlers() {
         const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
         const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
 
-        confirmMessage.textContent = 'Remove "' + playlist.name + '" from your library?';
+        confirmMessage.textContent = isAlbum 
+          ? 'Remove "' + playlist.name + '" from your library?'
+          : 'Unfollow "' + playlist.name + '"?';
         confirmOverlay.style.display = 'flex';
 
         const handleUnfollow = async () => {
@@ -1529,7 +1538,11 @@ function initPlaylistHandlers() {
           confirmDeleteBtn.removeEventListener('click', handleUnfollow);
 
           try {
-            await unfollowPlaylist(playlistId);
+            if (isAlbum) {
+              await unfollowAlbum(playlistId);
+            } else {
+              await unfollowPlaylist(playlistId);
+            }
             playlist.is_followed = false;
             window.currentPlaylistFollowed = false;
             // Refresh playlists in library
@@ -1551,7 +1564,11 @@ function initPlaylistHandlers() {
         confirmCancelBtn.addEventListener('click', handleCancel);
         confirmDeleteBtn.addEventListener('click', handleUnfollow);
       } else {
-        await followPlaylist(playlistId);
+        if (isAlbum) {
+          await followAlbum(playlistId);
+        } else {
+          await followPlaylist(playlistId);
+        }
         playlist.is_followed = true;
         window.currentPlaylistFollowed = true;
         // Refresh playlists in library
@@ -1787,18 +1804,21 @@ function initContextMenuHandlers() {
       ctxVisibility.classList.add("disabled");
     }
 
-    // Albums: cannot rename or delete
-    if (playlist.type === 'album') {
+    // Albums: cannot rename or delete, only follow/unfollow
+    const isAlbum = playlist.type === 'album';
+    if (isAlbum) {
       ctxRename.classList.add("disabled");
       ctxRemove.classList.add("disabled");
       ctxVisibility.classList.add("disabled");
+      const unfollowSpan = ctxUnfollow.querySelector("span");
+      if (unfollowSpan) unfollowSpan.textContent = playlist.is_followed ? "Unfollow" : "Follow";
     }
 
     ctxPin.style.display = '';
-    ctxRename.style.display = '';
-    ctxRemove.style.display = playlist.is_liked ? '' : (isFollowedPublic ? 'none' : '');
-    ctxVisibility.style.display = playlist.is_liked ? 'none' : (isFollowedPublic ? 'none' : '');
-    ctxUnfollow.style.display = isFollowedPublic ? '' : 'none';
+    ctxRename.style.display = isAlbum ? 'none' : '';
+    ctxRemove.style.display = (playlist.is_liked || isAlbum) ? 'none' : (isFollowedPublic ? 'none' : '');
+    ctxVisibility.style.display = (playlist.is_liked || isAlbum) ? 'none' : (isFollowedPublic ? 'none' : '');
+    ctxUnfollow.style.display = (isFollowedPublic || isAlbum) ? '' : 'none';
     ctxTrackAddPlaylist.style.display = 'none';
     ctxTrackAddQueue.style.display = 'none';
     ctxPlaylistSubmenu.classList.remove('visible');
@@ -1952,36 +1972,75 @@ function initContextMenuHandlers() {
     const playlistName = playlist.name;
     hideContextMenu();
 
-    // Show confirmation modal for unfollow
-    const confirmOverlay = document.getElementById('confirm-modal-overlay');
-    const confirmMessage = document.getElementById('confirm-message');
-    const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
-    const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+    const isAlbum = playlist.type === 'album';
 
-    confirmMessage.textContent = 'Remove "' + playlistName + '" from your library?';
-    confirmOverlay.style.display = 'flex';
+    if (playlist.is_followed) {
+      // Show confirmation modal for unfollow
+      const confirmOverlay = document.getElementById('confirm-modal-overlay');
+      const confirmMessage = document.getElementById('confirm-message');
+      const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+      const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
 
-    const handleUnfollow = async () => {
-      confirmOverlay.style.display = 'none';
-      confirmCancelBtn.removeEventListener('click', handleCancel);
-      confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+      confirmMessage.textContent = 'Remove "' + playlistName + '" from your library?';
+      confirmOverlay.style.display = 'flex';
 
+      const handleUnfollow = async () => {
+        confirmOverlay.style.display = 'none';
+        confirmCancelBtn.removeEventListener('click', handleCancel);
+        confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+
+        try {
+          const apiModule = await import("./modules/api.js");
+          if (isAlbum) {
+            const unfollowAlbum = apiModule.unfollowAlbum || window.unfollowAlbum;
+            await unfollowAlbum(playlistId);
+          } else {
+            const unfollowPlaylist = apiModule.unfollowPlaylist || window.unfollowPlaylist;
+            await unfollowPlaylist(playlistId);
+          }
+          // Refresh playlists in library
+          await loadPlaylists();
+          // Update the follow button if viewing this playlist
+          if (state.currentPlaylistId === playlistId && window.currentPlaylistData) {
+            window.currentPlaylistData.is_followed = false;
+            window.currentPlaylistFollowed = false;
+            updateFollowButtonState(false);
+          }
+        } catch (err) {
+          console.error("Failed to unfollow:", err);
+        }
+      };
+
+      const handleCancel = () => {
+        confirmOverlay.style.display = 'none';
+        confirmCancelBtn.removeEventListener('click', handleCancel);
+        confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+      };
+
+      confirmDeleteBtn.textContent = 'Remove';
+      confirmCancelBtn.addEventListener('click', handleCancel);
+      confirmDeleteBtn.addEventListener('click', handleUnfollow);
+    } else {
+      // It is an album that is not followed yet (since playlists don't show the unfollow menu item if not followed)
       try {
         const apiModule = await import("./modules/api.js");
-        const unfollowPlaylist = apiModule.unfollowPlaylist || window.unfollowPlaylist;
-        await unfollowPlaylist(playlistId);
-        // Refresh playlists in library
+        if (isAlbum) {
+          const followAlbum = apiModule.followAlbum || window.followAlbum;
+          await followAlbum(playlistId);
+        } else {
+          const followPlaylist = apiModule.followPlaylist || window.followPlaylist;
+          await followPlaylist(playlistId);
+        }
         await loadPlaylists();
-        // Update the follow button if viewing this playlist
         if (state.currentPlaylistId === playlistId && window.currentPlaylistData) {
-          window.currentPlaylistData.is_followed = false;
-          window.currentPlaylistFollowed = false;
-          updateFollowButtonState(false);
+          window.currentPlaylistData.is_followed = true;
+          window.currentPlaylistFollowed = true;
+          updateFollowButtonState(true);
         }
       } catch (err) {
-        console.error("Failed to unfollow:", err);
+        console.error("Failed to follow:", err);
       }
-    };
+    }
 
     const handleCancel = () => {
       confirmOverlay.style.display = 'none';

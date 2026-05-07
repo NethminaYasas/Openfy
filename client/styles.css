@@ -593,9 +593,43 @@ html, body {
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
-    margin-left: 0.75rem;
-    flex-shrink: 0;
-    position: relative;
+}
+
+.player-like-btn:hover {
+    border-color: #fff;
+    color: #fff;
+    transform: scale(1.1);
+}
+
+.card-follow-btn {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #1db954;
+    color: #000;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10;
+}
+
+.card:hover .card-follow-btn {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.card-follow-btn:hover {
+    transform: scale(1.1);
+    background: #1ed760;
 }
 
 .player-like-btn:hover:not(.liked) {

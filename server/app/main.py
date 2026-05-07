@@ -49,6 +49,7 @@ from .models import (
     Playlist,
     PlaylistTrack,
     FollowedPlaylist,
+    FollowedAlbum,
     DownloadJob,
     User,
     TrackPlay,
@@ -1211,6 +1212,7 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
         .options(selectinload(Artist.many_tracks).selectinload(Track.album))
         .options(selectinload(Artist.many_tracks).joinedload(Track.artist))
         .options(selectinload(Artist.many_tracks).selectinload(Track.artists))
+        .options(selectinload(Artist.albums))
         .where(Artist.id == artist_id)
     ).scalar_one_or_none()
     if not artist:
@@ -1232,6 +1234,58 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
     artist.tracks = combined_tracks
 
     return artist
+
+
+@app.post("/albums/{album_id}/follow")
+def follow_album(
+    album_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Follow an album by creating a local playlist for it."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    album = db.get(Album, album_id)
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    # Check if already followed (as a playlist)
+    existing = db.execute(
+        select(Playlist).where(
+            Playlist.user_hash == user.auth_hash,
+            Playlist.name == album.title,
+            Playlist.type == "album",
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        return {"playlist_id": existing.id, "already_followed": True}
+
+    # Create playlist for album
+    import uuid
+
+    playlist_id = str(uuid.uuid4())
+    playlist = Playlist(
+        id=playlist_id,
+        name=album.title,
+        user_hash=user.auth_hash,
+        type="album",
+        is_public=True,
+    )
+    db.add(playlist)
+
+    # Add all tracks of this album to the playlist
+    tracks = db.execute(select(Track).where(Track.album_id == album.id)).scalars().all()
+    for track in tracks:
+        pt = PlaylistTrack(playlist_id=playlist_id, track_id=track.id)
+        db.add(pt)
+
+    db.commit()
+    return {"playlist_id": playlist_id, "success": True}
 
 
 @app.get("/artists/{artist_id}/refresh-image")
@@ -1478,31 +1532,144 @@ def list_playlists(
         )
         followed_playlists = db.execute(followed_stmt).scalars().all()
 
+    # Get followed albums
+    followed_albums = []
+    if user:
+        albums_stmt = (
+            select(Album)
+            .options(joinedload(Album.artist))
+            .join(FollowedAlbum, FollowedAlbum.album_id == Album.id)
+            .where(FollowedAlbum.user_hash == user.auth_hash)
+            .order_by(FollowedAlbum.followed_at.desc())
+        )
+        followed_albums = db.execute(albums_stmt).scalars().all()
+
     # Combine and mark is_owner and is_followed
     result = []
     for pl in own_playlists:
         pl_dict = pl.__dict__.copy()
-        pl_dict['is_owner'] = True
-        pl_dict['is_followed'] = False
+        pl_dict["is_owner"] = True
+        # For albums, we consider them "followed" in the UI sense even if owned
+        pl_dict["is_followed"] = pl.type == "album"
         # Get track count
         track_count = db.scalar(
             select(func.count(PlaylistTrack.track_id)).where(PlaylistTrack.playlist_id == pl.id)
         ) or 0
-        pl_dict['track_count'] = track_count
+        pl_dict["track_count"] = track_count
         result.append(pl_dict)
 
     for pl in followed_playlists:
         pl_dict = pl.__dict__.copy()
-        pl_dict['is_owner'] = False
-        pl_dict['is_followed'] = True
+        pl_dict["is_owner"] = False
+        pl_dict["is_followed"] = True
         # Get track count
         track_count = db.scalar(
             select(func.count(PlaylistTrack.track_id)).where(PlaylistTrack.playlist_id == pl.id)
         ) or 0
-        pl_dict['track_count'] = track_count
+        pl_dict["track_count"] = track_count
         result.append(pl_dict)
 
+    # Add followed albums converted to playlist-like dicts
+    for alb in followed_albums:
+        alb_dict = {
+            "id": alb.id,
+            "name": alb.title,
+            "type": "album",
+            "is_public": True,
+            "is_owner": False,
+            "is_followed": True,
+            "owner_name": alb.artist.name if alb.artist else "Unknown Artist",
+            "created_at": alb.created_at,
+            "track_count": db.scalar(select(func.count(Track.id)).where(Track.album_id == alb.id)) or 0
+        }
+        result.append(alb_dict)
+
     return result
+
+
+@app.get("/albums/{album_id}")
+def get_album(
+    album_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get an album by its ID. Returns it in a format compatible with the playlist view."""
+    user = None
+    if x_auth_hash:
+        user = _get_user(db, x_auth_hash)
+    album = db.execute(
+        select(Album)
+        .options(joinedload(Album.artist))
+        .where(Album.id == album_id)
+    ).scalar_one_or_none()
+
+    if not album:
+        # Fallback for legacy "album playlists"
+        pl = db.get(Playlist, album_id)
+        if pl and pl.type == "album":
+            return get_playlist(album_id, x_auth_hash, db)
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    # Get tracks
+    tracks_stmt = (
+        select(Track)
+        .options(selectinload(Track.artists), joinedload(Track.artist))
+        .where(Track.album_id == album_id)
+        .order_by(Track.track_no, Track.id)
+    )
+    tracks = db.execute(tracks_stmt).scalars().all()
+
+    # Check if user already follows this album
+    is_followed = False
+    if user:
+        followed = db.execute(
+            select(FollowedAlbum).where(
+                FollowedAlbum.user_hash == user.auth_hash,
+                FollowedAlbum.album_id == album_id,
+            )
+        ).scalar_one_or_none()
+        is_followed = followed is not None
+
+    # Construct a response that matches the Playlist structure for the UI
+    return {
+        "id": album.id,
+        "name": album.title,
+        "description": f"Album by {album.artist.name if album.artist else 'Unknown'}",
+        "type": "album",
+        "is_public": True,
+        "is_followed": is_followed,
+        "is_owner": False,
+        "is_liked": False,
+        "owner_name": album.artist.name if album.artist else "Unknown Artist",
+        "tracks": tracks,
+        "track_count": len(tracks),
+    }
+
+
+@app.get("/albums/{album_id}/artwork")
+def get_album_artwork(
+    album_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Get album artwork."""
+    album = db.get(Album, album_id)
+    if not album:
+        # Fallback for legacy "album playlists"
+        pl = db.get(Playlist, album_id)
+        if pl and pl.type == "album":
+            return get_playlist_cover(playlist_id=album_id, x_auth_hash=x_auth_hash, db=db)
+        
+    if not album or not album.artwork_path:
+        # Fallback to first track's artwork
+        track = db.execute(select(Track).where(Track.album_id == album_id)).scalar()
+        if track and track.artwork_path:
+            return FileResponse(track.artwork_path)
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    
+    if os.path.exists(album.artwork_path):
+        return FileResponse(album.artwork_path)
+    raise HTTPException(status_code=404, detail="Artwork file not found")
 
 
 @app.post("/playlists", response_model=PlaylistOut)
@@ -1607,7 +1774,8 @@ def get_playlist(
         })
 
     # Add is_followed and is_owner attributes for the full response
-    playlist.is_followed = is_followed
+    # For albums, we consider them "followed" in the UI sense even if owned
+    playlist.is_followed = is_followed or (is_owner and playlist.type == "album")
     playlist.is_owner = is_owner
 
     # Get track count
@@ -1856,6 +2024,84 @@ def follow_playlist(
     return {"success": True}
 
 
+@app.post("/albums/{album_id}/follow")
+def follow_album(
+    album_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Follow an album."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    album = db.get(Album, album_id)
+    if not album:
+        # Fallback for legacy "album playlists"
+        pl = db.get(Playlist, album_id)
+        if pl and pl.type == "album":
+            return follow_playlist(album_id, x_auth_hash, db)
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    # Check if already following
+    existing = db.execute(
+        select(FollowedAlbum).where(
+            FollowedAlbum.user_hash == user.auth_hash,
+            FollowedAlbum.album_id == album_id,
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        raise HTTPException(status_code=409, detail="Already following this album")
+
+    # Create follow
+    followed = FollowedAlbum(
+        user_hash=user.auth_hash,
+        album_id=album_id,
+    )
+    db.add(followed)
+    db.commit()
+
+    return {"success": True}
+
+
+@app.delete("/albums/{album_id}/follow")
+def unfollow_album(
+    album_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Unfollow an album."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    # Find and delete the follow
+    followed = db.execute(
+        select(FollowedAlbum).where(
+            FollowedAlbum.user_hash == user.auth_hash,
+            FollowedAlbum.album_id == album_id,
+        )
+    ).scalar_one_or_none()
+
+    if followed:
+        db.delete(followed)
+        db.commit()
+    else:
+        # Fallback for legacy "album playlists"
+        pl = db.get(Playlist, album_id)
+        if pl and pl.type == "album":
+            return unfollow_playlist(album_id, x_auth_hash, db)
+
+    return {"success": True}
+
+
 @app.delete("/playlists/{playlist_id}/follow")
 def unfollow_playlist(
     playlist_id: str,
@@ -1869,6 +2115,15 @@ def unfollow_playlist(
     user = _get_user(db, x_auth_hash)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    # If it's an owned album, unfollowing means deleting the playlist record
+    playlist = db.get(Playlist, playlist_id)
+    if playlist and playlist.user_hash == user.auth_hash and playlist.type == "album":
+        _delete_playlist_collage(playlist_id)
+        _delete_playlist_external_cover(playlist_id)
+        db.delete(playlist)
+        db.commit()
+        return {"success": True}
 
     # Find and delete the follow
     followed = db.execute(
@@ -2302,13 +2557,42 @@ def import_spotify_playlist(
             }
         )
 
+    # An album must have more than 1 track to be considered a valid album
+    final_type = url_type
+    if url_type == "album" and len(normalized_tracks) <= 1:
+        final_type = "playlist"
+
+    # If it's an album, try to find it in our DB by matching tracks
+    internal_album_id = None
+    if url_type == "album":
+        # Extract track Spotify IDs
+        spotify_ids = []
+        for raw_item in tracks_items:
+            track_obj = raw_item.get("track") if isinstance(raw_item.get("track"), dict) else raw_item
+            if isinstance(track_obj, dict):
+                uri = track_obj.get("uri")
+                if uri and uri.startswith("spotify:track:"):
+                    spotify_ids.append(uri.replace("spotify:track:", ""))
+        
+        if spotify_ids:
+            # Find any track in our DB with one of these Spotify IDs
+            existing_track = db.execute(
+                select(Track).where(Track.source_id.in_(spotify_ids), Track.album_id.is_not(None))
+            ).scalars().first()
+            if existing_track:
+                # Verify that the album actually exists
+                verified_album = db.get(Album, existing_track.album_id)
+                if verified_album:
+                    internal_album_id = verified_album.id
+
     return {
         "playlist_id": playlist_id,
         "name": playlist_data.get("name", "Imported Playlist"),
         "owner": owner_name,
         "image_url": image_url,
         "tracks": normalized_tracks,
-        "type": url_type,
+        "type": final_type,
+        "internal_album_id": internal_album_id,
     }
 
 
@@ -3021,6 +3305,71 @@ def delete_track(
             logger.warning("Failed to delete file for track %s at %s", track_id, safe_delete_target)
 
     return {"status": "deleted", "track": track_title}
+
+
+@app.get("/admin/albums")
+def list_albums_admin(
+    q: str | None = Query(None),
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    user = _require_admin(db, x_auth_hash)
+    stmt = select(Album).options(selectinload(Album.artist))
+    if q:
+        stmt = stmt.where(Album.title.ilike(f"%{q}%"))
+
+    albums = db.execute(stmt).scalars().all()
+
+    # Enrich with track count
+    results = []
+    for album in albums:
+        track_count = (
+            db.scalar(select(func.count(Track.id)).where(Track.album_id == album.id))
+            or 0
+        )
+        results.append(
+            {
+                "id": album.id,
+                "title": album.title or "Untitled Album",
+                "artist_name": album.artist.name if album.artist else "Unknown Artist",
+                "track_count": track_count,
+                "created_at": album.created_at.isoformat() if album.created_at else None,
+            }
+        )
+
+    # Sort by creation date descending
+    results.sort(
+        key=lambda x: x["created_at"] if x["created_at"] else "", reverse=True
+    )
+    return results
+
+
+@app.delete("/admin/albums/{album_id}")
+def delete_album_admin(
+    album_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
+):
+    user = _require_admin(db, x_auth_hash)
+    album = db.get(Album, album_id)
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    # Delete all tracks associated with this album
+    tracks = db.execute(select(Track).where(Track.album_id == album.id)).scalars().all()
+    for track in tracks:
+        file_path = track.file_path
+        p = Path(file_path)
+        if _is_within_dir(p, settings.music_dir):
+            resolved = p.resolve()
+            if _is_within_dir(resolved, settings.music_dir) and resolved.exists():
+                try:
+                    resolved.unlink()
+                except Exception:
+                    logger.warning("Failed to delete file for track %s at %s", track.id, resolved)
+        db.delete(track)
+
+    db.delete(album)
+    db.commit()
+    return {"status": "deleted"}
 
 
 # Serve index.html for all frontend routes (SPA routing)

@@ -449,11 +449,11 @@ export function syncLikeButtonState(track) {
     npLikeBtn.setAttribute("title", "Remove from Liked Songs");
   } else if (state.trackIdsInRegularPlaylists.has(track.id)) {
     npLikeBtn.classList.add("in-playlist");
-    npLikeBtn.innerHTML = '';
+    npLikeBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #1db954;"></i>';
     npLikeBtn.setAttribute("aria-label", "Added to playlist");
     npLikeBtn.setAttribute("title", "Added to playlist");
   } else {
-    npLikeBtn.innerHTML = '';
+    npLikeBtn.innerHTML = '<i class="fa-solid fa-circle-plus" style="color: #b3b3b3;"></i>';
     npLikeBtn.setAttribute("aria-label", "Add to Liked Songs");
     npLikeBtn.setAttribute("title", "Add to Liked Songs");
   }
