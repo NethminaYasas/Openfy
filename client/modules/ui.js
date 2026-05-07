@@ -1,6 +1,6 @@
 import { state, withBase } from './state.js';
 import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist, runSearch, runSpotifySearch } from './api.js';
-import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
+import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, createAlbumIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
 import { addRecentSearch, loadRecentSearches, removeRecentSearch } from './recent-searches.js';
 
 let renderLibraryId = 0;
@@ -122,7 +122,8 @@ if (pageId === "library" && state.authHash) {
     } else if (pageId === 'admin') {
       setUrl('/admin');
     } else if (pageId === 'playlist' && state.currentPlaylistId) {
-      setUrl('/playlist/' + state.currentPlaylistId);
+      const type = (window.currentPlaylistData && window.currentPlaylistData.type === 'album') ? 'album' : 'playlist';
+      setUrl('/' + type + '/' + state.currentPlaylistId);
     } else if (pageId === 'artist' && state.currentArtistId) {
       setUrl('/artist/' + state.currentArtistId);
     }
@@ -154,8 +155,9 @@ export function navigateFromUrl() {
     setActivePage('profile');
   } else if (path === '/admin') {
     setActivePage('admin');
-  } else if (path.startsWith('/playlist/')) {
-    const playlistId = path.split('/playlist/')[1];
+  } else if (path.startsWith('/playlist/') || path.startsWith('/album/')) {
+    const isAlbum = path.startsWith('/album/');
+    const playlistId = path.split(isAlbum ? '/album/' : '/playlist/')[1];
     if (playlistId) {
       openPlaylistById(playlistId);
     } else {
@@ -939,13 +941,20 @@ export async function openPlaylist(playlistId) {
     if (playlistMeta) playlistMeta.style.display = '';
 
     var ownerName = pl.user ? pl.user.name : 'User';
+    if (pl.type === 'album' && pl.owner_name) {
+      ownerName = pl.owner_name;
+    }
     var ownerAvatar = pl.user?.avatar_path;
     var ownerId = pl.user?.id;
 
     document.getElementById('playlist-name').textContent = pl.name;
-    document.getElementById('playlist-type').textContent = Boolean(pl.is_public) ? 'Public Playlist' : 'Private Playlist';
+    let typeText = Boolean(pl.is_public) ? 'Public Playlist' : 'Private Playlist';
+    if (pl.type === 'album') {
+      typeText = 'Album';
+    }
+    document.getElementById('playlist-type').textContent = typeText;
 
-    const avatarHtml = (ownerAvatar && ownerId)
+    const avatarHtml = (ownerAvatar && ownerId && pl.type !== 'album')
       ? `<img src="${withBase('/users/' + ownerId + '/avatar?t=' + Date.now())}" class="playlist-owner-avatar" alt="${ownerName}">`
       : '<div class="playlist-meta-avatar"></div>';
 
@@ -1147,8 +1156,10 @@ function updatePlaylistMenu(isPublic, isOwner, isLiked, isFollowed) {
     playlistMenuBtn.classList.remove("hidden");
   }
 
-  // Hide visibility toggle for Liked Songs, non-owners, or followed playlists
-  if (isLiked || !isOwner || isFollowed) {
+  const isAlbum = window.currentPlaylistData && window.currentPlaylistData.type === 'album';
+
+  // Hide visibility toggle for Liked Songs, non-owners, followed playlists, or albums
+  if (isLiked || !isOwner || isFollowed || isAlbum) {
     if (playlistVisibilityItem) playlistVisibilityItem.style.display = "none";
   } else {
     if (playlistVisibilityItem) playlistVisibilityItem.style.display = "flex";
@@ -1159,6 +1170,17 @@ function updatePlaylistMenu(isPublic, isOwner, isLiked, isFollowed) {
       if (playlistVisibilityIcon) playlistVisibilityIcon.className = "fa-solid fa-globe";
       if (playlistVisibilityText) playlistVisibilityText.textContent = "Make Public";
     }
+  }
+
+  // Also hide Rename and Delete for albums
+  const renameItem = document.getElementById("playlist-rename-item");
+  const deleteItem = document.getElementById("playlist-delete-item");
+  if (isAlbum) {
+    if (renameItem) renameItem.style.display = "none";
+    if (deleteItem) deleteItem.style.display = "none";
+  } else {
+    if (renameItem) renameItem.style.display = "flex";
+    if (deleteItem) deleteItem.style.display = "flex";
   }
 }
 
@@ -1196,10 +1218,12 @@ export function renderLibrary() {
       cover.style.display = "flex";
       cover.style.alignItems = "center";
       cover.style.justifyContent = "center";
-      var icon = document.createElement("i");
-      icon.className = "fa-solid fa-music";
-      icon.style.color = "#b3b3b3";
-      icon.style.fontSize = "20px";
+      var icon;
+      if (pl.type === 'album') {
+        icon = createAlbumIconSvg();
+      } else {
+        icon = createPlaylistIconSvg();
+      }
       cover.appendChild(icon);
 
       // Only try to load custom cover if playlist has tracks (need 4+ for meaningful collage)
@@ -1268,6 +1292,8 @@ export function renderLibrary() {
     } else if (pl.is_liked) {
       var trackCount = pl.track_count || 0;
       typeEl.appendChild(document.createTextNode("Playlist • " + trackCount + " song" + (trackCount !== 1 ? "s" : "")));
+    } else if (pl.type === 'album') {
+      typeEl.appendChild(document.createTextNode("Album" + (pl.owner_name ? " • " + pl.owner_name : "")));
     } else {
       typeEl.appendChild(document.createTextNode("Playlist"));
     }

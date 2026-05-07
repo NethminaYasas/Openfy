@@ -106,6 +106,8 @@ class TrackOutAdmin(TrackOut):
 class PlaylistCreate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
+    type: str | None = "playlist"
+    owner_name: str | None = None
 
 
 class PlaylistUpdate(BaseModel):
@@ -114,6 +116,8 @@ class PlaylistUpdate(BaseModel):
     shuffle: bool | None = None
     is_public: bool | None = None
     image_url: str | None = None
+    type: str | None = None
+    owner_name: str | None = None
 
 
 class PlaylistOut(BaseModel):
@@ -129,6 +133,8 @@ class PlaylistOut(BaseModel):
     is_followed: bool = False
     is_owner: bool = False
     track_count: int = 0
+    type: str = "playlist"
+    owner_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -170,6 +170,8 @@ class Playlist(Base):
     shuffle: Mapped[bool] = mapped_column(Integer, default=0)
     is_public: Mapped[bool] = mapped_column(Integer, default=0)  # 0 = private, 1 = public
     image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    type: Mapped[str] = mapped_column(String(20), default="playlist") # 'playlist' or 'album'
+    owner_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (

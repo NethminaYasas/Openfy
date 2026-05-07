@@ -541,6 +541,8 @@ def _startup():
                     "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_pos ON playlist_tracks(playlist_id, position)"
                 )
             )
+
+            # Restored indexes and migration logic
             conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_tracks_created_at ON tracks(created_at DESC)"
@@ -556,6 +558,16 @@ def _startup():
                     "CREATE INDEX IF NOT EXISTS idx_playlists_user_hash_created_at ON playlists(user_hash, created_at DESC)"
                 )
             )
+
+            # Migration: Add type and owner_name to playlists table if they don't exist
+            existing_columns = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(playlists)")).fetchall()
+            ]
+            if "type" not in existing_columns:
+                conn.execute(text("ALTER TABLE playlists ADD COLUMN type VARCHAR(20) DEFAULT 'playlist'"))
+            if "owner_name" not in existing_columns:
+                conn.execute(text("ALTER TABLE playlists ADD COLUMN owner_name VARCHAR(255)"))
 
             # Create followed_playlists table if it doesn't exist
             for row in conn.execute(text("PRAGMA table_info(followed_playlists)")).fetchall():
@@ -1495,6 +1507,8 @@ def create_playlist(
                 name=final_name,
                 description=payload.description,
                 user_hash=user.auth_hash,
+                type=payload.type or "playlist",
+                owner_name=payload.owner_name,
             )
             db.add(playlist)
             db.commit()
@@ -2157,34 +2171,42 @@ def import_spotify_playlist(
     if not spotify_url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    # Validate Spotify playlist URL with more specific pattern
-    if not re.match(r'^https?://open\.spotify\.com/playlist/[a-zA-Z0-9]+', spotify_url):
-        raise HTTPException(status_code=400, detail="Please enter a valid Spotify playlist URL")
+    # Validate Spotify URL (playlist or album)
+    if not re.match(r'^https?://open\.spotify\.com/(playlist|album)/[a-zA-Z0-9]+', spotify_url):
+        raise HTTPException(status_code=400, detail="Please enter a valid Spotify playlist or album URL")
 
-    # Parse playlist ID and owner from URL
-    # URL format: https://open.spotify.com/playlist/PLAYLIST_ID or /user/OWNER/playlist/...
-    match = re.search(r'playlist/([a-zA-Z0-9]+)', spotify_url)
+    # Parse ID and type from URL
+    match = re.search(r'(playlist|album)/([a-zA-Z0-9]+)', spotify_url)
     if not match:
-        raise HTTPException(status_code=400, detail="Invalid Spotify playlist URL")
+        raise HTTPException(status_code=400, detail="Invalid Spotify URL")
 
-    playlist_id = match.group(1)
+    url_type = match.group(1)
+    playlist_id = match.group(2)
 
-    # Try to extract owner from URL path
+    # Try to extract owner from URL path (mostly for playlists)
     owner_match = re.search(r'/user/([^/]+)/playlist/', spotify_url)
     owner = owner_match.group(1) if owner_match else "spotify"
 
-    # Import and use SpotifyClient to get playlist info
+    # Import and use SpotifyClient to get data
     try:
         from spotify_scraper import SpotifyClient
         client = SpotifyClient()
-        playlist_data = client.get_playlist_info(spotify_url)
+        if url_type == "album":
+            playlist_data = client.get_album_info(spotify_url)
+        else:
+            playlist_data = client.get_playlist_info(spotify_url)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not fetch playlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Could not fetch {url_type}: {str(e)}")
 
     # Return parsed data for frontend to process
     # Extract owner name from owner dict if available
     owner_name = owner
-    if playlist_data.get("owner") and isinstance(playlist_data.get("owner"), dict):
+    if url_type == "album" and playlist_data.get("artists"):
+        # For albums, use the first artist's name
+        artists = playlist_data.get("artists")
+        if isinstance(artists, list) and len(artists) > 0:
+            owner_name = artists[0].get("name", owner)
+    elif playlist_data.get("owner") and isinstance(playlist_data.get("owner"), dict):
         owner_name = playlist_data.get("owner").get("display_name", owner)
 
     # Extract highest-resolution image URL from images array
@@ -2257,6 +2279,7 @@ def import_spotify_playlist(
         "owner": owner_name,
         "image_url": image_url,
         "tracks": normalized_tracks,
+        "type": url_type,
     }
 
 

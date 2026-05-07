@@ -832,14 +832,14 @@ async function importSpotifyPlaylist() {
 
     const spotifyUrl = urlInput.value.trim();
     if (!spotifyUrl) {
-        alert("Please enter a Spotify playlist URL");
+        alert("Please enter a Spotify playlist or album URL");
         return;
     }
 
     // Show loading state
     importBtn.disabled = true;
     statusDiv.style.display = "block";
-    statusDiv.textContent = "Fetching playlist...";
+    statusDiv.textContent = "Fetching data...";
 
     try {
         // Step 1: Call backend to get playlist data
@@ -961,8 +961,8 @@ async function importSpotifyPlaylist() {
 
         statusDiv.textContent = `Found ${existingTracks.length} existing tracks, ${tracksToDownload.length} to download`;
 
-        // Step 3: Create playlist
-        const playlistName = playlistData.name || "Imported Playlist";
+        // Step 3: Create playlist/album
+        const playlistName = playlistData.name || (playlistData.type === 'album' ? "Imported Album" : "Imported Playlist");
         // Create playlist with current user as owner (use current auth hash)
         const playlistResp = await fetch("/playlists", {
             method: "POST",
@@ -970,7 +970,11 @@ async function importSpotifyPlaylist() {
                 "Content-Type": "application/json",
                 "x-auth-hash": state.authHash
             },
-            body: JSON.stringify({ name: playlistName })
+            body: JSON.stringify({ 
+                name: playlistName,
+                type: playlistData.type || "playlist",
+                owner_name: playlistData.owner || null
+            })
         });
 
         if (!playlistResp.ok) {
@@ -989,7 +993,9 @@ async function importSpotifyPlaylist() {
             },
             body: JSON.stringify({
                 is_public: true,
-                image_url: playlistData.image_url || null
+                image_url: playlistData.image_url || null,
+                type: playlistData.type || "playlist",
+                owner_name: playlistData.owner || null
             })
         });
 
@@ -1781,6 +1787,13 @@ function initContextMenuHandlers() {
       ctxVisibility.classList.add("disabled");
     }
 
+    // Albums: cannot rename or delete
+    if (playlist.type === 'album') {
+      ctxRename.classList.add("disabled");
+      ctxRemove.classList.add("disabled");
+      ctxVisibility.classList.add("disabled");
+    }
+
     ctxPin.style.display = '';
     ctxRename.style.display = '';
     ctxRemove.style.display = playlist.is_liked ? '' : (isFollowedPublic ? 'none' : '');
@@ -2383,7 +2396,7 @@ function initContextMenuHandlers() {
       ctxSubmenuItems.innerHTML = '<div class="submenu-error">Not logged in</div>';
       return;
     }
-    const sortedPlaylists = [...state.userPlaylists].sort(function(a, b) {
+    const sortedPlaylists = [...state.userPlaylists].filter(pl => pl.type !== 'album').sort(function(a, b) {
       if (a.is_liked && !b.is_liked) return -1;
       if (!a.is_liked && b.is_liked) return 1;
       if (a.pinned && !b.pinned) return -1;
