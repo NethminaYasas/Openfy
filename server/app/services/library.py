@@ -49,14 +49,25 @@ def _get_or_create_artist(db: Session, name: str) -> Artist:
     return artist
 
 
-def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: int | None) -> Album:
+def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: int | None, source_id: str | None = None) -> Album:
+    # Try to find by source_id first (most reliable for Spotify albums)
+    if source_id:
+        album = db.execute(select(Album).where(Album.source_id == source_id)).scalar_one_or_none()
+        if album:
+            if year and album.year != year:
+                album.year = year
+            return album
+    # Fallback to title + artist_id matching
     stmt = select(Album).where(Album.title == title, Album.artist_id == artist_id)
     album = db.execute(stmt).scalar_one_or_none()
     if album:
         if year and album.year != year:
             album.year = year
+        # Update source_id if not set
+        if source_id and not album.source_id:
+            album.source_id = source_id
         return album
-    album = Album(title=title, artist_id=artist_id, year=year)
+    album = Album(title=title, artist_id=artist_id, year=year, source_id=source_id)
     db.add(album)
     db.flush()
     return album
@@ -209,6 +220,7 @@ def _upsert_track(
     source_id: str | None = None,
     source_url: str | None = None,
     artist_url: str | None = None,
+    album_source_id: str | None = None,
 ) -> Track:
     # 1. Parse artist names
     raw_artists = metadata.get("artist") or []
@@ -234,7 +246,7 @@ def _upsert_track(
                 existing.universal_track_id = universal_track_id
             if source_url and not existing.source_url:
                 existing.source_url = source_url
-                db.add(existing)
+            db.add(existing)
             # Track already exists from same source, return existing without updating
             return existing
 
@@ -245,7 +257,8 @@ def _upsert_track(
         # Update existing track
         if not album_title:
             album_title = title
-        album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"))
+        # Use album_source_id if provided, otherwise fall back to title matching
+        album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"), source_id=album_source_id)
         if album:
             _store_artwork(album, file_path)
 
@@ -425,6 +438,7 @@ def scan_paths(
     source_id: str | None = None,
     source_url: str | None = None,
     artist_url: str | None = None,
+    album_source_id: str | None = None,
 ) -> dict:
     # Collect all audio files first
     audio_files = []
@@ -459,6 +473,7 @@ def scan_paths(
             source_id=source_id,
             source_url=source_url,
             artist_url=artist_url,
+            album_source_id=album_source_id,
         )
         if str(file) not in existing_paths:
             created += 1

@@ -68,7 +68,9 @@ class Album(Base):
     title: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     artwork_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     artist_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("artists.id"))
+    source_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)  # Spotify album ID
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     artist = relationship("Artist", back_populates="albums")
@@ -276,6 +278,7 @@ class DownloadJob(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True, server_default="")  # Legacy field
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default="0")  # Legacy field
     user_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    album_source_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)  # Spotify album ID for linking tracks to albums
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)

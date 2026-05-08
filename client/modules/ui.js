@@ -178,11 +178,10 @@ export function navigateFromUrl() {
 
 export async function openPlaylistById(playlistId, isAlbum = false) {
   state.currentPlaylistId = playlistId;
-  const { api } = await import('./api.js');
   try {
-    const endpoint = isAlbum ? "/albums/" + playlistId : "/playlists/" + playlistId;
-    var pl = await api(endpoint);
-    openPlaylist(playlistId);
+    // Just call openPlaylist with the correct isAlbum parameter
+    // openPlaylist will handle fetching the data
+    await openPlaylist(playlistId, isAlbum);
     setActivePage("playlist", true);
   } catch (err) {
     console.error("Failed to open playlist:", err);
@@ -479,12 +478,24 @@ export function buildAlbumCard(album) {
     const artContainer = document.createElement("div");
     artContainer.className = "artwork-container";
 
+    // Handle both Album model objects and Playlist objects (type="album")
+    const isPlaylist = album.type === "album";
+    const albumTitle = album.title || album.name || "Unknown Album";
     const artistName = album.artist ? album.artist.name : "Unknown Artist";
-    const art = createArtCanvas(album.title || "Unknown Album", artistName);
+
+    const art = createArtCanvas(albumTitle, artistName);
     const img = document.createElement("img");
     img.className = "card-img";
-    img.src = withBase("/albums/" + album.id + "/artwork?v=" + (album.updated_at || ""));
-    img.alt = album.title || "Unknown Album";
+
+    // Set artwork URL based on object type
+    if (isPlaylist) {
+        // Playlist object (type="album") - use image_url or playlist artwork endpoint
+        img.src = album.image_url ? withBase(album.image_url) : withBase("/playlists/" + album.id + "/artwork?v=" + (album.created_at || ""));
+    } else {
+        // Album model object - use created_at for cache busting
+        img.src = withBase("/albums/" + album.id + "/artwork?v=" + (album.created_at || Date.now()));
+    }
+    img.alt = albumTitle;
     img.style.display = "none";
 
     img.addEventListener("load", function() {
@@ -498,7 +509,7 @@ export function buildAlbumCard(album) {
 
     artContainer.appendChild(art);
     artContainer.appendChild(img);
-    
+
     // Follow button on hover (like Spotify's heart but for album)
     const followBtn = document.createElement("button");
     followBtn.className = "card-follow-btn";
@@ -507,6 +518,11 @@ export function buildAlbumCard(album) {
     followBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         try {
+            // For playlists, they're already "followed" (saved), so just show a message
+            if (isPlaylist) {
+                alert("Album is already in your library");
+                return;
+            }
             const resp = await followAlbum(album.id);
             if (resp.success) {
                 // Refresh library sidebar
@@ -523,11 +539,11 @@ export function buildAlbumCard(album) {
     artContainer.appendChild(followBtn);
     
     card.appendChild(artContainer);
-
-    const title = document.createElement("p");
-    title.className = "card-title";
-    title.textContent = album.title || "Unknown Album";
-
+ 
+    const titleEl = document.createElement("p");
+    titleEl.className = "card-title";
+    titleEl.textContent = albumTitle;
+ 
     const info = document.createElement("p");
     info.className = "card-info clickable-artist";
     info.textContent = artistName;
@@ -535,15 +551,23 @@ export function buildAlbumCard(album) {
     if (artistId) {
         info.dataset.artistId = artistId;
     }
-
-    card.appendChild(title);
+ 
+    card.appendChild(titleEl);
     card.appendChild(info);
-
+ 
     card.addEventListener("click", (e) => {
         if (e.target.classList.contains('clickable-artist') || e.target.closest('.card-follow-btn')) return;
         
-        // Push state to browser history and navigate
-        history.pushState(null, '', '/album/' + album.id);
+        // Navigate based on object type
+        const isPlaylist = album.type === "album";
+        if (isPlaylist) {
+            // Playlist object - navigate to /playlist/ or /album/ based on type
+            history.pushState(null, '', '/album/' + album.id);
+        } else {
+            // Album model object
+            history.pushState(null, '', '/album/' + album.id);
+        }
+        
         if (window.navigateFromUrl) {
             window.navigateFromUrl();
         } else {
@@ -991,6 +1015,13 @@ export async function openPlaylist(playlistId, isAlbum = false) {
     var tracks = pl.tracks;
     if (!tracks) {
         tracks = await api("/playlists/" + playlistId + "/tracks");
+    }
+    
+    // Normalize tracks format for albums (tracks are returned directly, not wrapped in {track: ...})
+    if (pl.type === 'album' && tracks.length > 0 && !tracks[0].track) {
+        tracks = tracks.map(function(track, index) {
+            return { position: index, track: track };
+        });
     }
 
     // Remove any blur classes if access is granted

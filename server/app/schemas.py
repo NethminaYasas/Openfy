@@ -222,6 +222,7 @@ class DownloadRequest(BaseModel):
     query: str = Field(..., min_length=1)
     source: str | None = "auto"
     artist_url: str | None = None
+    album_source_id: str | None = None  # For linking track to album
 
 
 class SpotifyImportRequest(BaseModel):

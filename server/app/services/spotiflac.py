@@ -168,7 +168,7 @@ def _append_log(db, job: DownloadJob, text: str) -> None:
 
 
 def _download_with_yt_music(
-    job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None
+    job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None, album_source_id: str | None = None
 ) -> None:
     """Download from Apple Music or Spotify URL using ytmusicapi (official audio tracks)."""
     from sqlalchemy import create_engine
@@ -305,6 +305,7 @@ def _download_with_yt_music(
                     preferred_stem=preferred_stem or None,
                 )
                 source_id = _extract_source_id(query)
+                album_source_id = job.album_source_id if job else None
                 if moved:
                     scan_paths(
                         db,
@@ -313,6 +314,7 @@ def _download_with_yt_music(
                         source_id=source_id,
                         source_url=query,
                         artist_url=artist_url,
+                        album_source_id=album_source_id,
                     )
                     _append_log(db, job, "Scan complete - track added to library")
                     job.status = "completed"
@@ -434,6 +436,9 @@ def _run_download(
                 db.commit()
                 return
 
+            # Get album_source_id from job
+            album_source_id = job.album_source_id if job else None
+            
             scan_paths(
                 db,
                 moved_files,
@@ -441,6 +446,7 @@ def _run_download(
                 source_id=source_id,
                 source_url=query,
                 artist_url=artist_url,
+                album_source_id=album_source_id,
             )
             _append_log(db, job, "Scan complete - track(s) added to library")
             job.status = "completed"
@@ -462,10 +468,12 @@ def _run_download(
 
 
 def queue_download(
-    db: Session, query: str, source: str = "auto", user_hash: str | None = None, artist_url: str | None = None
+    db: Session, query: str, source: str = "auto", user_hash: str | None = None, artist_url: str | None = None,
+    album_source_id: str | None = None,
 ) -> DownloadJob:
     job = DownloadJob(
-        source="spotiflac", query=query, status="queued", user_hash=user_hash
+        source="spotiflac", query=query, status="queued", user_hash=user_hash,
+        album_source_id=album_source_id,
     )
     db.add(job)
     db.commit()
@@ -504,7 +512,7 @@ def queue_download(
         db.commit()
         thread = threading.Thread(
             target=lambda: _download_with_yt_music(
-                job.id, query, settings.database_url, user_hash, artist_url=artist_url
+                job.id, query, settings.database_url, user_hash, artist_url=artist_url, album_source_id=album_source_id
             ),
             daemon=True,
         )

@@ -347,6 +347,31 @@ def _startup():
                     "CREATE INDEX IF NOT EXISTS idx_tracks_universal_track_id ON tracks(universal_track_id)"
                 )
             )
+            # Add source_id column to albums table if not exists
+            acols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(albums)")).fetchall()
+            ]
+            if "source_id" not in acols:
+                conn.execute(
+                    text("ALTER TABLE albums ADD COLUMN source_id VARCHAR(128)")
+                )
+                conn.commit()
+            acols = [
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(albums)")).fetchall()
+            ]
+            if "image_url" not in acols:
+                conn.execute(
+                    text("ALTER TABLE albums ADD COLUMN image_url VARCHAR(512)")
+                )
+                conn.commit()
+            # Create index for albums.source_id
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_albums_source_id ON albums(source_id)"
+                )
+            )
             conn.commit()
 
             pcols = [
@@ -1212,7 +1237,6 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
         .options(selectinload(Artist.many_tracks).selectinload(Track.album))
         .options(selectinload(Artist.many_tracks).joinedload(Track.artist))
         .options(selectinload(Artist.many_tracks).selectinload(Track.artists))
-        .options(selectinload(Artist.albums))
         .where(Artist.id == artist_id)
     ).scalar_one_or_none()
     if not artist:
@@ -1232,6 +1256,24 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
 
     # Replace tracks with combined list
     artist.tracks = combined_tracks
+
+    # Get valid albums for this artist
+    # A valid album has more than 1 track OR has been imported (has source_id set)
+    from sqlalchemy import func
+    
+    valid_albums = db.execute(
+        select(Album)
+        .outerjoin(Track, Album.id == Track.album_id)
+        .where(Album.artist_id == artist_id)
+        .group_by(Album.id)
+        .having(
+            (func.count(Track.id) > 1) | (Album.source_id.is_not(None))
+        )
+        .order_by(Album.title)
+    ).scalars().all()
+    
+    # Replace albums with valid albums only
+    artist.albums = valid_albums
 
     return artist
 
@@ -1619,6 +1661,12 @@ def get_album(
     )
     tracks = db.execute(tracks_stmt).scalars().all()
 
+    # Format tracks as {position, track} for UI compatibility
+    formatted_tracks = [
+        {"position": idx, "track": track}
+        for idx, track in enumerate(tracks)
+    ]
+
     # Check if user already follows this album
     is_followed = False
     if user:
@@ -1641,7 +1689,8 @@ def get_album(
         "is_owner": False,
         "is_liked": False,
         "owner_name": album.artist.name if album.artist else "Unknown Artist",
-        "tracks": tracks,
+        "image_url": album.image_url,
+        "tracks": formatted_tracks,
         "track_count": len(tracks),
     }
 
@@ -1655,21 +1704,49 @@ def get_album_artwork(
     """Get album artwork."""
     album = db.get(Album, album_id)
     if not album:
-        # Fallback for legacy "album playlists"
         pl = db.get(Playlist, album_id)
         if pl and pl.type == "album":
             return get_playlist_cover(playlist_id=album_id, x_auth_hash=x_auth_hash, db=db)
-        
-    if not album or not album.artwork_path:
-        # Fallback to first track's artwork
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    if not album.artwork_path:
         track = db.execute(select(Track).where(Track.album_id == album_id)).scalar()
-        if track and track.artwork_path:
-            return FileResponse(track.artwork_path)
-        raise HTTPException(status_code=404, detail="Artwork not found")
-    
-    if os.path.exists(album.artwork_path):
+        if track and track.album and track.album.artwork_path:
+            return FileResponse(track.album.artwork_path)
+        # Try to proxy external image_url
+        if album.image_url:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(album.image_url)
+                if parsed.scheme in {"http", "https"}:
+                    external_covers_dir = settings.artwork_dir / "album_external"
+                    external_covers_dir.mkdir(parents=True, exist_ok=True)
+                    cached_cover_path = external_covers_dir / f"{album_id}.jpg"
+                    if cached_cover_path.exists():
+                        return FileResponse(
+                            cached_cover_path,
+                            media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=86400"},
+                        )
+                    req = UrlRequest(
+                        album.image_url,
+                        headers={"User-Agent": "Openfy/1.0"},
+                    )
+                    with urlopen(req, timeout=10) as resp:
+                        image_bytes = resp.read()
+                    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                    img.save(cached_cover_path, format="JPEG", quality=95, optimize=True)
+                    album.artwork_path = str(cached_cover_path)
+                    db.add(album)
+                    db.commit()
+                    return FileResponse(cached_cover_path, media_type="image/jpeg")
+            except Exception:
+                pass
+        return Response(status_code=204)
+
+    if Path(album.artwork_path).exists():
         return FileResponse(album.artwork_path)
-    raise HTTPException(status_code=404, detail="Artwork file not found")
+    return Response(status_code=204)
 
 
 @app.post("/playlists", response_model=PlaylistOut)
@@ -2426,8 +2503,11 @@ def create_download(
         raise HTTPException(
             status_code=403, detail="Uploads are disabled for your account"
         )
-
-    return queue_download(db, payload.query, payload.source or "auto", user.auth_hash, artist_url=payload.artist_url)
+    
+    return queue_download(
+        db, payload.query, payload.source or "auto", user.auth_hash,
+        artist_url=payload.artist_url, album_source_id=payload.album_source_id
+    )
 
 
 @app.post("/playlists/import")
@@ -2562,29 +2642,77 @@ def import_spotify_playlist(
     if url_type == "album" and len(normalized_tracks) <= 1:
         final_type = "playlist"
 
-    # If it's an album, try to find it in our DB by matching tracks
+    # If it's an album, create or find the Album model entry
     internal_album_id = None
     if url_type == "album":
-        # Extract track Spotify IDs
-        spotify_ids = []
-        for raw_item in tracks_items:
-            track_obj = raw_item.get("track") if isinstance(raw_item.get("track"), dict) else raw_item
-            if isinstance(track_obj, dict):
-                uri = track_obj.get("uri")
-                if uri and uri.startswith("spotify:track:"):
-                    spotify_ids.append(uri.replace("spotify:track:", ""))
+        # Extract album info from Spotify data
+        album_title = playlist_data.get("name")
+        album_year = None
+        release_date = playlist_data.get("release_date", "")
+        if release_date and len(release_date) >= 4:
+            try:
+                album_year = int(release_date[:4])
+            except ValueError:
+                pass
         
-        if spotify_ids:
-            # Find any track in our DB with one of these Spotify IDs
-            existing_track = db.execute(
-                select(Track).where(Track.source_id.in_(spotify_ids), Track.album_id.is_not(None))
-            ).scalars().first()
-            if existing_track:
-                # Verify that the album actually exists
-                verified_album = db.get(Album, existing_track.album_id)
-                if verified_album:
-                    internal_album_id = verified_album.id
+        # Get artist info
+        artists = playlist_data.get("artists", [])
+        artist_id = None
+        if artists and isinstance(artists, list) and len(artists) > 0:
+            artist_name = artists[0].get("name")
+            if artist_name:
+                # Find or create artist
+                artist = db.execute(
+                    select(Artist).where(Artist.name == artist_name)
+                ).scalar_one_or_none()
+                if not artist:
+                    from app.models import Artist as ArtistModel
+                    artist = ArtistModel(name=artist_name)
+                    db.add(artist)
+                    db.flush()
+                artist_id = artist.id
+        
+        # Find or create Album entry
+        internal_album_id = None
+        if album_title:
+            existing_album = db.execute(
+                select(Album).where(
+                    Album.title == album_title,
+                    Album.artist_id == artist_id
+                )
+            ).scalar_one_or_none()
+            
+            if existing_album:
+                # Check if album has tracks
+                track_count = db.execute(
+                    select(func.count(Track.id)).where(Track.album_id == existing_album.id)
+                ).scalar() or 0
+                
+                if track_count > 0:
+                    internal_album_id = existing_album.id
+                # Update source_id and image_url if not set
+                if not existing_album.source_id and url_type == "album":
+                    existing_album.source_id = f"spotify:{playlist_id}"
+                    db.add(existing_album)
+                if not existing_album.image_url and image_url:
+                    existing_album.image_url = image_url
+                    db.add(existing_album)
+            else:
+                # Create new Album entry
+                import uuid
+                new_album = Album(
+                    id=str(uuid.uuid4()),
+                    title=album_title,
+                    year=album_year,
+                    artist_id=artist_id,
+                    source_id=f"spotify:{playlist_id}" if url_type == "album" else None,
+                    image_url=image_url if url_type == "album" else None
+                )
+                db.add(new_album)
+                db.flush()
+                internal_album_id = new_album.id
 
+    db.commit()
     return {
         "playlist_id": playlist_id,
         "name": playlist_data.get("name", "Imported Playlist"),
@@ -3313,7 +3441,10 @@ def list_albums_admin(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    user = _require_admin(db, x_auth_hash)
+    """List all albums (admin only)"""
+    user = _require_user(db, x_auth_hash)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     stmt = select(Album).options(selectinload(Album.artist))
     if q:
         stmt = stmt.where(Album.title.ilike(f"%{q}%"))
@@ -3346,9 +3477,14 @@ def list_albums_admin(
 
 @app.delete("/admin/albums/{album_id}")
 def delete_album_admin(
-    album_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)
+    album_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
 ):
-    user = _require_admin(db, x_auth_hash)
+    """Delete an album and its tracks (admin only)"""
+    user = _require_user(db, x_auth_hash)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     album = db.get(Album, album_id)
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")

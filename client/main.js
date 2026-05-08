@@ -1033,7 +1033,8 @@ async function importSpotifyPlaylist() {
             try {
                 if (!track.spotify_url) continue;
 
-                const jobId = await downloadFromLink(track.spotify_url, track.artist_url);
+                const albumSourceId = playlistData.type === 'album' ? `spotify:${playlistData.playlist_id}` : null;
+                const jobId = await downloadFromLink(track.spotify_url, track.artist_url, albumSourceId);
 
                 // Poll for completion with timeout (max 120 seconds)
                 let completed = false;
@@ -1558,26 +1559,12 @@ function initPlaylistHandlers() {
           confirmOverlay.style.display = 'none';
           confirmCancelBtn.removeEventListener('click', handleCancel);
           confirmDeleteBtn.removeEventListener('click', handleUnfollow);
-        };
-
-        confirmDeleteBtn.textContent = 'Remove';
-        confirmCancelBtn.addEventListener('click', handleCancel);
-        confirmDeleteBtn.addEventListener('click', handleUnfollow);
+};
       } else {
-        if (isAlbum) {
-          await followAlbum(playlistId);
-        } else {
-          await followPlaylist(playlistId);
-        }
-        playlist.is_followed = true;
-        window.currentPlaylistFollowed = true;
-        // Refresh playlists in library
-        await loadPlaylists();
-        // Update button appearance
-        updateFollowButtonState(true);
+        return;
       }
     } catch (err) {
-      console.error("Failed to toggle follow:", err);
+      console.error("Failed to follow:", err);
     }
   });
 
@@ -1973,9 +1960,9 @@ function initContextMenuHandlers() {
     hideContextMenu();
 
     const isAlbum = playlist.type === 'album';
+    let handleUnfollow;
 
     if (playlist.is_followed) {
-      // Show confirmation modal for unfollow
       const confirmOverlay = document.getElementById('confirm-modal-overlay');
       const confirmMessage = document.getElementById('confirm-message');
       const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
@@ -1984,7 +1971,7 @@ function initContextMenuHandlers() {
       confirmMessage.textContent = 'Remove "' + playlistName + '" from your library?';
       confirmOverlay.style.display = 'flex';
 
-      const handleUnfollow = async () => {
+      handleUnfollow = async () => {
         confirmOverlay.style.display = 'none';
         confirmCancelBtn.removeEventListener('click', handleCancel);
         confirmDeleteBtn.removeEventListener('click', handleUnfollow);
@@ -2020,37 +2007,7 @@ function initContextMenuHandlers() {
       confirmDeleteBtn.textContent = 'Remove';
       confirmCancelBtn.addEventListener('click', handleCancel);
       confirmDeleteBtn.addEventListener('click', handleUnfollow);
-    } else {
-      // It is an album that is not followed yet (since playlists don't show the unfollow menu item if not followed)
-      try {
-        const apiModule = await import("./modules/api.js");
-        if (isAlbum) {
-          const followAlbum = apiModule.followAlbum || window.followAlbum;
-          await followAlbum(playlistId);
-        } else {
-          const followPlaylist = apiModule.followPlaylist || window.followPlaylist;
-          await followPlaylist(playlistId);
-        }
-        await loadPlaylists();
-        if (state.currentPlaylistId === playlistId && window.currentPlaylistData) {
-          window.currentPlaylistData.is_followed = true;
-          window.currentPlaylistFollowed = true;
-          updateFollowButtonState(true);
-        }
-      } catch (err) {
-        console.error("Failed to follow:", err);
-      }
     }
-
-    const handleCancel = () => {
-      confirmOverlay.style.display = 'none';
-      confirmCancelBtn.removeEventListener('click', handleCancel);
-      confirmDeleteBtn.removeEventListener('click', handleUnfollow);
-    };
-
-    confirmDeleteBtn.textContent = 'Remove';
-    confirmCancelBtn.addEventListener('click', handleCancel);
-    confirmDeleteBtn.addEventListener('click', handleUnfollow);
   });
 
   ctxTrackAddQueue.addEventListener("click", function() {

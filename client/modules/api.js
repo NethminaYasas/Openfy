@@ -178,12 +178,13 @@ export async function deleteAvatar() {
   return await api("/users/avatar", { method: "DELETE" });
 }
 
-export async function downloadFromLink(url, artistUrl) {
+export async function downloadFromLink(url, artistUrl, albumSourceId) {
   if (!state.currentUser || (!state.currentUser.is_admin && !state.currentUser.upload_enabled)) {
     throw new Error("Uploads are disabled for your account.");
   }
   const payload = { query: url, source: "spotiflac" };
   if (artistUrl) payload.artist_url = artistUrl;
+  if (albumSourceId) payload.album_source_id = albumSourceId;
 
   var jobData = await api("/downloads", {
     method: "POST",
