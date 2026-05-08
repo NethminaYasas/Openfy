@@ -859,18 +859,27 @@ async function importSpotifyPlaylist() {
 
         const playlistData = await response.json();
         
+        // For albums that already exist, just follow and open it
         if (playlistData.type === 'album' && playlistData.internal_album_id) {
-            // Album already exists! Just follow it.
-            statusDiv.textContent = "Album already exists in server. Following...";
+            // Check if album has tracks
             try {
-                await followAlbum(playlistData.internal_album_id);
+                const albumData = await api(`/albums/${playlistData.internal_album_id}`);
+                if (albumData.tracks && albumData.tracks.length > 0) {
+                    // Album has tracks, just follow and open
+                    statusDiv.textContent = "Album already imported. Following...";
+                    try {
+                        await followAlbum(playlistData.internal_album_id);
+                    } catch (e) {
+                        // Ignore if already following
+                    }
+                    await loadPlaylists();
+                    document.getElementById("import-playlist-modal").style.display = "none";
+                    openPlaylist(playlistData.internal_album_id, true);
+                    return;
+                }
             } catch (e) {
-                // Ignore if already following
+                // Continue with import if album check fails
             }
-            await loadPlaylists();
-            document.getElementById("import-playlist-modal").style.display = "none";
-            openPlaylist(playlistData.internal_album_id, true);
-            return;
         }
 
         const tracks = playlistData.tracks || [];
@@ -920,9 +929,13 @@ async function importSpotifyPlaylist() {
             // Deterministic path: if this Spotify track ID already exists locally, use it directly.
             const spotifyMatch = (track.spotify_url || "").match(/\/track\/([A-Za-z0-9]+)/);
             const spotifyId = spotifyMatch ? spotifyMatch[1] : null;
+            const albumSourceId = playlistData.type === 'album' ? `spotify:${playlistData.playlist_id}` : null;
             if (spotifyId) {
                 try {
-                    const existingBySpotify = await api(`/tracks/by-spotify-id/${spotifyId}`);
+                    const lookupUrl = albumSourceId 
+                        ? `/tracks/by-spotify-id/${spotifyId}?album_source_id=${encodeURIComponent(albumSourceId)}`
+                        : `/tracks/by-spotify-id/${spotifyId}`;
+                    const existingBySpotify = await api(lookupUrl);
                     if (existingBySpotify && existingBySpotify.id) {
                         existingTracks.push(existingBySpotify);
                         continue;

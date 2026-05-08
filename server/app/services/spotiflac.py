@@ -171,6 +171,10 @@ def _download_with_yt_music(
     job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None, album_source_id: str | None = None
 ) -> None:
     """Download from Apple Music or Spotify URL using ytmusicapi (official audio tracks)."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[DOWNLOAD] Starting download job {job_id}: query={query}, album_source_id={album_source_id}")
+    
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 

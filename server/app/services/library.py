@@ -57,20 +57,27 @@ def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: i
             if year and album.year != year:
                 album.year = year
             return album
-    # Fallback to title + artist_id matching
-    stmt = select(Album).where(Album.title == title, Album.artist_id == artist_id)
-    album = db.execute(stmt).scalar_one_or_none()
-    if album:
-        if year and album.year != year:
-            album.year = year
-        # Update source_id if not set
-        if source_id and not album.source_id:
-            album.source_id = source_id
+    
+    # Fallback to title + artist_id matching (only if title is provided)
+    if title:
+        stmt = select(Album).where(Album.title == title, Album.artist_id == artist_id)
+        album = db.execute(stmt).scalar_one_or_none()
+        if album:
+            if year and album.year != year:
+                album.year = year
+            if source_id and not album.source_id:
+                album.source_id = source_id
+                db.add(album)
+            return album
+    
+    # Create new album only if source_id is provided
+    if source_id:
+        album = Album(title=title, artist_id=artist_id, year=year, source_id=source_id)
+        db.add(album)
+        db.flush()
         return album
-    album = Album(title=title, artist_id=artist_id, year=year, source_id=source_id)
-    db.add(album)
-    db.flush()
-    return album
+    
+    return None
 
 
 def _extract_artwork(path: Path) -> tuple[bytes, str] | None:
@@ -246,7 +253,14 @@ def _upsert_track(
                 existing.universal_track_id = universal_track_id
             if source_url and not existing.source_url:
                 existing.source_url = source_url
+            # Also update album_id if album_source_id is provided
+            if album_source_id:
+                album = _get_or_create_album(db, None, None, None, source_id=album_source_id)
+                if album:
+                    existing.album_id = album.id
+                    db.add(existing)
             db.add(existing)
+            db.commit()
             # Track already exists from same source, return existing without updating
             return existing
 
@@ -291,7 +305,7 @@ def _upsert_track(
     # Track doesn't exist, try to create it
     if not album_title:
         album_title = title
-    album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"))
+    album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"), source_id=album_source_id)
     if album:
         _store_artwork(album, file_path)
 

@@ -932,6 +932,7 @@ def get_track(
 @app.get("/tracks/by-spotify-id/{spotify_id}", response_model=TrackOut)
 def get_track_by_spotify_id(
     spotify_id: str,
+    album_source_id: str | None = None,
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -946,6 +947,16 @@ def get_track_by_spotify_id(
         .order_by(Track.created_at.desc())
     ).scalars().first()
 
+    # If album_source_id is provided and track exists but has no album_id, link it
+    if track and album_source_id and not track.album_id:
+        album = db.execute(
+            select(Album).where(Album.source_id == album_source_id)
+        ).scalar_one_or_none()
+        if album:
+            track.album_id = album.id
+            db.add(track)
+            db.commit()
+    
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
@@ -2637,10 +2648,7 @@ def import_spotify_playlist(
             }
         )
 
-    # An album must have more than 1 track to be considered a valid album
-    final_type = url_type
-    if url_type == "album" and len(normalized_tracks) <= 1:
-        final_type = "playlist"
+    
 
     # If it's an album, create or find the Album model entry
     internal_album_id = None
@@ -2683,20 +2691,15 @@ def import_spotify_playlist(
             ).scalar_one_or_none()
             
             if existing_album:
-                # Check if album has tracks
-                track_count = db.execute(
-                    select(func.count(Track.id)).where(Track.album_id == existing_album.id)
-                ).scalar() or 0
-                
-                if track_count > 0:
-                    internal_album_id = existing_album.id
-                # Update source_id and image_url if not set
-                if not existing_album.source_id and url_type == "album":
+                # Always update source_id if url_type is album (needed for track linking)
+                if url_type == "album":
                     existing_album.source_id = f"spotify:{playlist_id}"
                     db.add(existing_album)
                 if not existing_album.image_url and image_url:
                     existing_album.image_url = image_url
                     db.add(existing_album)
+                # Always set internal_album_id so frontend downloads any missing tracks
+                internal_album_id = existing_album.id
             else:
                 # Create new Album entry
                 import uuid
@@ -2719,7 +2722,7 @@ def import_spotify_playlist(
         "owner": owner_name,
         "image_url": image_url,
         "tracks": normalized_tracks,
-        "type": final_type,
+        "type": url_type,
         "internal_album_id": internal_album_id,
     }
 
