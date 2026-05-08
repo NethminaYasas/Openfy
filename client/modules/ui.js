@@ -509,34 +509,6 @@ export function buildAlbumCard(album) {
 
     artContainer.appendChild(art);
     artContainer.appendChild(img);
-
-    // Follow button on hover (like Spotify's heart but for album)
-    const followBtn = document.createElement("button");
-    followBtn.className = "card-follow-btn";
-    followBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-    followBtn.title = "Save to Your Library";
-    followBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        try {
-            // For playlists, they're already "followed" (saved), so just show a message
-            if (isPlaylist) {
-                alert("Album is already in your library");
-                return;
-            }
-            const resp = await followAlbum(album.id);
-            if (resp.success) {
-                // Refresh library sidebar
-                if (window.loadPlaylists) await window.loadPlaylists();
-                alert("Album saved to your library");
-            } else if (resp.already_followed) {
-                alert("Album is already in your library");
-            }
-        } catch (err) {
-            console.error("Failed to follow album:", err);
-            alert("Failed to save album");
-        }
-    });
-    artContainer.appendChild(followBtn);
     
     card.appendChild(artContainer);
  

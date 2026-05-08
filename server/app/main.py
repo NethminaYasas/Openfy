@@ -1537,13 +1537,14 @@ def list_playlists(
     followed_albums = []
     if user:
         albums_stmt = (
-            select(Album)
+            select(Album, FollowedAlbum.pinned)
             .options(joinedload(Album.artist))
             .join(FollowedAlbum, FollowedAlbum.album_id == Album.id)
             .where(FollowedAlbum.user_hash == user.auth_hash)
             .order_by(FollowedAlbum.followed_at.desc())
         )
-        followed_albums = db.execute(albums_stmt).scalars().all()
+        followed_albums_result = db.execute(albums_stmt).all()
+        followed_albums = [(alb, pinned) for alb, pinned in followed_albums_result]
 
     # Combine and mark is_owner and is_followed
     result = []
@@ -1571,7 +1572,7 @@ def list_playlists(
         result.append(pl_dict)
 
     # Add followed albums converted to playlist-like dicts
-    for alb in followed_albums:
+    for alb, pinned in followed_albums:
         alb_dict = {
             "id": alb.id,
             "name": alb.title,
@@ -1579,6 +1580,7 @@ def list_playlists(
             "is_public": True,
             "is_owner": False,
             "is_followed": True,
+            "pinned": bool(pinned),
             "owner_name": alb.artist.name if alb.artist else "Unknown Artist",
             "created_at": alb.created_at,
             "track_count": db.scalar(select(func.count(Track.id)).where(Track.album_id == alb.id)) or 0
@@ -1668,6 +1670,7 @@ def get_album(
     # Check if user already follows this album
     is_followed = False
     album_shuffle = False
+    album_pinned = False
     if user:
         followed = db.execute(
             select(FollowedAlbum).where(
@@ -1678,6 +1681,7 @@ def get_album(
         is_followed = followed is not None
         if followed:
             album_shuffle = bool(followed.shuffle)
+            album_pinned = bool(followed.pinned)
 
     # Construct a response that matches the Playlist structure for the UI
     return {
@@ -1690,6 +1694,7 @@ def get_album(
         "is_owner": False,
         "is_liked": False,
         "shuffle": album_shuffle,
+        "pinned": album_pinned,
         "owner_name": album.artist.name if album.artist else "Unknown Artist",
         "image_url": album.image_url,
         "tracks": formatted_tracks,
@@ -2175,6 +2180,8 @@ def update_album_follow(
 
     if "shuffle" in payload:
         followed.shuffle = 1 if payload["shuffle"] else 0
+    if "pinned" in payload:
+        followed.pinned = 1 if payload["pinned"] else 0
 
     db.commit()
     return {"success": True}

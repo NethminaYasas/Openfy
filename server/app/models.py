@@ -236,6 +236,7 @@ class FollowedAlbum(Base):
         String(36), ForeignKey("albums.id", ondelete="CASCADE"), index=True
     )
     shuffle: Mapped[bool] = mapped_column(Integer, default=0)
+    pinned: Mapped[bool] = mapped_column(Integer, default=0)
     followed_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )

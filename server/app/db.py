@@ -25,6 +25,9 @@ if settings.database_url.startswith("sqlite"):
         if "shuffle" not in columns:
             conn.execute(text("ALTER TABLE followed_albums ADD COLUMN shuffle INTEGER DEFAULT 0"))
             conn.commit()
+        if "pinned" not in columns:
+            conn.execute(text("ALTER TABLE followed_albums ADD COLUMN pinned INTEGER DEFAULT 0"))
+            conn.commit()
 
 class SafeSession(SASession):
     def execute(self, statement, *args, **kwargs):

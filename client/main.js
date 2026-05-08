@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, updateAlbumShuffle, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, updateAlbumShuffle, updateAlbumPin, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -1546,20 +1546,26 @@ function initPlaylistHandlers() {
       if (playlist.is_followed) {
         // Show confirmation modal for unfollow
         const confirmOverlay = document.getElementById('confirm-modal-overlay');
+        const confirmTitle = document.getElementById('confirm-title');
         const confirmMessage = document.getElementById('confirm-message');
         const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
         const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
 
-        confirmMessage.textContent = isAlbum 
-          ? 'Remove "' + playlist.name + '" from your library?'
-          : 'Unfollow "' + playlist.name + '"?';
+        if (isAlbum) {
+          confirmTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Remove from Library?';
+          confirmMessage.textContent = 'Remove "' + playlist.name + '" from your library?';
+          confirmDeleteBtn.textContent = 'Remove';
+        } else {
+          confirmTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Unfollow Playlist?';
+          confirmMessage.textContent = 'Unfollow "' + playlist.name + '"?';
+          confirmDeleteBtn.textContent = 'Unfollow';
+        }
         confirmOverlay.style.display = 'flex';
 
-        const handleUnfollow = async () => {
+        confirmDeleteBtn.onclick = async () => {
           confirmOverlay.style.display = 'none';
-          confirmCancelBtn.removeEventListener('click', handleCancel);
-          confirmDeleteBtn.removeEventListener('click', handleUnfollow);
-
+          confirmDeleteBtn.onclick = null;
+          confirmCancelBtn.onclick = null;
           try {
             if (isAlbum) {
               await unfollowAlbum(playlistId);
@@ -1568,20 +1574,20 @@ function initPlaylistHandlers() {
             }
             playlist.is_followed = false;
             window.currentPlaylistFollowed = false;
-            // Refresh playlists in library
             await loadPlaylists();
-            // Update button appearance
-            updateFollowButtonState(false);
+            if (typeof updateFollowButtonState === 'function') {
+              updateFollowButtonState(false);
+            }
           } catch (err) {
             console.error("Failed to unfollow:", err);
           }
         };
 
-        const handleCancel = () => {
+        confirmCancelBtn.onclick = () => {
           confirmOverlay.style.display = 'none';
-          confirmCancelBtn.removeEventListener('click', handleCancel);
-          confirmDeleteBtn.removeEventListener('click', handleUnfollow);
-};
+          confirmDeleteBtn.onclick = null;
+          confirmCancelBtn.onclick = null;
+        };
       } else {
         // Follow playlist or album
         try {
@@ -1592,10 +1598,10 @@ function initPlaylistHandlers() {
           }
           playlist.is_followed = true;
           window.currentPlaylistFollowed = true;
-          // Refresh playlists in library
           await loadPlaylists();
-          // Update button appearance
-          updateFollowButtonState(true);
+          if (typeof updateFollowButtonState === 'function') {
+            updateFollowButtonState(true);
+          }
         } catch (err) {
           console.error("Failed to follow:", err);
         }
@@ -1939,9 +1945,14 @@ function initContextMenuHandlers() {
     if (!state.currentContextPlaylist || state.currentContextPlaylist.is_liked) return;
     var targetId = state.currentContextPlaylist.id;
     var isPinned = state.currentContextPlaylist.pinned;
+    var isAlbum = state.currentContextPlaylist.type === 'album';
     hideContextMenu();
     try {
-      await togglePlaylistPin(targetId, !isPinned);
+      if (isAlbum) {
+        await updateAlbumPin(targetId, !isPinned);
+      } else {
+        await togglePlaylistPin(targetId, !isPinned);
+      }
       // Update current playlist data to reflect new pin state immediately
       if (window.currentPlaylistData && window.currentPlaylistData.id === targetId) {
         window.currentPlaylistData.pinned = !isPinned;
@@ -1969,7 +1980,9 @@ function initContextMenuHandlers() {
     var targetName = state.currentContextPlaylist.name;
     hideContextMenu();
     state.pendingActionPlaylistId = targetId;
+    document.getElementById("confirm-title").innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Delete Playlist?';
     document.getElementById("confirm-message").textContent = 'Delete playlist "' + targetName + '"?';
+    document.getElementById("confirm-delete-btn").textContent = 'Delete';
     document.getElementById("confirm-modal-overlay").style.display = "flex";
   });
 
@@ -2005,53 +2018,54 @@ function initContextMenuHandlers() {
     hideContextMenu();
 
     const isAlbum = playlist.type === 'album';
-    let handleUnfollow;
-
+    
     if (playlist.is_followed) {
       const confirmOverlay = document.getElementById('confirm-modal-overlay');
+      const confirmTitle = document.getElementById('confirm-title');
       const confirmMessage = document.getElementById('confirm-message');
       const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
       const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
 
-      confirmMessage.textContent = 'Remove "' + playlistName + '" from your library?';
+      if (isAlbum) {
+        confirmTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Remove from Library?';
+        confirmMessage.textContent = 'Remove "' + playlistName + '" from your library?';
+        confirmDeleteBtn.textContent = 'Remove';
+      } else {
+        confirmTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Unfollow Playlist?';
+        confirmMessage.textContent = 'Unfollow "' + playlistName + '"?';
+        confirmDeleteBtn.textContent = 'Unfollow';
+      }
       confirmOverlay.style.display = 'flex';
 
-      handleUnfollow = async () => {
+      confirmDeleteBtn.onclick = async () => {
         confirmOverlay.style.display = 'none';
-        confirmCancelBtn.removeEventListener('click', handleCancel);
-        confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+        confirmDeleteBtn.onclick = null;
+        confirmCancelBtn.onclick = null;
 
         try {
-          const apiModule = await import("./modules/api.js");
           if (isAlbum) {
-            const unfollowAlbum = apiModule.unfollowAlbum || window.unfollowAlbum;
             await unfollowAlbum(playlistId);
           } else {
-            const unfollowPlaylist = apiModule.unfollowPlaylist || window.unfollowPlaylist;
             await unfollowPlaylist(playlistId);
           }
-          // Refresh playlists in library
           await loadPlaylists();
-          // Update the follow button if viewing this playlist
           if (state.currentPlaylistId === playlistId && window.currentPlaylistData) {
             window.currentPlaylistData.is_followed = false;
             window.currentPlaylistFollowed = false;
-            updateFollowButtonState(false);
+            if (typeof updateFollowButtonState === 'function') {
+              updateFollowButtonState(false);
+            }
           }
         } catch (err) {
           console.error("Failed to unfollow:", err);
         }
       };
 
-      const handleCancel = () => {
+      confirmCancelBtn.onclick = () => {
         confirmOverlay.style.display = 'none';
-        confirmCancelBtn.removeEventListener('click', handleCancel);
-        confirmDeleteBtn.removeEventListener('click', handleUnfollow);
+        confirmDeleteBtn.onclick = null;
+        confirmCancelBtn.onclick = null;
       };
-
-      confirmDeleteBtn.textContent = 'Remove';
-      confirmCancelBtn.addEventListener('click', handleCancel);
-      confirmDeleteBtn.addEventListener('click', handleUnfollow);
     }
   });
 
