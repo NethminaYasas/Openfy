@@ -5,8 +5,40 @@ export const state = {
   isAdmin: false,
   currentPlaylistId: null,
   userPlaylists: [],
-
-  currentQueue: [],
+  
+  _queue: [],
+  get currentQueue() { return this._queue; },
+  set currentQueue(val) {
+    console.trace('[QUEUE] currentQueue setter called');
+    console.log('[QUEUE] Old queue:', this._queue.map(t => t?.title || t?.id));
+    console.log('[QUEUE] New queue:', val.map(t => t?.title || t?.id));
+    // Wrap in Proxy to log modifications
+    this._queue = new Proxy(val, {
+      set: (target, prop, value) => {
+        if (prop !== 'length') {
+          console.warn('[QUEUE] Array element [', prop, '] set to:', value?.title || value?.id, new Error().stack);
+        }
+        target[prop] = value;
+        return true;
+      },
+      get: (target, prop) => {
+        if (prop === 'splice') {
+          return function(...args) {
+            console.warn('[QUEUE] splice called with args:', args, new Error().stack);
+            return target.splice(...args);
+          };
+        }
+        if (prop === 'push') {
+          return function(...args) {
+            console.warn('[QUEUE] push called with args:', args.map(t => t?.title || t?.id), new Error().stack);
+            return target.push(...args);
+          };
+        }
+        return target[prop];
+      }
+    });
+  },
+  
   currentIndex: -1,
   currentTrackId: null,
   currentPlayingPlaylistId: null,
