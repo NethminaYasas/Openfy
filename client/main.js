@@ -2707,12 +2707,12 @@ function initVolumeControls() {
 
   volumeIcon.addEventListener("click", function() {
     if (audioPlayer.volume > 0) {
-      audioPlayer.dataset.prevVolume = audioPlayer.volume;
+      audioPlayer.prevVolume = audioPlayer.volume;
       audioPlayer.volume = 0;
       volumeSlider.value = 0;
       volumeIcon.className = "fa-solid fa-volume-xmark";
     } else {
-      var prev = parseFloat(audioPlayer.dataset.prevVolume) || 1;
+      var prev = audioPlayer.prevVolume != null ? audioPlayer.prevVolume : 1;
       audioPlayer.volume = prev;
       volumeSlider.value = Math.round(prev * 100);
       volumeIcon.className = prev < 0.5 ? "fa-solid fa-volume-low" : "fa-solid fa-volume-high";

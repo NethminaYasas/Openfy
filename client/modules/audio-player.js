@@ -9,6 +9,7 @@ const MAX_QUEUE_CAPACITY = 20;
 export const audioPlayer = {
   current: null,
   queueSaveTimeout: null,
+  prevVolume: null,
   
   init() {
     this.current = document.getElementById('audio-player');
@@ -41,6 +42,7 @@ export const audioPlayer = {
   },
   
   get element() { return this.current; },
+  get dataset() { return this.current?.dataset; },
   
   get src() { return this.current?.src; },
   set src(val) { if (this.current) this.current.src = val; },
@@ -50,7 +52,7 @@ export const audioPlayer = {
   get currentTime() { return this.current?.currentTime || 0; },
   set currentTime(val) { if (this.current) this.current.currentTime = val; },
   
-  get volume() { return this.current?.volume || 1; },
+  get volume() { return this.current?.volume ?? 1; },
   set volume(val) { if (this.current) this.current.volume = val; },
   
   play() { return this.current?.play(); },
