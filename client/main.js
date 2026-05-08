@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, updateAlbumShuffle, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -1480,9 +1480,17 @@ function initPlaylistHandlers() {
   document.getElementById('playlist-shuffle-btn').addEventListener('click', async function() {
     var isActive = this.classList.toggle('active');
     
+    const playlistData = window.currentPlaylistData;
+    const isAlbum = playlistData && playlistData.type === 'album';
+    
+    // Save shuffle state to backend
     if (state.currentPlaylistId) {
       try {
-        await togglePlaylistShuffle(state.currentPlaylistId, isActive);
+        if (isAlbum) {
+          await updateAlbumShuffle(state.currentPlaylistId, isActive);
+        } else {
+          await togglePlaylistShuffle(state.currentPlaylistId, isActive);
+        }
       } catch (err) { console.error("Failed to save shuffle state:", err); }
     }
 
@@ -1495,6 +1503,7 @@ function initPlaylistHandlers() {
         unshuffleQueue();
       }
       scheduleQueueSave();
+      savePlayerState();
       renderNowPlayingQueue();
     }
   });
@@ -1826,7 +1835,15 @@ function initContextMenuHandlers() {
       ctxRemove.classList.add("disabled");
       ctxVisibility.classList.add("disabled");
       const unfollowSpan = ctxUnfollow.querySelector("span");
+      const unfollowIcon = ctxUnfollow.querySelector(".context-menu-icon");
       if (unfollowSpan) unfollowSpan.textContent = playlist.is_followed ? "Unfollow" : "Follow";
+      if (unfollowIcon) {
+        if (playlist.is_followed) {
+          unfollowIcon.innerHTML = '<div style="width: 16px; height: 16px; background: #1db954; border-radius: 50%; display: flex; align-items: center; justify-content: center;"><div style="width: 3px; height: 6px; border: solid #000; border-width: 0 2px 2px 0; transform: rotate(45deg); margin-bottom: 2px;"></div></div>';
+        } else {
+          unfollowIcon.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; font-size: 14px;"></i>';
+        }
+      }
     }
 
     ctxPin.style.display = '';

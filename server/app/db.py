@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session as SASession
 
 from .settings import settings
@@ -16,6 +16,15 @@ def _create_engine():
 engine = _create_engine()
 # Ensure all tables are created for this engine
 Base.metadata.create_all(bind=engine)
+
+# Migrate: add shuffle column to followed_albums if not exists (SQLite only)
+if settings.database_url.startswith("sqlite"):
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(followed_albums)"))
+        columns = [row[1] for row in result]
+        if "shuffle" not in columns:
+            conn.execute(text("ALTER TABLE followed_albums ADD COLUMN shuffle INTEGER DEFAULT 0"))
+            conn.commit()
 
 class SafeSession(SASession):
     def execute(self, statement, *args, **kwargs):

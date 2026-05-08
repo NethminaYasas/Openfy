@@ -363,6 +363,10 @@ export async function followAlbum(albumId) {
   return await api("/albums/" + albumId + "/follow", { method: "POST" });
 }
 
+export async function updateAlbumShuffle(albumId, shuffle) {
+  return await api("/albums/" + albumId + "/follow", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shuffle: shuffle }) });
+}
+
 export async function unfollowPlaylist(playlistId) {
   return await api("/playlists/" + playlistId + "/follow", { method: "DELETE" });
 }

@@ -1667,6 +1667,7 @@ def get_album(
     
     # Check if user already follows this album
     is_followed = False
+    album_shuffle = False
     if user:
         followed = db.execute(
             select(FollowedAlbum).where(
@@ -1675,6 +1676,8 @@ def get_album(
             )
         ).scalar_one_or_none()
         is_followed = followed is not None
+        if followed:
+            album_shuffle = bool(followed.shuffle)
 
     # Construct a response that matches the Playlist structure for the UI
     return {
@@ -1686,6 +1689,7 @@ def get_album(
         "is_followed": is_followed,
         "is_owner": False,
         "is_liked": False,
+        "shuffle": album_shuffle,
         "owner_name": album.artist.name if album.artist else "Unknown Artist",
         "image_url": album.image_url,
         "tracks": formatted_tracks,
@@ -2137,10 +2141,42 @@ def follow_album(
     followed = FollowedAlbum(
         user_hash=user.auth_hash,
         album_id=album_id,
+        shuffle=0,
     )
     db.add(followed)
     db.commit()
 
+    return {"success": True}
+
+
+@app.put("/albums/{album_id}/follow")
+def update_album_follow(
+    album_id: str,
+    payload: dict,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update album follow settings (e.g., shuffle)."""
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    followed = db.execute(
+        select(FollowedAlbum).where(
+            FollowedAlbum.user_hash == user.auth_hash,
+            FollowedAlbum.album_id == album_id,
+        )
+    ).scalar_one_or_none()
+
+    if not followed:
+        raise HTTPException(status_code=404, detail="Not following this album")
+
+    if "shuffle" in payload:
+        followed.shuffle = 1 if payload["shuffle"] else 0
+
+    db.commit()
     return {"success": True}
 
 
