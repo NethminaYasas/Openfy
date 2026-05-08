@@ -846,12 +846,18 @@ a {
     font-size: 1rem;
     margin-left: 0;
     transition: opacity 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Align "Your Library" text with playlist items (no icon) */
 .lib-option a {
     margin-left: 0;
     transition: opacity 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .library {
@@ -2659,6 +2665,7 @@ input:checked + .toggle-slider:before {
 
 .lib-item-info {
     min-width: 0;
+    overflow: hidden;
 }
 
 .lib-item-name {
@@ -2681,6 +2688,9 @@ input:checked + .toggle-slider:before {
     display: flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .playlist-header {
