@@ -3485,22 +3485,23 @@ def list_albums_admin(
 
     albums = db.execute(stmt).scalars().all()
 
-    # Enrich with track count
+    # Enrich with track count, only include albums with more than one track
     results = []
     for album in albums:
         track_count = (
             db.scalar(select(func.count(Track.id)).where(Track.album_id == album.id))
             or 0
         )
-        results.append(
-            {
-                "id": album.id,
-                "title": album.title or "Untitled Album",
-                "artist_name": album.artist.name if album.artist else "Unknown Artist",
-                "track_count": track_count,
-                "created_at": album.created_at.isoformat() if album.created_at else None,
-            }
-        )
+        if track_count > 1:
+            results.append(
+                {
+                    "id": album.id,
+                    "title": album.title or "Untitled Album",
+                    "artist_name": album.artist.name if album.artist else "Unknown Artist",
+                    "track_count": track_count,
+                    "created_at": album.created_at.isoformat() if album.created_at else None,
+                }
+            )
 
     # Sort by creation date descending
     results.sort(
