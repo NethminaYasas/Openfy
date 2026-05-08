@@ -1289,58 +1289,6 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
     return artist
 
 
-@app.post("/albums/{album_id}/follow")
-def follow_album(
-    album_id: str,
-    x_auth_hash: str | None = Header(None),
-    db: Session = Depends(get_db),
-):
-    """Follow an album by creating a local playlist for it."""
-    if not x_auth_hash:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = _get_user(db, x_auth_hash)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid auth hash")
-
-    album = db.get(Album, album_id)
-    if not album:
-        raise HTTPException(status_code=404, detail="Album not found")
-
-    # Check if already followed (as a playlist)
-    existing = db.execute(
-        select(Playlist).where(
-            Playlist.user_hash == user.auth_hash,
-            Playlist.name == album.title,
-            Playlist.type == "album",
-        )
-    ).scalar_one_or_none()
-
-    if existing:
-        return {"playlist_id": existing.id, "already_followed": True}
-
-    # Create playlist for album
-    import uuid
-
-    playlist_id = str(uuid.uuid4())
-    playlist = Playlist(
-        id=playlist_id,
-        name=album.title,
-        user_hash=user.auth_hash,
-        type="album",
-        is_public=True,
-    )
-    db.add(playlist)
-
-    # Add all tracks of this album to the playlist
-    tracks = db.execute(select(Track).where(Track.album_id == album.id)).scalars().all()
-    for track in tracks:
-        pt = PlaylistTrack(playlist_id=playlist_id, track_id=track.id)
-        db.add(pt)
-
-    db.commit()
-    return {"playlist_id": playlist_id, "success": True}
-
-
 @app.get("/artists/{artist_id}/refresh-image")
 def refresh_artist_image(
     artist_id: str,
@@ -1666,18 +1614,57 @@ def get_album(
     # Get tracks
     tracks_stmt = (
         select(Track)
-        .options(selectinload(Track.artists), joinedload(Track.artist))
+        .options(selectinload(Track.artists), joinedload(Track.artist), joinedload(Track.album))
         .where(Track.album_id == album_id)
         .order_by(Track.track_no, Track.id)
     )
     tracks = db.execute(tracks_stmt).scalars().all()
 
     # Format tracks as {position, track} for UI compatibility
-    formatted_tracks = [
-        {"position": idx, "track": track}
-        for idx, track in enumerate(tracks)
-    ]
-
+    # Manually serialize to ensure album relationship is included
+    formatted_tracks = []
+    for idx, track in enumerate(tracks):
+        track_dict = {
+            "id": track.id,
+            "title": track.title,
+            "duration": track.duration,
+            "track_no": track.track_no,
+            "disc_no": track.disc_no,
+            "play_count": track.play_count,
+            "created_at": track.created_at,
+            "updated_at": track.updated_at,
+            "source_id": track.source_id,
+            "artist": None,
+            "artists": [],
+            "album": None,
+        }
+        
+        # Include primary artist
+        if track.artist:
+            track_dict["artist"] = {
+                "id": track.artist.id,
+                "name": track.artist.name,
+                "image_url": track.artist.image_url,
+            }
+        
+        # Include all artists
+        if track.artists:
+            track_dict["artists"] = [
+                {"id": a.id, "name": a.name, "image_url": a.image_url}
+                for a in track.artists
+            ]
+        
+        # Include album with artwork_path
+        if track.album:
+            track_dict["album"] = {
+                "id": track.album.id,
+                "title": track.album.title,
+                "artwork_path": track.album.artwork_path,
+                "image_url": track.album.image_url,
+            }
+        
+        formatted_tracks.append({"position": idx, "track": track_dict})
+    
     # Check if user already follows this album
     is_followed = False
     if user:
@@ -1703,6 +1690,7 @@ def get_album(
         "image_url": album.image_url,
         "tracks": formatted_tracks,
         "track_count": len(tracks),
+        "user": {"id": user.id if user else None, "name": album.artist.name if album.artist else "Unknown Artist", "avatar_path": None},
     }
 
 

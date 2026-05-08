@@ -1574,7 +1574,22 @@ function initPlaylistHandlers() {
           confirmDeleteBtn.removeEventListener('click', handleUnfollow);
 };
       } else {
-        return;
+        // Follow playlist or album
+        try {
+          if (isAlbum) {
+            await followAlbum(playlistId);
+          } else {
+            await followPlaylist(playlistId);
+          }
+          playlist.is_followed = true;
+          window.currentPlaylistFollowed = true;
+          // Refresh playlists in library
+          await loadPlaylists();
+          // Update button appearance
+          updateFollowButtonState(true);
+        } catch (err) {
+          console.error("Failed to follow:", err);
+        }
       }
     } catch (err) {
       console.error("Failed to follow:", err);

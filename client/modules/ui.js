@@ -954,6 +954,30 @@ export function updateAllScrollButtonStates() {
 }
 
 export function buildPlaylistCover(tracks, playlist) {
+  var mosaic = document.getElementById('playlist-mosaic');
+  if (!mosaic) return;
+  mosaic.innerHTML = '';
+
+  // For albums, use the album's image_url if available
+  if (playlist && playlist.type === 'album' && playlist.image_url) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'playlist-mosaic-item';
+    wrapper.style.gridColumn = '1 / -1';
+    wrapper.style.gridRow = '1 / -1';
+
+    var coverImg = document.createElement('img');
+    coverImg.style.width = '100%';
+    coverImg.style.height = '100%';
+    coverImg.style.objectFit = 'cover';
+    coverImg.src = withBase(playlist.image_url);
+    coverImg.onerror = function() {
+      buildPlaylistCoverUtil(tracks, playlist);
+    };
+    wrapper.appendChild(coverImg);
+    mosaic.appendChild(wrapper);
+    return;
+  }
+
   buildPlaylistCoverUtil(tracks, playlist);
 }
 
