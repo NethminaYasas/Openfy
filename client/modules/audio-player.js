@@ -488,32 +488,42 @@ export function setQueueFromList(list, startIndex) {
 }
 
 export function reorderQueue(fromIndex, toIndex) {
-      
-  if (!Array.isArray(state.currentQueue) || fromIndex < 0 || fromIndex >= state.currentQueue.length) return;
-  if (toIndex < 0 || toIndex > state.currentQueue.length) return;
+  // Work on a plain array copy to avoid Proxy interception stacking issues
+  const queue = Array.isArray(state.currentQueue) ? Array.from(state.currentQueue) : [];
+
+  if (fromIndex < 0 || fromIndex >= queue.length) return;
+  if (toIndex < 0 || toIndex > queue.length) return;
   if (fromIndex === toIndex) return;
 
-  const prevCurrentIndex = state.currentIndex;
-  const trackToMove = state.currentQueue[fromIndex];
+  const trackToMove = queue[fromIndex];
   if (!trackToMove) return;
 
-  const [track] = state.currentQueue.splice(fromIndex, 1);
-  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
-  state.currentQueue.splice(insertAt, 0, track);
+  const prevCurrentIndex = state.currentIndex;
 
-  if (prevCurrentIndex >= 0 && prevCurrentIndex < state.currentQueue.length) {
+  // Remove from source position
+  queue.splice(fromIndex, 1);
+  // After removal, indices above fromIndex shift down by 1.
+  // So the effective insertion point for toIndex (which was computed before removal) is:
+  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
+  queue.splice(insertAt, 0, trackToMove);
+
+  // Adjust currentIndex to keep tracking the same playing track
+  let newCurrentIndex = prevCurrentIndex;
+  if (prevCurrentIndex >= 0 && prevCurrentIndex < queue.length) {
     if (fromIndex === prevCurrentIndex) {
-      state.currentIndex = insertAt;
+      newCurrentIndex = insertAt;
     } else if (fromIndex < prevCurrentIndex && insertAt >= prevCurrentIndex) {
-      state.currentIndex = prevCurrentIndex - 1;
+      newCurrentIndex = prevCurrentIndex - 1;
     } else if (fromIndex > prevCurrentIndex && insertAt <= prevCurrentIndex) {
-      state.currentIndex = prevCurrentIndex + 1;
-    } else {
-      state.currentIndex = prevCurrentIndex;
+      newCurrentIndex = prevCurrentIndex + 1;
     }
   }
 
-  // Don't reset shuffle state when manually reordering - keep shuffle as-is
+  // Assign the plain array back — this triggers the setter once cleanly
+  state.currentQueue = queue;
+  state.currentIndex = newCurrentIndex;
+
+  // Don't reset shuffle state when manually reordering
   state.queueOriginal = null;
 
   renderNowPlayingQueue();
@@ -605,10 +615,38 @@ export function loadQueueLocal() {
   return null;
 }
 
-// Save queue to both localStorage and server
+// Monotonic version counter — incremented on every queue mutation.
+// In-flight saves that were started before the latest version are silently dropped.
+let _queueSaveVersion = 0;
+
+// Save queue to both localStorage and server.
+// The server save is debounced (300 ms) so rapid drag reorders coalesce into
+// a single PUT request, preventing race conditions that restore the old order.
 export function scheduleQueueSave() {
+  _queueSaveVersion++;
   saveQueueLocal();
-  saveQueueToServer();
+
+  const versionAtSchedule = _queueSaveVersion;
+  if (state.queueSaveTimeout) {
+    clearTimeout(state.queueSaveTimeout);
+  }
+  // Capture queue data immediately so the right snapshot is sent even if the
+  // queue changes again before the timer fires.
+  const trackIds = state.currentQueue.map(t => t.id);
+  const currentIndex = state.currentIndex;
+
+  state.queueSaveTimeout = setTimeout(async () => {
+    state.queueSaveTimeout = null;
+    // If another mutation happened after us, skip — a newer save will handle it
+    if (versionAtSchedule !== _queueSaveVersion) return;
+    if (!state.authHash) return;
+    try {
+      const { saveQueueToServerWithData } = await import('./api.js');
+      await saveQueueToServerWithData(trackIds, currentIndex);
+    } catch (err) {
+      console.error('Failed to save queue:', err);
+    }
+  }, 300);
 }
 
 export function getQueue() {
