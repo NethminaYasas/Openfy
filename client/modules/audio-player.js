@@ -1,10 +1,21 @@
 import { state, withBase } from './state.js';
-import { getTrackStreamUrl, saveQueueToServer, savePlayerState, checkIfLiked as apiCheckIfLiked } from './api.js';
+import { getTrackStreamUrl, savePlayerState, checkIfLiked as apiCheckIfLiked } from './api.js';
 import { getArtistDisplay, formatDuration, drawCanvas, clearCanvas, queueArtworkUrl, seededColor, extractVibrantColors, escapeHtml } from './utils.js';
 import { emitTrackChanged, getGradientManager } from './gradient-manager.js';
 import { setUrl, setActivePage } from './ui.js';
+import {
+  queueSetList, queueReorder as _queueReorder, queueInsert, queueRemove,
+  queueShuffle, queueUnshuffle, queueEnforceCap, queueSave, queueClear,
+  queueJumpTo, QUEUE_MAX_CAP, setRenderCallback
+} from './queue-manager.js';
 
-const MAX_QUEUE_CAPACITY = 20;
+const MAX_QUEUE_CAPACITY = QUEUE_MAX_CAP;
+
+// Register the render callback immediately so queue-manager can call
+// renderNowPlayingQueue synchronously (avoids the circular async import path).
+// renderNowPlayingQueue is defined later in this file but the reference is
+// captured by closure, so it will resolve correctly when called.
+setRenderCallback(() => renderNowPlayingQueue());
 
 export const audioPlayer = {
   current: null,
@@ -466,187 +477,59 @@ function hideRemovalMenuIfVisible() {
   }
 }
 
+/**
+ * setQueueFromList — delegates to queue-manager.queueSetList.
+ * Kept exported so all existing callers continue to work unchanged.
+ */
 export function setQueueFromList(list, startIndex) {
-      
-  const arr = Array.isArray(list) ? list : [];
-  if (!arr.length) {
-    state.currentQueue = [];
-    state.currentIndex = -1;
-    state.queueOriginal = null;
-    renderNowPlayingQueue();
-    scheduleQueueSave();
-    return;
-  }
-
-  const idx = Math.max(0, Math.min((startIndex | 0), arr.length - 1));
-  // Take full queue up to MAX_QUEUE_CAPACITY, starting from beginning
-  state.currentQueue = arr.slice(0, MAX_QUEUE_CAPACITY);
-  state.currentIndex = idx;
-  state.queueOriginal = null;
-  renderNowPlayingQueue();
-  scheduleQueueSave();
+  queueSetList(list, startIndex);
 }
 
+/**
+ * reorderQueue — delegates to queue-manager.queueReorder.
+ * fromIndex and toIndex are queue-array positions (pre-removal).
+ */
 export function reorderQueue(fromIndex, toIndex) {
-  // Work on a plain array copy to avoid Proxy interception stacking issues
-  const queue = Array.isArray(state.currentQueue) ? Array.from(state.currentQueue) : [];
-
-  if (fromIndex < 0 || fromIndex >= queue.length) return;
-  if (toIndex < 0 || toIndex > queue.length) return;
-  if (fromIndex === toIndex) return;
-
-  const trackToMove = queue[fromIndex];
-  if (!trackToMove) return;
-
-  const prevCurrentIndex = state.currentIndex;
-
-  // Remove from source position
-  queue.splice(fromIndex, 1);
-  // After removal, indices above fromIndex shift down by 1.
-  // So the effective insertion point for toIndex (which was computed before removal) is:
-  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
-  queue.splice(insertAt, 0, trackToMove);
-
-  // Adjust currentIndex to keep tracking the same playing track
-  let newCurrentIndex = prevCurrentIndex;
-  if (prevCurrentIndex >= 0 && prevCurrentIndex < queue.length) {
-    if (fromIndex === prevCurrentIndex) {
-      newCurrentIndex = insertAt;
-    } else if (fromIndex < prevCurrentIndex && insertAt >= prevCurrentIndex) {
-      newCurrentIndex = prevCurrentIndex - 1;
-    } else if (fromIndex > prevCurrentIndex && insertAt <= prevCurrentIndex) {
-      newCurrentIndex = prevCurrentIndex + 1;
-    }
-  }
-
-  // Assign the plain array back — this triggers the setter once cleanly
-  state.currentQueue = queue;
-  state.currentIndex = newCurrentIndex;
-
-  // Don't reset shuffle state when manually reordering
-  state.queueOriginal = null;
-
-  renderNowPlayingQueue();
-  scheduleQueueSave();
+  _queueReorder(fromIndex, toIndex);
 }
 
+/** enforceQueueCapacity — delegates to queue-manager. */
 export function enforceQueueCapacity() {
-  if (state.currentQueue.length <= MAX_QUEUE_CAPACITY) return;
-  const excess = state.currentQueue.length - MAX_QUEUE_CAPACITY;
-  const removableBefore = Math.min(excess, state.currentIndex);
-  if (removableBefore > 0) {
-    state.currentQueue.splice(0, removableBefore);
-    state.currentIndex -= removableBefore;
-  }
-  const remainingExcess = state.currentQueue.length - MAX_QUEUE_CAPACITY;
-  if (remainingExcess > 0) {
-    state.currentQueue.splice(state.currentIndex + 1, remainingExcess);
-  }
+  queueEnforceCap();
 }
 
+/** shuffleQueueOnce — delegates to queue-manager. */
 export function shuffleQueueOnce() {
-  if (!state.shuffle) return;
-  if (!Array.isArray(state.currentQueue) || state.currentQueue.length < 2) return;
-  if (state.currentIndex < 0) return;
-
-  if (!state.queueOriginal) state.queueOriginal = state.currentQueue.slice();
-
-  const start = state.currentIndex + 1;
-  const suffix = state.currentQueue.slice(start);
-  for (let i = suffix.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = suffix[i];
-    suffix[i] = suffix[j];
-    suffix[j] = tmp;
-  }
-  state.currentQueue = state.currentQueue.slice(0, start).concat(suffix);
+  queueShuffle();
 }
 
+/** unshuffleQueue — delegates to queue-manager. */
 export function unshuffleQueue() {
-  if (!state.queueOriginal) return;
-  const activeTrackId = state.currentTrackId;
-  state.currentQueue = state.queueOriginal.slice();
-  state.queueOriginal = null;
-  if (activeTrackId) {
-    const idx = indexOfTrackId(state.currentQueue, activeTrackId);
-    if (idx !== -1) state.currentIndex = idx;
-  }
-  scheduleQueueSave();
+  queueUnshuffle();
 }
 
-function indexOfTrackId(queue, trackId, startFrom) {
-  if (!trackId || !Array.isArray(queue)) return -1;
-  const startIdx = startFrom !== undefined ? startFrom : 0;
-  for (let i = startIdx; i < queue.length; i++) {
-    if (queue[i] && queue[i].id == trackId) return i;
-  }
-  return -1;
-}
-
-// Local storage key
-const QUEUE_STORAGE_KEY = 'openfy_queue';
-const QUEUE_INDEX_KEY = 'openfy_queue_index';
-
-// Save to localStorage only
-function saveQueueLocal() {
-  try {
-    const ids = state.currentQueue.map(t => t.id);
-    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(ids));
-    localStorage.setItem(QUEUE_INDEX_KEY, String(state.currentIndex));
-  } catch (err) {
-    console.error('localStorage save error:', err);
-  }
-}
-
-// Load from localStorage
+// localStorage reader — still useful for startup restore.
 export function loadQueueLocal() {
   try {
-    const idsJson = localStorage.getItem(QUEUE_STORAGE_KEY);
-    const indexStr = localStorage.getItem(QUEUE_INDEX_KEY);
+    const idsJson = localStorage.getItem('openfy_queue');
+    const indexStr = localStorage.getItem('openfy_queue_index');
     if (idsJson) {
-      const ids = JSON.parse(idsJson);
+      const ids   = JSON.parse(idsJson);
       const index = parseInt(indexStr, 10) || 0;
-          
       return { track_ids: ids, current_index: index };
     }
   } catch (err) {
-    console.error('localStorage load error:', err);
+    console.error('loadQueueLocal error:', err);
   }
   return null;
 }
 
-// Monotonic version counter — incremented on every queue mutation.
-// In-flight saves that were started before the latest version are silently dropped.
-let _queueSaveVersion = 0;
-
-// Save queue to both localStorage and server.
-// The server save is debounced (300 ms) so rapid drag reorders coalesce into
-// a single PUT request, preventing race conditions that restore the old order.
+/**
+ * scheduleQueueSave — kept for backward-compat with any caller that
+ * still imports it.  All real work is delegated to queue-manager.
+ */
 export function scheduleQueueSave() {
-  _queueSaveVersion++;
-  saveQueueLocal();
-
-  const versionAtSchedule = _queueSaveVersion;
-  if (state.queueSaveTimeout) {
-    clearTimeout(state.queueSaveTimeout);
-  }
-  // Capture queue data immediately so the right snapshot is sent even if the
-  // queue changes again before the timer fires.
-  const trackIds = state.currentQueue.map(t => t.id);
-  const currentIndex = state.currentIndex;
-
-  state.queueSaveTimeout = setTimeout(async () => {
-    state.queueSaveTimeout = null;
-    // If another mutation happened after us, skip — a newer save will handle it
-    if (versionAtSchedule !== _queueSaveVersion) return;
-    if (!state.authHash) return;
-    try {
-      const { saveQueueToServerWithData } = await import('./api.js');
-      await saveQueueToServerWithData(trackIds, currentIndex);
-    } catch (err) {
-      console.error('Failed to save queue:', err);
-    }
-  }, 300);
+  queueSave();
 }
 
 export function getQueue() {
@@ -794,12 +677,12 @@ export function buildQueueItem(track, index, opts) {
     if (ev.target.closest('.clickable-artist')) return;
     if (!state.currentQueue || !state.currentQueue.length) return;
     if (index < 0 || index >= state.currentQueue.length) return;
-    state.currentIndex = index;
+    queueJumpTo(index);
     state.repeatState = "off";
     state.repeatCount = 0;
     document.getElementById("btn-repeat").classList.remove("active", "loop-twice");
     playTrack(state.currentQueue[state.currentIndex]);
-    scheduleQueueSave();
+    queueSave();
   });
 
   btn.addEventListener("contextmenu", function(ev) {

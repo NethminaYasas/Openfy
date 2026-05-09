@@ -4,6 +4,7 @@ import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, crea
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
 import { audioPlayer, togglePlay, playByIndex, playTrack, loadTrackPaused, setQueueFromList, reorderQueue, enforceQueueCapacity, shuffleQueueOnce, unshuffleQueue, scheduleQueueSave, renderNowPlayingQueue, buildQueueItem, getShowFullQueue, setShowFullQueue, getCollapseTimeout, setCollapseTimeout, syncLikeButtonState, updateNowPlaying } from './modules/audio-player.js';
+import { queueSetList, queueReorder, queueInsert, queueRemove, queueSave, queueShuffle, queueUnshuffle } from './modules/queue-manager.js';
 import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates, setUrl, renderSearch } from './modules/ui.js';
 import { loadRecentSearches, addRecentSearch } from './modules/recent-searches.js';
 import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, applyManualUploadUI, loadUsersListUI, loadTracksListUI, initAdminEventListeners } from './modules/admin.js';
@@ -1259,37 +1260,38 @@ async function importSpotifyPlaylist() {
 
     if (sourceIndex === null || sourceIndex === undefined) return;
 
-    // Get all non-dragging items to find drop target
-    const siblings = Array.from(npQueueNext.querySelectorAll(".np-queue-item:not(.dragging)"));
-    if (siblings.length === 0) return;
+    // Find the insertion point using the Y position of the cursor against
+    // the non-dragging items. Read data-index from each element so we are
+    // immune to any DOM reordering done by updateDragPosition().
+    const items = Array.from(npQueueNext.querySelectorAll(".np-queue-item:not(.dragging)"));
+    if (items.length === 0) return;
 
-    // Use getInsertBeforeElement to find where the item should be inserted
-    const insertBeforeEl = getInsertBeforeElement(npQueueNext);
+    // Find the item whose top-half the cursor is above → insert before it.
+    let insertBeforeQueueIndex = null;
+    const dragY = state.lastDragY;
+    if (dragY !== null) {
+      for (const item of items) {
+        const rect = item.getBoundingClientRect();
+        if (dragY < rect.top + rect.height / 2) {
+          insertBeforeQueueIndex = parseInt(item.dataset.index, 10);
+          break;
+        }
+      }
+    }
 
-    // Calculate target position in DOM
-    let newPositionInDom = -1;
-    if (insertBeforeEl) {
-      newPositionInDom = siblings.indexOf(insertBeforeEl);
+    // toIndex is the pre-removal queue position we want to insert before.
+    // If insertBeforeQueueIndex is null the user dropped at the very end.
+    let actualToIndex;
+    if (insertBeforeQueueIndex === null) {
+      // Drop after the last visible item
+      const lastItem = items[items.length - 1];
+      actualToIndex = lastItem ? parseInt(lastItem.dataset.index, 10) + 1 : state._queue.length;
     } else {
-      // Dropped at end (after all items)
-      newPositionInDom = siblings.length;
+      actualToIndex = insertBeforeQueueIndex;
     }
 
-    if (newPositionInDom < 0) {
-      return;
-    }
-
-    // Calculate the actual queue index (after current track)
-    // currentIndex is the playing track. Visible queue starts at currentIndex + 1
-    // DOM index 0 = queue index currentIndex + 1
-    const queueStartIndex = state.currentIndex + 1;
-    const newQueueIndex = queueStartIndex + newPositionInDom;
-
-    const actualFromIndex = sourceIndex;
-    const actualToIndex = newQueueIndex;
-
-    if (actualToIndex !== actualFromIndex) {
-      reorderQueue(actualFromIndex, actualToIndex);
+    if (actualToIndex !== sourceIndex) {
+      reorderQueue(sourceIndex, actualToIndex);
     }
 
     // Clean up drag state
@@ -1461,24 +1463,30 @@ function initPlaylistHandlers() {
       return;
     }
 
-    state.currentQueue = tracks.map(function(t) { return t.track; });
+    // Start queue via queue-manager so currentIndex, save, and render all happen correctly
+    const rawTracks = tracks.map(function(t) { return t.track; });
     state.currentPlayingPlaylistId = state.currentPlaylistId;
 
     var playlistShuffle = document.getElementById('playlist-shuffle-btn').classList.contains('active');
     state.shuffle = playlistShuffle;
     document.getElementById("btn-shuffle").classList.toggle("active", state.shuffle);
-    
-    if (state.shuffle) {
-      for (let i = state.currentQueue.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [state.currentQueue[i], state.currentQueue[j]] = [state.currentQueue[j], state.currentQueue[i]];
-      }
-    }
 
     if (window.updateLibraryPlayingState) window.updateLibraryPlayingState();
     playlistPlayBtn.classList.add('playing');
+
+    // queueSetList handles the shuffle internally if state.shuffle is true
+    if (state.shuffle) {
+      const shuffled = rawTracks.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      queueSetList(shuffled, 0);
+    } else {
+      queueSetList(rawTracks, 0);
+    }
     if (state.currentQueue.length) {
-      playTrack(state.currentQueue[0]);
+      playTrack(state.currentQueue[state.currentIndex]);
     }
   });
 
@@ -1665,23 +1673,26 @@ function initArtistHandlers() {
         return;
       }
 
-      state.currentQueue = tracks.map(function(t) { return t; });
       state.currentPlayingPlaylistId = 'artist-' + state.currentArtistId;
 
       var artistShuffle = document.getElementById('artist-shuffle-btn').classList.contains('active');
       state.shuffle = artistShuffle;
       document.getElementById("btn-shuffle").classList.toggle("active", state.shuffle);
 
-      if (state.shuffle) {
-        for (let i = state.currentQueue.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [state.currentQueue[i], state.currentQueue[j]] = [state.currentQueue[j], state.currentQueue[i]];
-        }
-      }
-
       artistPlayBtn.classList.add('playing');
+
+      if (state.shuffle) {
+        const shuffled = tracks.slice();
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        queueSetList(shuffled, 0);
+      } else {
+        queueSetList(tracks, 0);
+      }
       if (state.currentQueue.length) {
-        playTrack(state.currentQueue[0]);
+        playTrack(state.currentQueue[state.currentIndex]);
       }
     } catch (err) {
       console.error("Failed to play artist tracks:", err);
@@ -2084,10 +2095,8 @@ function initContextMenuHandlers() {
         hideContextMenu();
         return;
       }
-      state.currentQueue.splice(removeIndex, 1);
-      state.queueOriginal = null;
-      renderNowPlayingQueue();
-      scheduleQueueSave();
+      // Use queue-manager so the mutation is tracked and saved properly
+      queueRemove(removeIndex);
       hideContextMenu();
       return;
     }
@@ -2104,21 +2113,8 @@ function initContextMenuHandlers() {
       hideContextMenu();
       return;
     }
-    const insertIndex = state.currentIndex + 1;
-    state.currentQueue.splice(insertIndex, 0, track);
-    if (state.currentQueue.length > MAX_QUEUE_CAPACITY) {
-      const removeCount = state.currentQueue.length - MAX_QUEUE_CAPACITY;
-      if (removeCount > 0 && removeCount <= state.currentIndex) {
-        state.currentQueue.splice(0, removeCount);
-        state.currentIndex -= removeCount;
-      } else {
-        // If we can't remove enough from front, just trim from end but keep new track
-        state.currentQueue.length = MAX_QUEUE_CAPACITY;
-      }
-    }
-    state.queueOriginal = null;
-    renderNowPlayingQueue();
-    scheduleQueueSave();
+    // Insert right after the current track via queue-manager
+    queueInsert(track, state.currentIndex + 1);
     hideContextMenu();
   });
 
