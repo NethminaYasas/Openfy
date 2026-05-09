@@ -936,7 +936,7 @@ def get_track_by_spotify_id(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    _require_user(db, x_auth_hash)
+    user = _require_user(db, x_auth_hash)
     if not re.match(r"^[A-Za-z0-9]+$", spotify_id):
         raise HTTPException(status_code=400, detail="Invalid Spotify track ID format")
 
@@ -947,7 +947,6 @@ def get_track_by_spotify_id(
         .order_by(Track.created_at.desc())
     ).scalars().first()
 
-    # If album_source_id is provided and track exists but has no album_id, link it
     if track and album_source_id and not track.album_id:
         album = db.execute(
             select(Album).where(Album.source_id == album_source_id)
@@ -955,6 +954,19 @@ def get_track_by_spotify_id(
         if album:
             track.album_id = album.id
             db.add(track)
+            if not album.artwork_path and track.file_path:
+                from app.services.library import _store_artwork, _extract_artwork, ensure_dirs
+                file_path = Path(track.file_path)
+                if file_path.exists():
+                    artwork = _extract_artwork(file_path)
+                    if artwork:
+                        ensure_dirs()
+                        data, ext = artwork
+                        target = settings.artwork_dir / f"{album.id}{ext}"
+                        if not target.exists():
+                            target.write_bytes(data)
+                        album.artwork_path = str(target)
+                        db.add(album)
             db.commit()
     
     if not track:
@@ -967,7 +979,6 @@ def track_artwork(
     track_id: str,
     db: Session = Depends(get_db),
 ):
-    # Validate track_id as UUID
     import uuid
 
     try:
@@ -975,21 +986,33 @@ def track_artwork(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid track ID format")
     track = db.get(Track, track_id)
-    if not track or not track.album:
-        raise HTTPException(status_code=404, detail="Artwork not found")
-    if not track.album.artwork_path:
-        raise HTTPException(status_code=404, detail="Artwork not found")
-    # Double-check path is within artwork directory BEFORE and AFTER resolution
-    # to prevent symlink-based attacks
-    path = Path(track.album.artwork_path)
-    if not _is_within_dir(path, settings.artwork_dir):
-        raise HTTPException(status_code=403, detail="Access denied")
-    path = path.resolve()
-    if not _is_within_dir(path, settings.artwork_dir):
-        raise HTTPException(status_code=403, detail="Access denied")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Artwork not found")
-    return FileResponse(path)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    # Try album artwork first
+    if track.album and track.album.artwork_path:
+        path = Path(track.album.artwork_path)
+        if _is_within_dir(path, settings.artwork_dir):
+            path = path.resolve()
+            if _is_within_dir(path, settings.artwork_dir) and path.exists():
+                return FileResponse(path)
+
+    # Fallback: extract artwork directly from track file
+    if track.file_path:
+        from app.services.library import _extract_artwork, ensure_dirs
+        file_path = Path(track.file_path)
+        if file_path.exists():
+            artwork = _extract_artwork(file_path)
+            if artwork:
+                ensure_dirs()
+                data, ext = artwork
+                cache_path = settings.artwork_dir / f"{track.id}{ext}"
+                if not cache_path.exists():
+                    cache_path.write_bytes(data)
+                if _is_within_dir(cache_path, settings.artwork_dir):
+                    return FileResponse(cache_path)
+
+    raise HTTPException(status_code=404, detail="Artwork not found")
 
 
 @app.get("/tracks/{track_id}/stream")
@@ -2590,6 +2613,26 @@ def import_spotify_playlist(
     owner_match = re.search(r'/user/([^/]+)/playlist/', spotify_url)
     owner = owner_match.group(1) if owner_match else "spotify"
 
+    # Check for duplicate album imports by this user
+    if url_type == "album":
+        source_id = f"spotify:{playlist_id}"
+        existing_album = db.execute(
+            select(Album).where(Album.source_id == source_id)
+        ).scalar_one_or_none()
+        if existing_album:
+            tracks_stmt = (
+                select(Track)
+                .options(selectinload(Track.artists), joinedload(Track.artist), joinedload(Track.album))
+                .where(Track.album_id == existing_album.id)
+                .order_by(Track.track_no, Track.id)
+            )
+            existing_tracks = db.execute(tracks_stmt).scalars().all()
+            if existing_tracks:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Album already imported: {existing_album.title}"
+                )
+
     # Import and use SpotifyClient to get data
     try:
         from spotify_scraper import SpotifyClient
@@ -3516,7 +3559,7 @@ def delete_album_admin(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    """Delete an album and its tracks (admin only)"""
+    """Delete an album but keep its tracks (admin only)."""
     user = _require_user(db, x_auth_hash)
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -3524,19 +3567,18 @@ def delete_album_admin(
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")
 
-    # Delete all tracks associated with this album
+    # Clear album_id on tracks so they lose artwork reference (file stays on disk)
     tracks = db.execute(select(Track).where(Track.album_id == album.id)).scalars().all()
     for track in tracks:
-        file_path = track.file_path
-        p = Path(file_path)
-        if _is_within_dir(p, settings.music_dir):
-            resolved = p.resolve()
-            if _is_within_dir(resolved, settings.music_dir) and resolved.exists():
-                try:
-                    resolved.unlink()
-                except Exception:
-                    logger.warning("Failed to delete file for track %s at %s", track.id, resolved)
-        db.delete(track)
+        track.album_id = None
+        db.add(track)
+
+    # Delete followed albums
+    followed = db.execute(
+        select(FollowedAlbum).where(FollowedAlbum.album_id == album.id)
+    ).scalars().all()
+    for f in followed:
+        db.delete(f)
 
     db.delete(album)
     db.commit()

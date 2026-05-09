@@ -114,7 +114,7 @@ def _extract_artwork(path: Path) -> tuple[bytes, str] | None:
     return None
 
 
-def _store_artwork(album: Album, file_path: Path) -> None:
+def _store_artwork(db: Session, album: Album, file_path: Path) -> None:
     ensure_dirs()
     artwork = _extract_artwork(file_path)
     if not artwork:
@@ -124,6 +124,7 @@ def _store_artwork(album: Album, file_path: Path) -> None:
     if not target.exists():
         target.write_bytes(data)
     album.artwork_path = str(target)
+    db.add(album)
 
 
 def _parse_artist_names(raw_artists) -> list[str]:
@@ -274,7 +275,7 @@ def _upsert_track(
         # Use album_source_id if provided, otherwise fall back to title matching
         album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"), source_id=album_source_id)
         if album:
-            _store_artwork(album, file_path)
+            _store_artwork(db, album, file_path)
 
         existing.title = title
         existing.artist_id = primary_artist.id if primary_artist else None
@@ -307,7 +308,7 @@ def _upsert_track(
         album_title = title
     album = _get_or_create_album(db, album_title, primary_artist.id if primary_artist else None, metadata.get("year"), source_id=album_source_id)
     if album:
-        _store_artwork(album, file_path)
+        _store_artwork(db, album, file_path)
 
     track = _build_track_from_metadata(
         metadata=metadata,

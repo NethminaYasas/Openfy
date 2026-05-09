@@ -858,7 +858,15 @@ async function importSpotifyPlaylist() {
         }
 
         const playlistData = await response.json();
-        
+
+        // Check for duplicate album import
+        if (response.status === 409) {
+            const err = await response.json();
+            statusDiv.textContent = err.detail || "Album already imported";
+            importBtn.disabled = false;
+            return;
+        }
+
         // For albums that already exist, just follow and open it
         if (playlistData.type === 'album' && playlistData.internal_album_id) {
             // Check if album has tracks
@@ -918,15 +926,13 @@ async function importSpotifyPlaylist() {
             return false;
         };
 
-        // Step 2: Find existing tracks and tracks to download
-        const existingTracks = [];
-        const tracksToDownload = [];
+        // Step 2: Find existing tracks and tracks to download (maintain original order)
+        const trackStatus = tracks.map(() => ({ existing: null, toDownload: null }));
 
         for (let i = 0; i < tracks.length; i++) {
             const track = tracks[i];
             statusDiv.textContent = `Checking track ${i + 1} of ${tracks.length}: ${track.name}`;
 
-            // Deterministic path: if this Spotify track ID already exists locally, use it directly.
             const spotifyMatch = (track.spotify_url || "").match(/\/track\/([A-Za-z0-9]+)/);
             const spotifyId = spotifyMatch ? spotifyMatch[1] : null;
             const albumSourceId = playlistData.type === 'album' ? `spotify:${playlistData.playlist_id}` : null;
@@ -937,32 +943,29 @@ async function importSpotifyPlaylist() {
                         : `/tracks/by-spotify-id/${spotifyId}`;
                     const existingBySpotify = await api(lookupUrl);
                     if (existingBySpotify && existingBySpotify.id) {
-                        existingTracks.push(existingBySpotify);
+                        trackStatus[i].existing = existingBySpotify;
                         continue;
                     }
                 } catch (e) {
-                    // 404 is expected when not present; continue with fuzzy matching.
                 }
             }
 
-            // Search by title first (artist strings from external sources can vary widely)
             const searchQuery = encodeURIComponent(track.name || "");
             const searchResp = await fetch(`/search?q=${searchQuery}&limit=10`, {
                 headers: { "x-auth-hash": state.authHash }
             });
 
             if (!searchResp.ok) {
-                tracksToDownload.push(track);
+                trackStatus[i].toDownload = track;
                 continue;
             }
             const searchResults = await searchResp.json();
 
-            // Find match by title + artist + duration (±5 seconds)
-            const trackDurationSec = Math.floor(track.duration_ms / 1000);
-            let matchedTrack = null;
-
+            const trackDurationSec = Math.floor((track.duration_ms || 0) / 1000);
             const targetTitle = normalizeText(track.name);
             const targetArtists = track.artists || [];
+            let matchedTrack = null;
+
             if (Array.isArray(searchResults)) {
                 for (const result of searchResults) {
                     const resultDuration = result.duration || 0;
@@ -981,13 +984,13 @@ async function importSpotifyPlaylist() {
             }
 
             if (matchedTrack) {
-                existingTracks.push(matchedTrack);
+                trackStatus[i].existing = matchedTrack;
             } else {
-                tracksToDownload.push(track);
+                trackStatus[i].toDownload = track;
             }
         }
 
-        statusDiv.textContent = `Found ${existingTracks.length} existing tracks, ${tracksToDownload.length} to download`;
+        statusDiv.textContent = `Found ${trackStatus.filter(t => t.existing).length} existing tracks, ${trackStatus.filter(t => t.toDownload).length} to download`;
 
         // Step 3: Create playlist/album
         const playlistName = playlistData.name || (playlistData.type === 'album' ? "Imported Album" : "Imported Playlist");
@@ -1039,9 +1042,23 @@ async function importSpotifyPlaylist() {
             console.warn("Failed to preload user uploads before playlist import:", e);
         }
 
-        for (let i = 0; i < tracksToDownload.length; i++) {
-            const track = tracksToDownload[i];
-            statusDiv.textContent = `Downloading ${i + 1} of ${tracksToDownload.length}: ${track.name}`;
+        // Process in original order - add tracks to playlist as they complete
+        for (let i = 0; i < trackStatus.length; i++) {
+            const status = trackStatus[i];
+            if (status.existing) {
+                // Add existing track to playlist immediately
+                try {
+                    await addTrackToPlaylist(playlistId, status.existing.id);
+                } catch (e) {
+                    console.warn("Failed to add existing track:", status.existing.title);
+                }
+                continue;
+            }
+
+            const track = status.toDownload;
+            if (!track) continue;
+
+            statusDiv.textContent = `Downloading ${i + 1} of ${trackStatus.filter(t => t.toDownload).length}: ${track.name}`;
 
             try {
                 if (!track.spotify_url) continue;
@@ -1049,59 +1066,55 @@ async function importSpotifyPlaylist() {
                 const albumSourceId = playlistData.type === 'album' ? `spotify:${playlistData.playlist_id}` : null;
                 const jobId = await downloadFromLink(track.spotify_url, track.artist_url, albumSourceId);
 
-                // Poll for completion with timeout (max 120 seconds)
                 let completed = false;
                 let trackId = null;
                 let timeoutCounter = 0;
-                const maxTimeout = 60; // 60 * 2 seconds = 120 seconds
+                const maxTimeout = 60;
 
                 while (!completed && timeoutCounter < maxTimeout) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     timeoutCounter++;
 
-                    const status = await pollJobStatus(jobId);
+                    const jobStatus = await pollJobStatus(jobId);
 
-                    if (status.status === "completed") {
+                    if (jobStatus.status === "completed") {
                         completed = true;
-                        if (status.track_id) {
-                            trackId = status.track_id;
-                            break;
-                        }
-                        // Find newly uploaded track by diffing user upload IDs
-                        const tracksList = await api(`/tracks?limit=200&user_hash=${encodeURIComponent(state.authHash)}`);
-                        if (Array.isArray(tracksList) && tracksList.length > 0) {
-                            const targetName = normalizeText(track.name);
-                            const targetArtist = normalizeText((track.artists && track.artists[0]) || "");
-                            for (const resultTrack of tracksList) {
-                                if (knownUploadIds.has(resultTrack.id)) continue;
-                                const resultTitle = normalizeText(resultTrack.title);
-                                const resultArtists = Array.isArray(resultTrack.artists) ? resultTrack.artists : [];
-                                const resultArtist = normalizeText(resultArtists[0]?.name || "");
-                                if (resultTitle === targetName && (!targetArtist || resultArtist === targetArtist)) {
-                                    trackId = resultTrack.id;
-                                    break;
+                        if (jobStatus.track_id) {
+                            trackId = jobStatus.track_id;
+                        } else {
+                            const tracksList = await api(`/tracks?limit=200&user_hash=${encodeURIComponent(state.authHash)}`);
+                            if (Array.isArray(tracksList) && tracksList.length > 0) {
+                                const targetName = normalizeText(track.name);
+                                const targetArtist = normalizeText((track.artists && track.artists[0]) || "");
+                                for (const resultTrack of tracksList) {
+                                    if (knownUploadIds.has(resultTrack.id)) continue;
+                                    const resultTitle = normalizeText(resultTrack.title);
+                                    const resultArtists = Array.isArray(resultTrack.artists) ? resultTrack.artists : [];
+                                    const resultArtist = normalizeText(resultArtists[0]?.name || "");
+                                    if (resultTitle === targetName && (!targetArtist || resultArtist === targetArtist)) {
+                                        trackId = resultTrack.id;
+                                        break;
+                                    }
                                 }
+                                if (!trackId) {
+                                    console.warn("Could not safely resolve downloaded track id for:", track.name);
+                                }
+                                tracksList.forEach((t) => knownUploadIds.add(t.id));
                             }
-                            if (!trackId) {
-                                console.warn("Could not safely resolve downloaded track id for:", track.name);
-                            }
-                            tracksList.forEach((t) => knownUploadIds.add(t.id));
                         }
-                    } else if (status.status === "failed" || status.status === "error") {
+                    } else if (jobStatus.status === "failed" || jobStatus.status === "error") {
                         completed = true;
                     }
                 }
 
-                // Handle timeout case
                 if (!completed && timeoutCounter >= maxTimeout) {
                     console.warn(`Download timeout for track: ${track.name}`);
-                    completed = true; // Exit loop but don't add track
+                    completed = true;
                 }
 
                 if (trackId) {
                     downloadedTrackIds.push(trackId);
-
-                    // Add to playlist
+                    // Add to playlist immediately when download completes
                     await addTrackToPlaylist(playlistId, trackId);
                 }
             } catch (e) {
@@ -1109,18 +1122,10 @@ async function importSpotifyPlaylist() {
             }
         }
 
-        // Step 7: Add existing tracks to playlist
-        for (const track of existingTracks) {
-            try {
-                await addTrackToPlaylist(playlistId, track.id);
-            } catch (e) {
-                console.warn("Failed to add existing track:", track.name);
-            }
-        }
-
         // Note: Don't need to follow - the user is already the owner of this playlist
 
-        statusDiv.textContent = `Import complete! Added ${existingTracks.length + downloadedTrackIds.length} tracks.`;
+        const successCount = trackStatus.filter(t => t.existing).length + downloadedTrackIds.length;
+        statusDiv.textContent = `Import complete! Added ${successCount} tracks.`;
 
         // Close modal and refresh playlists
         setTimeout(() => {
