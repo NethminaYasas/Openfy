@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack, loadAlbumsList, deleteAlbum } from './api.js';
 import { formatDuration, escapeHtml } from './utils.js';
-import { applyPlaylistImportUI } from './ui.js';
+import { applyPlaylistImportUI, setActivePage } from './ui.js';
 
 export function updateAdminButtonVisibility() {
   const adminBtn = document.getElementById("admin-btn");
@@ -438,7 +438,6 @@ export function initAdminEventListeners() {
   
   adminBackHome?.addEventListener("click", function(event) {
     event.preventDefault();
-    const { setActivePage } = require('./ui.js');
     setActivePage("home");
   });
   

@@ -3073,20 +3073,29 @@ input:checked + .toggle-slider:before {
     height: 100%;
 }
 
+.admin-albums-view {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+}
+
 .admin-users-view > .back-btn,
 .admin-library-view > .back-btn,
+.admin-albums-view > .back-btn,
 #page-library > .back-btn {
     align-self: flex-start;
     width: auto;
 }
 
 .admin-users-search,
-.admin-library-search {
+.admin-library-search,
+.admin-albums-search {
     margin: 1rem 0;
 }
 
 .admin-users-view > .back-btn,
 .admin-library-view > .back-btn,
+.admin-albums-view > .back-btn,
 #page-library > .back-btn {
     align-self: flex-start;
     width: auto;
