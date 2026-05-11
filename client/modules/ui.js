@@ -214,6 +214,30 @@ export async function loadArtistPage(artistId) {
         mainContent.scrollTop = 0;
     }
 
+    // Clear current artist data before loading new artist
+    const artistImageEl = document.getElementById("artist-image");
+    const artistMosaicEl = document.getElementById("artist-mosaic");
+    const artistGradient = document.getElementById("artist-gradient");
+    if (artistImageEl) {
+        artistImageEl.src = "";
+        artistImageEl.style.display = "none";
+    }
+    if (artistMosaicEl) {
+        artistMosaicEl.innerHTML = "";
+        artistMosaicEl.style.display = "none";
+    }
+    if (artistGradient) {
+        artistGradient.style.background = "linear-gradient(180deg, #282828 0%, #121212 100%)";
+    }
+    const songsList = document.getElementById("artist-songs-list");
+    if (songsList) {
+        songsList.innerHTML = "";
+    }
+    const albumsGrid = document.getElementById("artist-albums-grid");
+    if (albumsGrid) {
+        albumsGrid.innerHTML = "";
+    }
+
     try {
         const artist = await getArtist(artistId);
         if (!artist) {
@@ -328,8 +352,14 @@ export async function loadArtistPage(artistId) {
                 row.className = 'artist-song-row' + (index >= 5 && !isExpanded ? ' artist-track-hidden' : '');
                 var duration = track.duration ? formatDuration(track.duration) : '';
                 var plays = track.play_count !== undefined ? track.play_count : 0;
-                var artworkUrl = (track.album && track.album.artwork_path) ?
-                    withBase('/tracks/' + track.id + '/artwork?v=' + (track.updated_at || '')) : '';
+                var artworkUrl = '';
+                if (track.album) {
+                    if (track.album.artwork_path) {
+                        artworkUrl = withBase('/tracks/' + track.id + '/artwork?v=' + (track.updated_at || ''));
+                    } else if (track.album.image_url) {
+                        artworkUrl = track.album.image_url;
+                    }
+                }
                 row.innerHTML =
                     '<span class="ps-row-num">' + (index + 1) + '</span>' +
                     '<span class="ps-row-art">' + (artworkUrl ? '<img src="' + artworkUrl + '" alt="">' : '') + '</span>' +

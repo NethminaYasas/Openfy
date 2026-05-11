@@ -2737,11 +2737,21 @@ def import_spotify_playlist(
             except ValueError:
                 pass
         
+        # IMPORTANT: When adding background tasks in async endpoints, always use threading.Thread
+        # with daemon=True. NEVER call synchronous blocking functions (like external API calls,
+        # heavy computation, or file I/O) directly in async endpoints - this blocks the event
+        # loop and causes issues throughout the application (e.g., queue, downloads, UI state).
+        # Use a separate thread with its own database session for any blocking operations.
+
         # Get artist info
         artists = playlist_data.get("artists", [])
         artist_id = None
+        spotify_artist_url = None
         if artists and isinstance(artists, list) and len(artists) > 0:
             artist_name = artists[0].get("name")
+            artist_spotify_id = artists[0].get("id")
+            if artist_spotify_id:
+                spotify_artist_url = f"https://open.spotify.com/artist/{artist_spotify_id}"
             if artist_name:
                 # Find or create artist
                 artist = db.execute(
@@ -2749,10 +2759,40 @@ def import_spotify_playlist(
                 ).scalar_one_or_none()
                 if not artist:
                     from app.models import Artist as ArtistModel
-                    artist = ArtistModel(name=artist_name)
+                    artist = ArtistModel(name=artist_name, spotify_url=spotify_artist_url)
                     db.add(artist)
                     db.flush()
-                artist_id = artist.id
+                    artist_id = artist.id
+                    # Trigger non-blocking background image refresh
+                    if spotify_artist_url:
+                        import threading
+                        from .db import SessionLocal
+                        artist_name_for_thread = artist_name
+                        artist_id_for_thread = artist.id
+                        def background_refresh():
+                            new_db = SessionLocal()
+                            try:
+                                from app.models import Artist
+                                from app.services.artist_service import get_artist_info_from_spotify
+                                bg_artist = new_db.get(Artist, artist_id_for_thread)
+                                if bg_artist and not bg_artist.image_url:
+                                    artist_info = get_artist_info_from_spotify(spotify_artist_url)
+                                    if artist_info and artist_info.get("images"):
+                                        images = sorted(artist_info["images"], key=lambda x: x.get("width", 0), reverse=True)
+                                        if images and images[0].get("url"):
+                                            bg_artist.image_url = images[0]["url"]
+                                            new_db.commit()
+                            except Exception as e:
+                                print(f"Background artist image refresh failed for {artist_name_for_thread}: {e}")
+                            finally:
+                                new_db.close()
+                        threading.Thread(target=background_refresh, daemon=True).start()
+                else:
+                    if not artist.spotify_url and spotify_artist_url:
+                        artist.spotify_url = spotify_artist_url
+                        db.add(artist)
+                        db.flush()
+                    artist_id = artist.id
         
         # Find or create Album entry
         internal_album_id = None
