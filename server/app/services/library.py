@@ -49,13 +49,15 @@ def _get_or_create_artist(db: Session, name: str) -> Artist:
     return artist
 
 
-def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: int | None, source_id: str | None = None) -> Album:
+def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: int | None, source_id: str | None = None, image_url: str | None = None) -> Album:
     # Try to find by source_id first (most reliable for Spotify albums)
     if source_id:
         album = db.execute(select(Album).where(Album.source_id == source_id)).scalar_one_or_none()
         if album:
             if year and album.year != year:
                 album.year = year
+            if image_url and not album.image_url:
+                album.image_url = image_url
             return album
     
     # Fallback to title + artist_id matching (only if title is provided)
@@ -68,13 +70,41 @@ def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: i
             if source_id and not album.source_id:
                 album.source_id = source_id
                 db.add(album)
+            if image_url and not album.image_url:
+                album.image_url = image_url
+                db.add(album)
             return album
     
-    # Create new album only if source_id is provided
-    if source_id:
-        album = Album(title=title, artist_id=artist_id, year=year, source_id=source_id)
+    # Create new album if title is provided (even without source_id for single track downloads)
+    if title:
+        album = Album(title=title, artist_id=artist_id, year=year, source_id=source_id, image_url=image_url)
         db.add(album)
         db.flush()
+        # Trigger background fetch for album image from Spotify if source_id provided
+        if source_id and source_id.startswith("spotify:"):
+            import threading
+            from ..db import SessionLocal
+            album_id_for_thread = album.id
+            spotify_album_id = source_id.replace("spotify:", "")
+            def background_album_fetch():
+                new_db = SessionLocal()
+                try:
+                    bg_album = new_db.get(Album, album_id_for_thread)
+                    if bg_album and not bg_album.image_url:
+                        try:
+                            from app.services.artist_service import get_album_info_from_spotify
+                            album_url = f"https://open.spotify.com/album/{spotify_album_id}"
+                            album_info = get_album_info_from_spotify(album_url)
+                            if album_info and album_info.get("images"):
+                                images = sorted(album_info["images"], key=lambda x: x.get("width", 0), reverse=True)
+                                if images and images[0].get("url"):
+                                    bg_album.image_url = images[0]["url"]
+                                    new_db.commit()
+                        except Exception:
+                            pass
+                finally:
+                    new_db.close()
+            threading.Thread(target=background_album_fetch, daemon=True).start()
         return album
     
     return None

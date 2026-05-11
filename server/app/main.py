@@ -1312,6 +1312,94 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
     return artist
 
 
+@app.get("/artists/{artist_id}/refresh-albums")
+def refresh_artist_albums(
+    artist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Refresh all album images for an artist - synchronous to load images immediately."""
+    from app.models import Artist, Album
+
+    user = _require_user(db, x_auth_hash)
+
+    artist = db.get(Artist, artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    # Only allow if user has tracks by this artist
+    has_access = (
+        any(t.user_hash == user.auth_hash for t in artist.tracks) or
+        any(t.user_hash == user.auth_hash for t in artist.many_tracks) or
+        user.is_admin
+    )
+    if not has_access:
+        raise HTTPException(status_code=403, detail="No access to this artist")
+
+    # Get all albums for this artist that don't have image_url
+    albums = db.execute(
+        select(Album).where(Album.artist_id == artist_id)
+    ).scalars().all()
+
+    updated = 0
+    for album in albums:
+        if not album.image_url and album.source_id and album.source_id.startswith("spotify:"):
+            try:
+                from app.services.artist_service import get_album_info_from_spotify
+                spotify_album_id = album.source_id.replace("spotify:", "")
+                album_url = f"https://open.spotify.com/album/{spotify_album_id}"
+                album_info = get_album_info_from_spotify(album_url)
+                if album_info and album_info.get("images"):
+                    images = sorted(album_info["images"], key=lambda x: x.get("width", 0), reverse=True)
+                    if images and images[0].get("url"):
+                        album.image_url = images[0]["url"]
+                        db.add(album)
+                        updated += 1
+            except Exception:
+                pass
+    
+    if updated > 0:
+        db.commit()
+
+    return {"status": "refreshed", "albums_updated": updated}
+
+
+@app.post("/tracks/fix-missing-albums")
+def fix_missing_albums(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Fix tracks that don't have albums - create albums for them."""
+    from app.models import Artist, Album
+    from app.services.library import _get_or_create_album
+
+    user = _require_user(db, x_auth_hash)
+
+    # Find tracks without album_id
+    tracks_without_album = db.execute(
+        select(Track).where(Track.album_id == None)
+    ).scalars().all()
+
+    fixed = 0
+    for track in tracks_without_album:
+        if track.artist_id:
+            # Get artist name
+            artist = db.get(Artist, track.artist_id)
+            artist_id = track.artist_id
+            # Create album with track title as album name
+            album_title = track.title  # Use track title as placeholder album name
+            album = _get_or_create_album(db, album_title, artist_id, None, None)
+            if album:
+                track.album_id = album.id
+                db.add(track)
+                fixed += 1
+
+    if fixed > 0:
+        db.commit()
+
+    return {"status": "fixed", "tracks_fixed": fixed}
+
+
 @app.get("/artists/{artist_id}/refresh-image")
 def refresh_artist_image(
     artist_id: str,

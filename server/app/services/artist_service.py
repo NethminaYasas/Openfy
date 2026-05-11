@@ -132,6 +132,40 @@ def get_artist_info_from_spotify(spotify_url: str) -> dict | None:
     return get_artist_from_spotify_url(spotify_url)
 
 
+def get_album_info_from_spotify(spotify_url: str) -> dict | None:
+    """Get album info from Spotify album URL."""
+    if not spotify_url:
+        return None
+
+    if not _ensure_spotify_scraper_import():
+        logger.error("SpotifyScraper not available")
+        return None
+
+    try:
+        from spotify_scraper import SpotifyClient
+
+        client = SpotifyClient()
+        logger.info(f"Fetching album info from: {spotify_url}")
+
+        if "/album/" in spotify_url:
+            album_info = client.get_album_info(spotify_url)
+            if album_info:
+                logger.info(f"Got album data: {album_info.get('name')}")
+                images = album_info.get("images", [])
+                if images:
+                    sorted_images = sorted(images, key=lambda x: x.get("width", 0), reverse=True)
+                    album_info["largest_image"] = sorted_images[0].get("url") if sorted_images else None
+            return album_info
+        else:
+            logger.warning("Not an album URL")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to get album from Spotify: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def get_artist_image_from_spotify(spotify_url: str) -> str | None:
     """Get artist image URL from Spotify URL."""
     result = get_artist_from_spotify_url(spotify_url)

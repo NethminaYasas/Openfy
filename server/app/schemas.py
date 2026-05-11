@@ -27,6 +27,7 @@ class AlbumForTrack(BaseModel):
     title: str
     artwork_path: str | None = None
     image_url: str | None = None
+    source_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

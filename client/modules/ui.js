@@ -283,6 +283,9 @@ export async function loadArtistPage(artistId) {
 
             // Trigger background refresh if missing image
             api("/artists/" + artistId + "/refresh-image").catch(() => {});
+            
+            // Also refresh album images in background
+            api("/artists/" + artistId + "/refresh-albums").catch(() => {});
 
             // Show default gradient for artist page
             document.getElementById('artist-gradient').style.background =
