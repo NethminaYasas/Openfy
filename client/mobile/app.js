@@ -1,7 +1,7 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
 import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, runSpotifySearch, getArtist, getTrackStreamUrl } from '../modules/api.js';
-import { formatDuration, getArtistDisplay } from '../modules/utils.js';
+import { formatDuration, getArtistDisplay, extractVibrantColors } from '../modules/utils.js';
 
 // ─── State ───────────────────────────────────────────
 let currentTrack = null;
@@ -227,7 +227,6 @@ function playFromList(list, index) {
     } catch (e) {
         console.error('playTrack error:', e);
     }
-    showPage('nowPlaying');
 }
 
 function renderHorizCards(gridId, items) {
@@ -261,7 +260,8 @@ function renderHorizPlaylists(gridId, items) {
     items.forEach((item, i) => {
         const card = document.createElement('div');
         card.className = 'card';
-        const artUrl = item.cover_url || null;
+        const isAlbum = item.type === 'album';
+        const artUrl = item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
         card.innerHTML = `
             <div class="card-img-wrap">
                 ${artUrl
@@ -271,9 +271,9 @@ function renderHorizPlaylists(gridId, items) {
                 <div class="card-img-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-list"></i></div>
             </div>
             <div class="card-title">${escapeHtml(item.name || 'Playlist')}</div>
-            <div class="card-subtitle">${item.is_public ? 'Public' : 'Private'} playlist</div>
+            <div class="card-subtitle">${item.is_public ? 'Public' : 'Private'} ${isAlbum ? 'album' : 'playlist'}</div>
         `;
-        card.addEventListener('click', () => openDetail(item, 'playlist'));
+        card.addEventListener('click', () => openDetail(item, isAlbum ? 'album' : 'playlist'));
         grid.appendChild(card);
     });
 }
@@ -394,7 +394,6 @@ document.querySelectorAll('.ctx-item').forEach(item => {
 
         if (action === 'play') {
             playTrack(track);
-            showPage('nowPlaying');
         } else if (action === 'add-queue') {
             queue.push(track);
         } else if (action === 'add-playlist') {
@@ -421,23 +420,43 @@ $('ctx-overlay').addEventListener('click', hideContextMenu);
 function renderLibraryItems(items) {
     const container = $('library-items');
     container.innerHTML = '';
-    items.forEach(item => {
+    items.slice().sort(function(a, b) {
+        if (a.is_liked && !b.is_liked) return -1;
+        if (!a.is_liked && b.is_liked) return 1;
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }).forEach(item => {
         const el = document.createElement('div');
         el.className = 'lib-item';
-        const artUrl = item.cover_url;
-        el.innerHTML = `
-            <div class="lib-item-art">
-                ${artUrl
-                    ? `<img src="${artUrl}" alt="" loading="lazy" />`
-                    : `<div class="lib-item-art-placeholder"><i class="fa-solid fa-list"></i></div>`
-                }
-            </div>
-            <div class="lib-item-meta">
-                <div class="lib-item-title">${escapeHtml(item.name)}</div>
-                <div class="lib-item-sub">${item.is_public ? 'Public' : 'Private'} playlist</div>
-            </div>
-        `;
-        el.addEventListener('click', () => openDetail(item, 'playlist'));
+        const isAlbum = item.type === 'album';
+        if (item.is_liked) {
+            el.innerHTML = `
+                <div class="lib-item-art lib-item-art-liked">
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+                <div class="lib-item-meta">
+                    <div class="lib-item-title">${escapeHtml(item.name)}</div>
+                    <div class="lib-item-sub">Playlist</div>
+                </div>
+            `;
+        } else {
+            const artUrl = item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
+            el.innerHTML = `
+                <div class="lib-item-art">
+                    ${artUrl
+                        ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                        : ''
+                    }
+                    <div class="lib-item-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-list"></i></div>
+                </div>
+                <div class="lib-item-meta">
+                    <div class="lib-item-title">${escapeHtml(item.name)}</div>
+                    <div class="lib-item-sub">${item.is_public ? 'Public' : 'Private'} ${isAlbum ? 'album' : 'playlist'}</div>
+                </div>
+            `;
+        }
+        el.addEventListener('click', () => openDetail(item, isAlbum ? 'album' : 'playlist'));
         container.appendChild(el);
     });
 }
@@ -489,40 +508,79 @@ function renderTracks(trackList) {
             queue = trackList;
             queueIndex = i;
             playTrack(track);
-            showPage('nowPlaying');
         });
         container.appendChild(el);
     });
 }
 
+// ─── Gradient ────────────────────────────────────────
+async function updateGradient(el, artUrl) {
+    if (!el) return;
+    if (!artUrl) {
+        el.style.background = 'linear-gradient(180deg, #333 0%, #121212 100%)';
+        return;
+    }
+    try {
+        const colors = await extractVibrantColors(artUrl);
+        el.style.background = 'linear-gradient(180deg, ' + colors[0] + ' 0%, ' + colors[1] + ' 60%, #121212 100%)';
+    } catch (e) {
+        el.style.background = 'linear-gradient(180deg, #333 0%, #121212 100%)';
+    }
+}
+
 // ─── Detail View ─────────────────────────────────────
-function openDetail(item, type) {
+async function openDetail(item, type) {
     showPage('detail');
     const title = $('detail-title');
     const subtitle = $('detail-subtitle');
     const art = $('detail-art-img');
     const placeholder = $('detail-art-placeholder');
 
-    const artUrl = (type === 'playlist')
-        ? (item.cover_url || null)
-        : (item.id ? withBase("/tracks/" + item.id + "/artwork") : null);
-
-    if (artUrl) {
+    if (item.is_liked) {
+        art.style.display = 'none';
+        placeholder.style.background = 'linear-gradient(135deg, #450af5, #c4efd9)';
+        placeholder.innerHTML = '<i class="fa-solid fa-heart" style="font-size: 3rem; color: #fff;"></i>';
+        placeholder.style.display = 'flex';
+        updateGradient($('detail-gradient'), null);
+    } else {
+        placeholder.style.background = '#2a2a2a';
+        placeholder.innerHTML = '<i class="fa-solid fa-music"></i>';
+        const artUrl = type === 'album'
+            ? withBase("/albums/" + item.id + "/artwork")
+            : type === 'playlist'
+                ? withBase("/playlists/" + item.id + "/cover")
+                : withBase("/tracks/" + item.id + "/artwork");
+        art.onerror = function() { this.style.display = 'none'; placeholder.style.display = 'flex'; };
         art.src = artUrl;
         art.style.display = 'block';
         placeholder.style.display = 'none';
-    } else {
-        art.style.display = 'none';
-        placeholder.style.display = 'flex';
+        updateGradient($('detail-gradient'), artUrl);
     }
 
     title.textContent = item.title || item.name || 'Unknown';
-    subtitle.textContent = type === 'playlist' ? (item.is_public ? 'Public playlist' : 'Private playlist') : getArtistDisplay(item);
+    if (item.is_liked) {
+        subtitle.textContent = 'Playlist';
+    } else if (type === 'playlist') {
+        subtitle.textContent = item.is_public ? 'Public playlist' : 'Private playlist';
+    } else if (type === 'album') {
+        subtitle.textContent = item.is_public ? 'Public album' : 'Private album';
+    } else {
+        subtitle.textContent = getArtistDisplay(item);
+    }
 
-    const tracksList = item.tracks || (type === 'track' ? [item] : []);
+    let tracksList = [];
+    if (type === 'track') {
+        tracksList = [item];
+    } else {
+        try {
+            const apiTracks = await api("/playlists/" + item.id + "/tracks");
+            tracksList = apiTracks.map(t => t.track);
+        } catch (e) {
+            console.error('Failed to load tracks:', e);
+        }
+    }
     renderTracks(tracksList);
 
-    // Play button action
     $('detail-play-btn').onclick = () => {
         if (tracksList.length > 0) {
             queue = tracksList;
@@ -571,14 +629,19 @@ function playTrack(track) {
         npPlaceholder.style.display = 'flex';
     }
 
+    updateGradient($('np-gradient'), artUrl);
+
     updatePlayButtons();
 
-    getTrackStreamUrl(track.id)
+    const tid = track.id;
+    getTrackStreamUrl(tid)
         .then(streamUrl => {
+            if (currentTrack?.id !== tid) return;
             audio.src = streamUrl;
             return audio.play();
         })
         .catch(err => {
+            if (err.name === 'AbortError') return;
             console.error('playback failed:', err);
         });
 
