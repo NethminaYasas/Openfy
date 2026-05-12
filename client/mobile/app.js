@@ -1,6 +1,6 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, runSpotifySearch, getArtist } from '../modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, runSpotifySearch, getArtist, getTrackStreamUrl } from '../modules/api.js';
 import { formatDuration, getArtistDisplay } from '../modules/utils.js';
 
 // ─── State ───────────────────────────────────────────
@@ -93,12 +93,10 @@ function showPage(name) {
     if (name === 'nowPlaying') {
         pages.nowPlaying.classList.add('active');
         pages.nowPlaying.style.display = 'flex';
-        $('app').style.display = 'none';
         document.body.style.background = '#121212';
         return;
     }
     pages.nowPlaying.style.display = 'none';
-    $('app').style.display = 'flex';
     document.body.style.background = '#000';
     const page = pages[name];
     if (page) page.classList.add('active');
@@ -184,9 +182,13 @@ function renderCards(gridId, items, isMostPlayed = false) {
 function attachCardHandlers(card, item, list, index) {
     let longPressTimer = null;
     let isLongPress = false;
+    let startX = 0;
+    let startY = 0;
 
     card.addEventListener('touchstart', e => {
         isLongPress = false;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
         longPressTimer = setTimeout(() => {
             isLongPress = true;
             navigator.vibrate && navigator.vibrate(20);
@@ -196,7 +198,10 @@ function attachCardHandlers(card, item, list, index) {
 
     card.addEventListener('touchend', e => {
         clearTimeout(longPressTimer);
-        if (!isLongPress) {
+        if (isLongPress) return;
+        const dx = e.changedTouches[0].clientX - startX;
+        const dy = e.changedTouches[0].clientY - startY;
+        if (dx * dx + dy * dy < 100) {
             playFromList(list, index);
         }
     }, { passive: true });
@@ -217,7 +222,11 @@ function playFromList(list, index) {
     if (!list || !list.length) return;
     queue = list;
     queueIndex = index;
-    playTrack(list[index]);
+    try {
+        playTrack(list[index]);
+    } catch (e) {
+        console.error('playTrack error:', e);
+    }
     showPage('nowPlaying');
 }
 
@@ -299,9 +308,13 @@ function renderTrackRows(containerId, items) {
 function attachRowHandlers(row, item, list, index) {
     let longPressTimer = null;
     let isLongPress = false;
+    let startX = 0;
+    let startY = 0;
 
-    row.addEventListener('touchstart', () => {
+    row.addEventListener('touchstart', e => {
         isLongPress = false;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
         longPressTimer = setTimeout(() => {
             isLongPress = true;
             navigator.vibrate && navigator.vibrate(20);
@@ -311,7 +324,10 @@ function attachRowHandlers(row, item, list, index) {
 
     row.addEventListener('touchend', e => {
         clearTimeout(longPressTimer);
-        if (!isLongPress) {
+        if (isLongPress) return;
+        const dx = e.changedTouches[0].clientX - startX;
+        const dy = e.changedTouches[0].clientY - startY;
+        if (dx * dx + dy * dy < 100) {
             playFromList(list, index);
         }
     }, { passive: true });
@@ -526,7 +542,6 @@ function playTrack(track) {
     const title = track.title || track.name || 'Unknown';
     const artist = getArtistDisplay(track);
     const artUrl = track.id ? withBase("/tracks/" + track.id + "/artwork") : null;
-    const audioUrl = track.audio_url || track.file_path || track.stream_url;
 
     // Update mini player
     $('mini-player').style.display = 'flex';
@@ -558,13 +573,14 @@ function playTrack(track) {
 
     updatePlayButtons();
 
-    if (audioUrl) {
-        audio.src = withBase ? withBase(audioUrl) : audioUrl;
-        audio.play().catch(() => {});
-    } else {
-        // Simulate play for UI demo
-        updateProgressDisplay();
-    }
+    getTrackStreamUrl(track.id)
+        .then(streamUrl => {
+            audio.src = streamUrl;
+            return audio.play();
+        })
+        .catch(err => {
+            console.error('playback failed:', err);
+        });
 
     audio.addEventListener('timeupdate', updateProgressDisplay);
     audio.addEventListener('ended', onTrackEnd);
