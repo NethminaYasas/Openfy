@@ -746,9 +746,11 @@ def get_track_updates(
 
 
 @app.get("/", response_class=HTMLResponse)
-def serve_index():
+async def serve_index(request: Request):
     if not static_dir.exists():
         return HTMLResponse("<h1>Openfy Server</h1>")
+    if _is_mobile(request):
+        return HTMLResponse(content=_get_mobile_index_html())
     index_path = static_dir / "index.html"
     if not index_path.exists():
         return HTMLResponse("<h1>Openfy UI missing</h1>")
@@ -3752,8 +3754,6 @@ async def serve_frontend(path: str, request: Request):
     # Skip static files - let StaticFiles handle them
     if path.startswith("static/"):
         raise HTTPException(status_code=404, detail="File not found")
-    # Serve mobile index.html for mobile users
     if _is_mobile(request):
         return HTMLResponse(content=_get_mobile_index_html())
-    # Serve index.html for frontend routes
     return HTMLResponse(content=_get_index_html())
