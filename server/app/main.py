@@ -3715,6 +3715,8 @@ def delete_album_admin(
 
 # Serve index.html for all frontend routes (SPA routing)
 _index_html_cache: str | None = None
+_mobile_index_html_cache: str | None = None
+_MOBILE_UA_RE = re.compile(r'android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini|mobile|touch', re.I)
 
 def _get_index_html() -> str:
     global _index_html_cache
@@ -3726,9 +3728,23 @@ def _get_index_html() -> str:
                 break
     return _index_html_cache or "<!DOCTYPE html><html><body><h1>Not Found</h1></body></html>"
 
+def _get_mobile_index_html() -> str:
+    global _mobile_index_html_cache
+    if _mobile_index_html_cache is None:
+        for candidate in [Path(__file__).resolve().parent.parent / "client" / "mobile" / "index.html",
+                          Path(__file__).resolve().parent.parent.parent / "client" / "mobile" / "index.html"]:
+            if candidate.exists():
+                _mobile_index_html_cache = candidate.read_text()
+                break
+    return _mobile_index_html_cache or _get_index_html()
+
+def _is_mobile(request: Request) -> bool:
+    ua = request.headers.get("user-agent", "")
+    return bool(_MOBILE_UA_RE.search(ua))
+
 
 @app.get("/{path:path}")
-async def serve_frontend(path: str):
+async def serve_frontend(path: str, request: Request):
     """Serve index.html for all non-API routes to enable SPA client-side routing"""
     # Skip API routes
     if path.startswith("api/"):
@@ -3736,5 +3752,8 @@ async def serve_frontend(path: str):
     # Skip static files - let StaticFiles handle them
     if path.startswith("static/"):
         raise HTTPException(status_code=404, detail="File not found")
+    # Serve mobile index.html for mobile users
+    if _is_mobile(request):
+        return HTMLResponse(content=_get_mobile_index_html())
     # Serve index.html for frontend routes
     return HTMLResponse(content=_get_index_html())

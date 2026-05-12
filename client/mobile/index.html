@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/static/mobile/manifest.json">
+    <link rel="icon" href="/static/images/logo.png">
+    <title>Openfy</title>
+    <link rel="stylesheet" href="/static/mobile/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous">
+</head>
+<body>
+    <!-- Auth Overlay -->
+    <div class="auth-overlay" id="auth-overlay">
+        <div class="auth-box">
+            <div class="auth-logo"><img src="/static/images/logo.png" alt="Openfy"></div>
+            <h2 class="auth-title">Log in to Openfy</h2>
+            <div class="auth-form" id="auth-signin">
+                <div class="input-wrapper">
+                    <i class="fa-solid fa-key input-icon"></i>
+                    <input type="text" id="signin-hash" placeholder="Enter your Auth Hash" autocomplete="off" />
+                </div>
+                <button class="auth-btn" id="signin-btn">
+                    <span class="btn-text">Log In</span>
+                    <span class="btn-loader" style="display:none;"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                </button>
+                <p class="auth-status" id="signin-status"></p>
+            </div>
+            <p class="auth-switch">Don't have an account? <a href="#" id="show-signup">Sign up</a></p>
+            <div class="auth-form" id="auth-signup" style="display:none;">
+                <div class="input-wrapper">
+                    <i class="fa-solid fa-user input-icon"></i>
+                    <input type="text" id="signup-name" placeholder="Choose a username" autocomplete="off" />
+                </div>
+                <button class="auth-btn auth-btn-outline" id="signup-btn">
+                    <span class="btn-text">Sign Up</span>
+                    <span class="btn-loader" style="display:none;"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                </button>
+                <p class="auth-status" id="signup-status"></p>
+            </div>
+            <p class="auth-switch" id="back-to-signin" style="display:none;">Already have an account? <a href="#" id="show-signin">Log in</a></p>
+            <p class="auth-hint"><i class="fa-solid fa-info-circle"></i> Your Auth Hash is your password. Save it securely!</p>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" style="display:none;">
+        <!-- Top Bar -->
+        <header class="top-bar" id="top-bar">
+            <button class="top-bar-btn" id="top-bar-back" style="display:none;">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div class="top-bar-brand" id="top-bar-brand">
+                <img src="/static/images/logo_white.png" alt="Openfy" class="top-bar-logo">
+            </div>
+            <div class="top-bar-search" id="top-bar-search" style="display:none;">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="search-input" placeholder="What do you want to play?" autocomplete="off" />
+            </div>
+            <button class="top-bar-btn" id="top-bar-menu">
+                <i class="fa-solid fa-ellipsis-h"></i>
+            </button>
+        </header>
+
+        <!-- Page: Home -->
+        <main class="page active" id="page-home">
+            <div class="page-header">
+                <h1>Good evening</h1>
+            </div>
+            <section class="section">
+                <div class="section-header">
+                    <h2>Most Played</h2>
+                </div>
+                <div class="cards-grid" id="most-played-grid"></div>
+            </section>
+            <section class="section">
+                <div class="section-header">
+                    <h2>Library</h2>
+                </div>
+                <div class="cards-grid" id="tracks-grid"></div>
+            </section>
+        </main>
+
+        <!-- Page: Search -->
+        <main class="page" id="page-search">
+            <div class="search-page-header">
+                <div class="search-bar">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="search-page-input" placeholder="What do you want to play?" autocomplete="off" />
+                </div>
+            </div>
+            <div class="search-content" id="search-content">
+                <div class="section">
+                    <h2>Browse All</h2>
+                    <div class="browse-grid" id="browse-grid">
+                        <div class="browse-chip" style="background:#E13300;">Music</div>
+                        <div class="browse-chip" style="background:#1E3264;">Podcasts</div>
+                        <div class="browse-chip" style="background:#608108;">Made For You</div>
+                        <div class="browse-chip" style="background:#BA5D07;">Charts</div>
+                        <div class="browse-chip" style="background:#DC148C;">New Releases</div>
+                        <div class="browse-chip" style="background:#477D95;">Discover</div>
+                        <div class="browse-chip" style="background:#7D4B32;">Concerts</div>
+                        <div class="browse-chip" style="background:#503750;">Podcast Charts</div>
+                        <div class="browse-chip" style="background:#0D4760;">Videos</div>
+                        <div class="browse-chip" style="background:#1DB954;">Wellness</div>
+                    </div>
+                </div>
+                <div class="section" id="search-results-section" style="display:none;">
+                    <h2>Results</h2>
+                    <div id="search-results"></div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Page: Library -->
+        <main class="page" id="page-library">
+            <div class="page-header">
+                <h1>Your Library</h1>
+            </div>
+            <div class="library-toggle-bar">
+                <button class="pill-btn active" data-filter="playlists">Playlists</button>
+                <button class="pill-btn" data-filter="albums">Albums</button>
+                <button class="pill-btn" data-filter="artists">Artists</button>
+            </div>
+            <div class="library-content" id="library-content">
+                <div id="library-items"></div>
+            </div>
+        </main>
+
+        <!-- Page: Playlist/Album/Artist Detail -->
+        <main class="page" id="page-detail">
+            <div class="detail-gradient" id="detail-gradient"></div>
+            <div class="detail-header">
+                <div class="detail-art" id="detail-art">
+                    <div class="detail-art-placeholder" id="detail-art-placeholder">
+                        <i class="fa-solid fa-music"></i>
+                    </div>
+                    <img id="detail-art-img" style="display:none;" />
+                </div>
+                <h1 id="detail-title"></h1>
+                <p id="detail-subtitle"></p>
+            </div>
+            <div class="detail-actions">
+                <button class="detail-play-btn" id="detail-play-btn">
+                    <i class="fa-solid fa-play"></i>
+                </button>
+                <button class="detail-shuffle-btn" id="detail-shuffle-btn">
+                    <i class="fa-solid fa-shuffle"></i>
+                </button>
+            </div>
+            <div class="detail-tracks" id="detail-tracks"></div>
+        </main>
+
+        <!-- Page: Now Playing (Full Screen) -->
+        <main class="page now-playing-page" id="page-now-playing">
+            <div class="np-gradient" id="np-gradient"></div>
+            <header class="np-top-bar">
+                <button class="np-btn" id="np-down-btn">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </button>
+                <span class="np-playing-from" id="np-playing-from">Playing from Playlist</span>
+                <button class="np-btn" id="np-menu-btn">
+                    <i class="fa-solid fa-ellipsis-h"></i>
+                </button>
+            </header>
+            <div class="np-artwork" id="np-artwork">
+                <div class="np-art-placeholder">
+                    <i class="fa-solid fa-music"></i>
+                </div>
+                <img id="np-art-img" style="display:none;" />
+            </div>
+            <div class="np-info">
+                <div class="np-text">
+                    <h2 id="np-title">No track playing</h2>
+                    <p id="np-artist"></p>
+                </div>
+                <button class="np-like-btn" id="np-like-btn">
+                    <i class="fa-regular fa-heart"></i>
+                </button>
+            </div>
+            <div class="np-progress-area">
+                <div class="np-progress-bar" id="np-progress-bar">
+                    <div class="np-progress-fill" id="np-progress-fill"></div>
+                    <div class="np-progress-thumb" id="np-progress-thumb"></div>
+                </div>
+                <div class="np-time">
+                    <span id="np-curr-time">0:00</span>
+                    <span id="np-total-time">0:00</span>
+                </div>
+            </div>
+            <div class="np-controls">
+                <button id="np-shuffle"><i class="fa-solid fa-shuffle"></i></button>
+                <button id="np-prev"><i class="fa-solid fa-backward-step"></i></button>
+                <button id="np-play-btn" class="np-play-btn-large">
+                    <i class="fa-solid fa-play play-icon"></i>
+                    <i class="fa-solid fa-pause pause-icon" style="display:none;"></i>
+                </button>
+                <button id="np-next"><i class="fa-solid fa-forward-step"></i></button>
+                <button id="np-repeat"><i class="fa-solid fa-repeat"></i></button>
+            </div>
+            <div class="np-extras">
+                <button id="np-connect"><i class="fa-solid fa-mobile-screen-button"></i></button>
+                <div class="np-volume">
+                    <i class="fa-solid fa-volume-high" id="np-volume-icon"></i>
+                    <input type="range" min="0" max="100" class="np-volume-slider" id="np-volume-slider" value="100">
+                </div>
+                <button id="np-queue-btn"><i class="fa-solid fa-list"></i></button>
+            </div>
+        </main>
+
+        <!-- Mini Player -->
+        <div class="mini-player" id="mini-player" style="display:none;">
+            <div class="mini-player-progress" id="mini-player-progress"></div>
+            <div class="mini-player-content" id="mini-player-content">
+                <div class="mini-player-art">
+                    <div class="mini-player-art-placeholder">
+                        <i class="fa-solid fa-music"></i>
+                    </div>
+                    <img id="mini-player-img" style="display:none;" />
+                </div>
+                <div class="mini-player-meta">
+                    <p class="mini-player-title" id="mini-player-title">No track playing</p>
+                    <p class="mini-player-artist" id="mini-player-artist"></p>
+                </div>
+                <button class="mini-player-play-btn" id="mini-player-play-btn">
+                    <i class="fa-solid fa-play play-icon"></i>
+                    <i class="fa-solid fa-pause pause-icon" style="display:none;"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav" id="bottom-nav">
+            <button class="nav-item active" data-page="home">
+                <i class="fa-solid fa-house"></i>
+                <span>Home</span>
+            </button>
+            <button class="nav-item" data-page="search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <span>Search</span>
+            </button>
+            <button class="nav-item" data-page="library">
+                <i class="fa-solid fa-book"></i>
+                <span>Your Library</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Audio element -->
+    <audio id="audio-player" preload="metadata"></audio>
+
+    <script type="module" src="/static/mobile/app.js"></script>
+</body>
+</html>
