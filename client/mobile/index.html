@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#000000">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/static/mobile/manifest.json">
     <link rel="icon" href="/static/images/logo.png">
@@ -76,14 +76,25 @@
             <section class="section">
                 <div class="section-header">
                     <h2>Most Played</h2>
+                    <a href="#">Show all</a>
                 </div>
-                <div class="cards-grid" id="most-played-grid"></div>
+                <div class="horiz-scroll" id="most-played-scroll">
+                    <div class="horiz-scroll-inner" id="most-played-grid"></div>
+                </div>
             </section>
             <section class="section">
                 <div class="section-header">
-                    <h2>Library</h2>
+                    <h2>Latest</h2>
                 </div>
-                <div class="cards-grid" id="tracks-grid"></div>
+                <div class="horiz-scroll">
+                    <div class="horiz-scroll-inner" id="tracks-row-0"></div>
+                </div>
+                <div class="horiz-scroll">
+                    <div class="horiz-scroll-inner" id="tracks-row-1"></div>
+                </div>
+                <div class="horiz-scroll">
+                    <div class="horiz-scroll-inner" id="tracks-row-2"></div>
+                </div>
             </section>
         </main>
 
@@ -250,6 +261,40 @@
                 <span>Your Library</span>
             </button>
         </nav>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="ctx-overlay" id="ctx-overlay" style="display:none;"></div>
+    <div class="ctx-menu" id="ctx-menu" style="display:none;">
+        <div class="ctx-handle"></div>
+        <div class="ctx-header">
+            <div class="ctx-header-art" id="ctx-header-art">
+                <div class="ctx-art-placeholder"><i class="fa-solid fa-music"></i></div>
+                <img id="ctx-header-img" style="display:none;" />
+            </div>
+            <div class="ctx-header-info">
+                <p class="ctx-header-title" id="ctx-header-title"></p>
+                <p class="ctx-header-artist" id="ctx-header-artist"></p>
+            </div>
+        </div>
+        <div class="ctx-items">
+            <button class="ctx-item" data-action="play">
+                <i class="fa-solid fa-play"></i>
+                <span>Play</span>
+            </button>
+            <button class="ctx-item" data-action="add-queue">
+                <i class="fa-solid fa-list"></i>
+                <span>Add to Queue</span>
+            </button>
+            <button class="ctx-item" data-action="add-playlist">
+                <i class="fa-solid fa-plus"></i>
+                <span>Add to Playlist</span>
+            </button>
+            <button class="ctx-item" data-action="like">
+                <i class="fa-regular fa-heart"></i>
+                <span id="ctx-like-text">Like</span>
+            </button>
+        </div>
     </div>
 
     <!-- Audio element -->

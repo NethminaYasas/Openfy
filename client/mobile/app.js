@@ -1,7 +1,7 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
 import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, runSpotifySearch, getArtist } from '../modules/api.js';
-import { formatDuration } from '../modules/utils.js';
+import { formatDuration, getArtistDisplay } from '../modules/utils.js';
 
 // ─── State ───────────────────────────────────────────
 let currentTrack = null;
@@ -59,8 +59,8 @@ signinBtn.addEventListener('click', async () => {
     signinBtn.disabled = true;
     signinBtn.querySelector('.btn-text').textContent = 'Logging in...';
     try {
-        const res = await signIn(hash);
-        setAuth(res.user, hash);
+        const user = await signIn(hash);
+        setAuth(hash, user);
         await initApp();
         signinStatus.textContent = '';
     } catch (e) {
@@ -76,8 +76,8 @@ signupBtn.addEventListener('click', async () => {
     signupBtn.disabled = true;
     signupBtn.querySelector('.btn-text').textContent = 'Signing up...';
     try {
-        const res = await signUp(name);
-        setAuth(res.user, res.auth_hash);
+        const user = await signUp(name);
+        setAuth(user.auth_hash, user);
         await initApp();
         signupStatus.textContent = '';
     } catch (e) {
@@ -141,29 +141,19 @@ $('mini-player').addEventListener('click', () => {
 async function initApp() {
     authOverlay.style.display = 'none';
     $('app').style.display = 'flex';
-    await loadHome();
-    await loadLibrary();
-}
-
-async function loadHome() {
-    try {
-        const mostPlayed = await loadMostPlayed();
-        renderCards('most-played-grid', mostPlayed, true);
-        const allTracks = await loadTracks();
-        tracks = allTracks;
-        renderCards('tracks-grid', allTracks.slice(0, 10));
-    } catch (e) {
-        console.error('Failed to load home:', e);
+    const [mostPlayed, allTracks, allPlaylists] = await Promise.all([
+        loadMostPlayed(),
+        loadTracks(),
+        apiLoadPlaylists()
+    ]);
+    tracks = allTracks;
+    playlists = allPlaylists;
+    renderHorizCards('most-played-grid', mostPlayed);
+    const chunkSize = 9;
+    for (let i = 0; i < 3; i++) {
+        renderHorizCards('tracks-row-' + i, tracks.slice(i * chunkSize, (i + 1) * chunkSize));
     }
-}
-
-async function loadLibrary() {
-    try {
-        playlists = await apiLoadPlaylists();
-        renderLibraryItems(playlists);
-    } catch (e) {
-        console.error('Failed to load library:', e);
-    }
+    renderLibraryItems(playlists);
 }
 
 // ─── Render Helpers ──────────────────────────────────
@@ -174,19 +164,243 @@ function renderCards(gridId, items, isMostPlayed = false) {
     items.forEach((item, i) => {
         const card = document.createElement('div');
         card.className = 'card';
-        const artUrl = item.album?.images?.[0]?.url || item.image_url;
+        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
         card.innerHTML = `
-            ${artUrl
-                ? `<img class="card-img" src="${artUrl}" alt="" loading="lazy" />`
-                : `<div class="card-img-placeholder"><i class="fa-solid fa-music"></i></div>`
-            }
+            <div class="card-img-wrap">
+                ${artUrl
+                    ? `<img class="card-img" src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                    : ''
+                }
+                <div class="card-img-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
+            </div>
             <div class="card-title">${escapeHtml(item.title || item.name || 'Unknown')}</div>
-            <div class="card-subtitle">${escapeHtml(item.artist || item.artist_name || '')}</div>
+            <div class="card-subtitle">${escapeHtml(getArtistDisplay(item))}</div>
         `;
-        card.addEventListener('click', () => openDetail(item, isMostPlayed ? 'most-played' : 'track'));
+        attachCardHandlers(card, item, items, i);
         grid.appendChild(card);
     });
 }
+
+function attachCardHandlers(card, item, list, index) {
+    let longPressTimer = null;
+    let isLongPress = false;
+
+    card.addEventListener('touchstart', e => {
+        isLongPress = false;
+        longPressTimer = setTimeout(() => {
+            isLongPress = true;
+            navigator.vibrate && navigator.vibrate(20);
+            showContextMenu(item, list, index);
+        }, 400);
+    }, { passive: true });
+
+    card.addEventListener('touchend', e => {
+        clearTimeout(longPressTimer);
+        if (!isLongPress) {
+            playFromList(list, index);
+        }
+    }, { passive: true });
+
+    card.addEventListener('touchmove', () => {
+        clearTimeout(longPressTimer);
+    }, { passive: true });
+
+    // Mouse fallback for desktop testing
+    card.addEventListener('click', e => {
+        if (!isLongPress) {
+            playFromList(list, index);
+        }
+    });
+}
+
+function playFromList(list, index) {
+    if (!list || !list.length) return;
+    queue = list;
+    queueIndex = index;
+    playTrack(list[index]);
+    showPage('nowPlaying');
+}
+
+function renderHorizCards(gridId, items) {
+    const grid = $(gridId);
+    if (!grid) return;
+    grid.innerHTML = '';
+    items.forEach((item, i) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
+        card.innerHTML = `
+            <div class="card-img-wrap">
+                ${artUrl
+                    ? `<img class="card-img" src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                    : ''
+                }
+                <div class="card-img-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
+            </div>
+            <div class="card-title">${escapeHtml(item.title || item.name || 'Unknown')}</div>
+            <div class="card-subtitle">${escapeHtml(getArtistDisplay(item))}</div>
+        `;
+        attachCardHandlers(card, item, items, i);
+        grid.appendChild(card);
+    });
+}
+
+function renderHorizPlaylists(gridId, items) {
+    const grid = $(gridId);
+    if (!grid) return;
+    grid.innerHTML = '';
+    items.forEach((item, i) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const artUrl = item.cover_url || null;
+        card.innerHTML = `
+            <div class="card-img-wrap">
+                ${artUrl
+                    ? `<img class="card-img" src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                    : ''
+                }
+                <div class="card-img-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-list"></i></div>
+            </div>
+            <div class="card-title">${escapeHtml(item.name || 'Playlist')}</div>
+            <div class="card-subtitle">${item.is_public ? 'Public' : 'Private'} playlist</div>
+        `;
+        card.addEventListener('click', () => openDetail(item, 'playlist'));
+        grid.appendChild(card);
+    });
+}
+
+function renderTrackRows(containerId, items) {
+    const container = $(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    items.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'track-row-item';
+        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
+        row.innerHTML = `
+            <div class="track-row-art">
+                ${artUrl
+                    ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                    : ''
+                }
+                <div class="track-row-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
+            </div>
+            <div class="track-row-meta">
+                <div class="track-row-title">${escapeHtml(item.title || item.name || 'Unknown')}</div>
+                <div class="track-row-artist">${escapeHtml(getArtistDisplay(item))}</div>
+            </div>
+            <span class="track-row-duration">${formatDuration(item.duration || item.duration_ms)}</span>
+        `;
+        attachRowHandlers(row, item, items, i);
+        container.appendChild(row);
+    });
+}
+
+function attachRowHandlers(row, item, list, index) {
+    let longPressTimer = null;
+    let isLongPress = false;
+
+    row.addEventListener('touchstart', () => {
+        isLongPress = false;
+        longPressTimer = setTimeout(() => {
+            isLongPress = true;
+            navigator.vibrate && navigator.vibrate(20);
+            showContextMenu(item, list, index);
+        }, 400);
+    }, { passive: true });
+
+    row.addEventListener('touchend', e => {
+        clearTimeout(longPressTimer);
+        if (!isLongPress) {
+            playFromList(list, index);
+        }
+    }, { passive: true });
+
+    row.addEventListener('touchmove', () => {
+        clearTimeout(longPressTimer);
+    }, { passive: true });
+
+    row.addEventListener('click', () => {
+        if (!isLongPress) {
+            playFromList(list, index);
+        }
+    });
+}
+
+// ─── Context Menu ────────────────────────────────
+let ctxTrack = null;
+let ctxList = null;
+let ctxIndex = -1;
+
+function showContextMenu(track, list, index) {
+    ctxTrack = track;
+    ctxList = list;
+    ctxIndex = index;
+    const overlay = $('ctx-overlay');
+    const menu = $('ctx-menu');
+
+    $('ctx-header-title').textContent = track.title || track.name || 'Unknown';
+    $('ctx-header-artist').textContent = getArtistDisplay(track);
+    const artUrl = track.id ? withBase("/tracks/" + track.id + "/artwork") : null;
+    const img = $('ctx-header-img');
+    const placeholder = document.querySelector('.ctx-art-placeholder');
+    if (artUrl) {
+        img.src = artUrl;
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+    } else {
+        img.style.display = 'none';
+        placeholder.style.display = 'flex';
+    }
+
+    const likeText = $('ctx-like-text');
+    const liked = state.likedTrackIds && state.likedTrackIds.has(track.id);
+    likeText.textContent = liked ? 'Remove from Likes' : 'Like';
+    const likeIcon = document.querySelector('.ctx-item[data-action="like"] i');
+    likeIcon.className = liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+
+    overlay.style.display = 'block';
+    menu.style.display = 'block';
+}
+
+function hideContextMenu() {
+    $('ctx-overlay').style.display = 'none';
+    $('ctx-menu').style.display = 'none';
+    ctxTrack = null;
+}
+
+document.querySelectorAll('.ctx-item').forEach(item => {
+    item.addEventListener('click', async () => {
+        const track = ctxTrack;
+        if (!track) return;
+        const action = item.dataset.action;
+        hideContextMenu();
+
+        if (action === 'play') {
+            playTrack(track);
+            showPage('nowPlaying');
+        } else if (action === 'add-queue') {
+            queue.push(track);
+        } else if (action === 'add-playlist') {
+            // TODO: show playlist picker
+        } else if (action === 'like') {
+            try {
+                await toggleLiked(track.id);
+                if (state.likedTrackIds) {
+                    if (state.likedTrackIds.has(track.id)) {
+                        state.likedTrackIds.delete(track.id);
+                    } else {
+                        state.likedTrackIds.add(track.id);
+                    }
+                }
+            } catch (e) {
+                console.error('Toggle like failed:', e);
+            }
+        }
+    });
+});
+
+$('ctx-overlay').addEventListener('click', hideContextMenu);
 
 function renderLibraryItems(items) {
     const container = $('library-items');
@@ -218,17 +432,18 @@ function renderSearchResults(results) {
     results.forEach(item => {
         const el = document.createElement('div');
         el.className = 'search-result-item';
-        const artUrl = item.album?.images?.[0]?.url || item.image_url;
+        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
         el.innerHTML = `
             <div class="search-result-art">
                 ${artUrl
-                    ? `<img src="${artUrl}" alt="" loading="lazy" />`
-                    : `<div class="search-result-art-placeholder"><i class="fa-solid fa-music"></i></div>`
+                    ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                    : ''
                 }
+                <div class="search-result-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
             </div>
             <div class="search-result-meta">
                 <div class="search-result-title">${escapeHtml(item.title || item.name || '')}</div>
-                <div class="search-result-sub">${escapeHtml(item.artist || item.artist_name || 'Track')}</div>
+                <div class="search-result-sub">${escapeHtml(getArtistDisplay(item))}</div>
             </div>
         `;
         el.addEventListener('click', () => playTrack(item));
@@ -242,19 +457,24 @@ function renderTracks(trackList) {
     trackList.forEach((track, i) => {
         const el = document.createElement('div');
         el.className = 'detail-track';
-        const artUrl = track.album?.images?.[0]?.url || track.image_url;
+        const artUrl = track.id ? withBase("/tracks/" + track.id + "/artwork") : null;
         el.innerHTML = `
             <span class="detail-track-num">${i + 1}</span>
-            <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
-                ${artUrl ? `<div class="detail-track-art"><img src="${artUrl}" alt="" loading="lazy" /></div>` : ''}
+            <div class="detail-track-body">
+                ${artUrl ? `<div class="detail-track-art"><img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none'" /></div>` : ''}
                 <div class="detail-track-info">
                     <div class="detail-track-title">${escapeHtml(track.title || track.name || 'Unknown')}</div>
-                    <div class="detail-track-artist">${escapeHtml(track.artist || track.artist_name || '')}</div>
+                    <div class="detail-track-artist">${escapeHtml(getArtistDisplay(track))}</div>
                 </div>
             </div>
             <span class="detail-track-duration">${formatDuration(track.duration || track.duration_ms)}</span>
         `;
-        el.addEventListener('click', () => playTrack(track));
+        el.addEventListener('click', () => {
+            queue = trackList;
+            queueIndex = i;
+            playTrack(track);
+            showPage('nowPlaying');
+        });
         container.appendChild(el);
     });
 }
@@ -266,9 +486,10 @@ function openDetail(item, type) {
     const subtitle = $('detail-subtitle');
     const art = $('detail-art-img');
     const placeholder = $('detail-art-placeholder');
-    const gradient = $('detail-gradient');
 
-    const artUrl = item.album?.images?.[0]?.url || item.image_url || item.cover_url;
+    const artUrl = (type === 'playlist')
+        ? (item.cover_url || null)
+        : (item.id ? withBase("/tracks/" + item.id + "/artwork") : null);
 
     if (artUrl) {
         art.src = artUrl;
@@ -280,7 +501,7 @@ function openDetail(item, type) {
     }
 
     title.textContent = item.title || item.name || 'Unknown';
-    subtitle.textContent = item.artist || item.artist_name || item.is_public ? 'Playlist' : '';
+    subtitle.textContent = type === 'playlist' ? (item.is_public ? 'Public playlist' : 'Private playlist') : getArtistDisplay(item);
 
     const tracksList = item.tracks || (type === 'track' ? [item] : []);
     renderTracks(tracksList);
@@ -303,8 +524,8 @@ function playTrack(track) {
     isPlaying = true;
 
     const title = track.title || track.name || 'Unknown';
-    const artist = track.artist || track.artist_name || '';
-    const artUrl = track.album?.images?.[0]?.url || track.image_url;
+    const artist = getArtistDisplay(track);
+    const artUrl = track.id ? withBase("/tracks/" + track.id + "/artwork") : null;
     const audioUrl = track.audio_url || track.file_path || track.stream_url;
 
     // Update mini player
@@ -312,11 +533,13 @@ function playTrack(track) {
     $('mini-player-title').textContent = title;
     $('mini-player-artist').textContent = artist;
     const miniImg = $('mini-player-img');
-    const miniPlaceholder = $('mini-player-art-placeholder');
-    if (artUrl) {
+    const miniPlaceholder = document.querySelector('.mini-player-art-placeholder');
+    if (miniPlaceholder && artUrl && miniImg) {
         miniImg.src = artUrl;
         miniImg.style.display = 'block';
         miniPlaceholder.style.display = 'none';
+    } else if (miniPlaceholder) {
+        miniPlaceholder.style.display = 'flex';
     }
 
     // Update now playing
@@ -523,9 +746,9 @@ audio.addEventListener('pause', () => { isPlaying = false; updatePlayButtons(); 
 // ─── Bootstrap ──────────────────────────────────────
 async function bootstrap() {
     try {
-        const res = await apiTryAutoLogin();
-        if (res && res.user) {
-            setAuth(res.user, res.auth_hash);
+        const user = await apiTryAutoLogin();
+        if (user) {
+            setAuth(state.authHash, user);
             await initApp();
             return;
         }
