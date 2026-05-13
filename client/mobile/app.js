@@ -118,10 +118,9 @@ document.querySelectorAll('.nav-item').forEach(item => {
 });
 
 $('top-bar-back').addEventListener('click', () => {
-    showPage('home');
-    document.querySelector('.nav-item[data-page="home"]').classList.add('active');
+    showPage('library');
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector('.nav-item[data-page="home"]').classList.add('active');
+    document.querySelector('.nav-item[data-page="library"]').classList.add('active');
 });
 
 // ─── Detail -> Now Playing ──────────────────────────
@@ -594,6 +593,19 @@ async function openDetail(item, type) {
             showPage('nowPlaying');
         }
     };
+
+    var detailPage = $('page-detail');
+    var gradEl = $('detail-gradient');
+    var onScroll = function() {
+        var scrollTop = detailPage.scrollTop;
+        var maxScroll = 350;
+        var opacity = Math.max(0, 1 - scrollTop / maxScroll);
+        gradEl.style.opacity = opacity;
+    };
+    detailPage.removeEventListener('scroll', detailPage._gradientScroll);
+    detailPage._gradientScroll = onScroll;
+    detailPage.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
 }
 
 // ─── Player ──────────────────────────────────────────

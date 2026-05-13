@@ -693,21 +693,22 @@ body.page-detail #top-bar {
     top: 0;
     left: 0;
     right: 0;
-    height: 550px;
+    height: 700px;
     pointer-events: none;
     z-index: 0;
+    display: none;
     --gradient-start: #555555;
     --gradient-mid: #333333;
     background: linear-gradient(to bottom, var(--gradient-start) 0%, var(--gradient-mid) 25%, #000 95%);
-    transition: background 0.4s ease;
 }
 
-.detail-gradient.hidden {
-    opacity: 0;
+body.page-detail .detail-gradient {
+    display: block;
 }
 
 #page-detail {
     position: relative;
+    z-index: 1;
 }
 
 .detail-header {
@@ -757,13 +758,36 @@ body.page-detail #top-bar {
     color: #b3b3b3;
 }
 
+.detail-bottom-panel {
+    background: rgba(18, 18, 18, 0.3);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.5rem;
+    border-radius: 0.75rem 0.75rem 0 0;
+    overflow: hidden;
+}
+
+.detail-bottom-panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
 .detail-actions {
     display: flex;
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 1rem 1rem;
     position: relative;
-    z-index: 1;
 }
 
 .detail-play-btn {
@@ -802,7 +826,6 @@ body.page-detail #top-bar {
 .detail-tracks {
     padding: 0.5rem 0;
     position: relative;
-    z-index: 1;
 }
 
 .detail-track {

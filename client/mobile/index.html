@@ -51,6 +51,7 @@
 
     <!-- Main App -->
     <div id="app" style="display:none;">
+        <div class="detail-gradient" id="detail-gradient"></div>
         <!-- Top Bar -->
         <header class="top-bar" id="top-bar">
             <button class="top-bar-btn" id="top-bar-back" style="display:none;">
@@ -146,7 +147,6 @@
 
         <!-- Page: Playlist/Album/Artist Detail -->
         <main class="page" id="page-detail">
-            <div class="detail-gradient" id="detail-gradient"></div>
             <div class="detail-header">
                 <div class="detail-art" id="detail-art">
                     <div class="detail-art-placeholder" id="detail-art-placeholder">
@@ -157,15 +157,17 @@
                 <h1 id="detail-title"></h1>
                 <p id="detail-subtitle"></p>
             </div>
-            <div class="detail-actions">
-                <button class="detail-play-btn" id="detail-play-btn">
-                    <i class="fa-solid fa-play"></i>
-                </button>
-                <button class="detail-shuffle-btn" id="detail-shuffle-btn">
-                    <i class="fa-solid fa-shuffle"></i>
-                </button>
+            <div class="detail-bottom-panel">
+                <div class="detail-actions">
+                    <button class="detail-play-btn" id="detail-play-btn">
+                        <i class="fa-solid fa-play"></i>
+                    </button>
+                    <button class="detail-shuffle-btn" id="detail-shuffle-btn">
+                        <i class="fa-solid fa-shuffle"></i>
+                    </button>
+                </div>
+                <div class="detail-tracks" id="detail-tracks"></div>
             </div>
-            <div class="detail-tracks" id="detail-tracks"></div>
         </main>
 
         <!-- Page: Now Playing (Full Screen) -->
