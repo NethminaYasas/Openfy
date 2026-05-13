@@ -209,6 +209,14 @@ body.page-detail #top-bar {
     justify-content: center;
 }
 
+.top-bar-profile-img {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #333;
+}
+
 /* Pages */
 .page {
     flex: 1;

@@ -140,6 +140,16 @@ $('mini-player').addEventListener('click', () => {
 async function initApp() {
     authOverlay.style.display = 'none';
     $('app').style.display = 'flex';
+    var hr = new Date().getHours();
+    var greeting = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
+    $('home-greeting').textContent = greeting;
+
+    var profileImg = $('top-bar-profile-img');
+    if (state.currentUser) {
+        profileImg.src = withBase('/users/' + state.currentUser.id + '/avatar');
+        profileImg.onerror = function() { this.style.display = 'none'; };
+        profileImg.style.display = 'block';
+    }
     const [mostPlayed, allTracks, allPlaylists] = await Promise.all([
         loadMostPlayed(),
         loadTracks(),
@@ -650,6 +660,35 @@ function playTrack(track) {
 
     updatePlayButtons();
 
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: title,
+            artist: artist,
+            album: track.album || '',
+            artwork: artUrl ? [
+                { src: artUrl, sizes: '256x256', type: 'image/jpeg' },
+                { src: artUrl, sizes: '512x512', type: 'image/jpeg' }
+            ] : []
+        });
+        navigator.mediaSession.playbackState = 'playing';
+        navigator.mediaSession.setActionHandler('play', () => {
+            if (audio.paused) togglePlayback();
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {
+            if (!audio.paused) togglePlayback();
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+            $('np-prev').click();
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+            $('np-next').click();
+        });
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details.fastSeek && !('fastSeek' in audio)) return;
+            audio.currentTime = details.seekTime;
+        });
+    }
+
     const tid = track.id;
     getTrackStreamUrl(tid)
         .then(streamUrl => {
@@ -676,10 +715,14 @@ function updateProgressDisplay() {
     $('np-progress-fill').style.width = pct + '%';
     $('mini-player-progress').style.width = pct + '%';
 
-    // Update time on mini player
-    const remaining = dur - curr;
-    if (remaining > 0 && remaining < 30) {
-        // Show remaining on mini player
+    if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession) {
+        try {
+            navigator.mediaSession.setPositionState({
+                duration: dur,
+                playbackRate: 1,
+                position: curr
+            });
+        } catch (_) {}
     }
 }
 
@@ -729,6 +772,9 @@ function togglePlayback() {
         isPlaying = !isPlaying;
     }
     updatePlayButtons();
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    }
 }
 
 // ─── Player Controls ─────────────────────────────────
@@ -836,8 +882,16 @@ document.querySelectorAll('.pill-btn').forEach(btn => {
 });
 
 // ─── Audio events ───────────────────────────────────
-audio.addEventListener('play', () => { isPlaying = true; updatePlayButtons(); });
-audio.addEventListener('pause', () => { isPlaying = false; updatePlayButtons(); });
+audio.addEventListener('play', () => {
+    isPlaying = true;
+    updatePlayButtons();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+});
+audio.addEventListener('pause', () => {
+    isPlaying = false;
+    updatePlayButtons();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+});
 
 // ─── Bootstrap ──────────────────────────────────────
 async function bootstrap() {
