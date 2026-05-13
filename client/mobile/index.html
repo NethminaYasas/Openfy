@@ -9,7 +9,7 @@
     <link rel="manifest" href="/static/mobile/manifest.json">
     <link rel="icon" href="/static/images/logo.png">
     <title>Openfy</title>
-    <link rel="stylesheet" href="/static/mobile/styles.css?v=2">
+    <link rel="stylesheet" href="/static/mobile/styles.css?v=3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -57,27 +57,33 @@
             <button class="top-bar-btn" id="top-bar-back" style="display:none;">
                 <i class="fa-solid fa-chevron-left"></i>
             </button>
-            <div class="top-bar-brand" id="top-bar-brand">
-                <img src="/static/images/logo_white.png" alt="Openfy" class="top-bar-logo">
-            </div>
+            <span class="top-bar-greeting" id="top-bar-greeting"></span>
             <div class="top-bar-search" id="top-bar-search" style="display:none;">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input type="text" id="search-input" placeholder="What do you want to play?" autocomplete="off" />
             </div>
             <button class="top-bar-btn" id="top-bar-profile">
-                <img id="top-bar-profile-img" class="top-bar-profile-img" src="" alt="Profile">
+                <i class="fa-solid fa-user top-bar-profile-icon" id="top-bar-profile-icon"></i>
+                <img id="top-bar-profile-img" class="top-bar-profile-img" src="" alt="Profile" style="display:none;">
             </button>
+            <div class="profile-dropdown" id="profile-dropdown">
+                <div class="profile-dropdown-header">
+                    <span id="profile-dropdown-name"></span>
+                </div>
+                <div class="profile-dropdown-divider"></div>
+                <div class="profile-dropdown-item" id="profile-dropdown-profile"><i class="fa-solid fa-user"></i> Profile</div>
+                <div class="profile-dropdown-item" id="profile-dropdown-settings"><i class="fa-solid fa-gear"></i> Settings</div>
+                <div class="profile-dropdown-item" id="profile-dropdown-admin" style="display:none;"><i class="fa-solid fa-user-shield"></i> Admin</div>
+                <div class="profile-dropdown-divider"></div>
+                <div class="profile-dropdown-item" id="profile-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
+            </div>
         </header>
 
         <!-- Page: Home -->
         <main class="page active" id="page-home">
-            <div class="page-header">
-                <h1 id="home-greeting"></h1>
-            </div>
             <section class="section">
                 <div class="section-header">
                     <h2>Most Played</h2>
-                    <a href="#">Show all</a>
                 </div>
                 <div class="horiz-scroll" id="most-played-scroll">
                     <div class="horiz-scroll-inner" id="most-played-grid"></div>
@@ -302,6 +308,6 @@
     <!-- Audio element -->
     <audio id="audio-player" preload="metadata"></audio>
 
-    <script type="module" src="/static/mobile/app.js?v=2"></script>
+    <script type="module" src="/static/mobile/app.js?v=3"></script>
 </body>
 </html>

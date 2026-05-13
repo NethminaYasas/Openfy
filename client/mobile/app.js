@@ -89,21 +89,43 @@ signupBtn.addEventListener('click', async () => {
 
 // ─── Navigation ──────────────────────────────────────
 function showPage(name) {
-    Object.values(pages).forEach(p => p.classList.remove('active'));
     document.body.className = '';
-    if (name === 'nowPlaying') {
-        pages.nowPlaying.classList.add('active');
-        pages.nowPlaying.style.display = 'flex';
-        document.body.style.background = '#121212';
+    if (pages.nowPlaying.classList.contains('active') && name !== 'nowPlaying') {
+        document.body.style.background = '#000';
+        if (currentTrack) $('mini-player').style.display = 'flex';
+        var target = pages[name];
+        if (target) target.classList.add('active');
+        document.body.classList.add('page-' + name);
+        var isHome = name === 'home';
+        $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
+        $('top-bar-greeting').style.display = isHome ? 'block' : 'none';
+        $('top-bar-profile').style.display = isHome ? 'flex' : 'none';
+        $('top-bar-search').style.display = 'none';
+        pages.nowPlaying.classList.add('slide-down');
+        pages.nowPlaying.addEventListener('animationend', function handler() {
+            pages.nowPlaying.removeEventListener('animationend', handler);
+            pages.nowPlaying.classList.remove('active', 'slide-down');
+        });
         return;
     }
-    pages.nowPlaying.style.display = 'none';
+    Object.values(pages).forEach(p => p.classList.remove('active'));
+    if (name === 'nowPlaying') {
+        pages.nowPlaying.classList.add('active');
+        document.body.style.background = '#121212';
+        $('top-bar-greeting').style.display = 'none';
+        $('top-bar-profile').style.display = 'none';
+        $('mini-player').style.display = 'none';
+        return;
+    }
     document.body.style.background = '#000';
+    if (currentTrack) $('mini-player').style.display = 'flex';
     const page = pages[name];
     if (page) page.classList.add('active');
     document.body.classList.add('page-' + name);
+    var isHome = name === 'home';
     $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
-    $('top-bar-brand').style.display = name === 'detail' ? 'none' : 'block';
+    $('top-bar-greeting').style.display = isHome ? 'block' : 'none';
+    $('top-bar-profile').style.display = isHome ? 'flex' : 'none';
     $('top-bar-search').style.display = 'none';
 }
 
@@ -136,19 +158,69 @@ $('mini-player').addEventListener('click', () => {
     showPage('nowPlaying');
 });
 
+$('top-bar-profile').addEventListener('click', (e) => {
+    e.stopPropagation();
+    $('profile-dropdown').classList.toggle('active');
+});
+
+document.addEventListener('click', () => {
+    $('profile-dropdown').classList.remove('active');
+});
+
+$('profile-dropdown').addEventListener('click', (e) => {
+    e.stopPropagation();
+});
+
+$('profile-dropdown-profile').addEventListener('click', () => {
+    $('profile-dropdown').classList.remove('active');
+    if (state.currentUser) {
+        window.location.href = '/profile/' + state.currentUser.id;
+    }
+});
+
+$('profile-dropdown-settings').addEventListener('click', () => {
+    $('profile-dropdown').classList.remove('active');
+    window.location.href = '/settings';
+});
+
+$('profile-dropdown-logout').addEventListener('click', async () => {
+    $('profile-dropdown').classList.remove('active');
+    clearAuth();
+    location.reload();
+});
+
+if (state.currentUser && state.currentUser.is_admin) {
+    $('profile-dropdown-admin').style.display = 'flex';
+}
+$('profile-dropdown-admin').addEventListener('click', () => {
+    $('profile-dropdown').classList.remove('active');
+    window.location.href = '/admin';
+});
+
 // ─── Load Data ───────────────────────────────────────
 async function initApp() {
     authOverlay.style.display = 'none';
     $('app').style.display = 'flex';
     var hr = new Date().getHours();
     var greeting = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
-    $('home-greeting').textContent = greeting;
+    $('top-bar-greeting').textContent = greeting;
 
+    var profileIcon = $('top-bar-profile-icon');
     var profileImg = $('top-bar-profile-img');
     if (state.currentUser) {
+        $('profile-dropdown-name').textContent = state.currentUser.name;
+        if (state.currentUser.is_admin) {
+            $('profile-dropdown-admin').style.display = 'flex';
+        }
         profileImg.src = withBase('/users/' + state.currentUser.id + '/avatar');
-        profileImg.onerror = function() { this.style.display = 'none'; };
-        profileImg.style.display = 'block';
+        profileImg.onload = function() {
+            profileIcon.style.display = 'none';
+            profileImg.style.display = 'block';
+        };
+        profileImg.onerror = function() {
+            profileImg.style.display = 'none';
+            profileIcon.style.display = 'flex';
+        };
     }
     const [mostPlayed, allTracks, allPlaylists] = await Promise.all([
         loadMostPlayed(),
@@ -577,7 +649,7 @@ async function openDetail(item, type) {
     } else if (type === 'playlist') {
         subtitle.textContent = item.is_public ? 'Public playlist' : 'Private playlist';
     } else if (type === 'album') {
-        subtitle.textContent = item.is_public ? 'Public album' : 'Private album';
+        subtitle.textContent = 'Album';
     } else {
         subtitle.textContent = getArtistDisplay(item);
     }
@@ -629,17 +701,29 @@ function playTrack(track) {
     const artUrl = track.id ? withBase("/tracks/" + track.id + "/artwork") : null;
 
     // Update mini player
-    $('mini-player').style.display = 'flex';
+    if (!pages.nowPlaying.classList.contains('active')) {
+        $('mini-player').style.display = 'flex';
+    }
     $('mini-player-title').textContent = title;
     $('mini-player-artist').textContent = artist;
-    const miniImg = $('mini-player-img');
-    const miniPlaceholder = document.querySelector('.mini-player-art-placeholder');
+    var miniEl = $('mini-player');
+    var miniImg = $('mini-player-img');
+    var miniPlaceholder = document.querySelector('.mini-player-art-placeholder');
     if (miniPlaceholder && artUrl && miniImg) {
         miniImg.src = artUrl;
         miniImg.style.display = 'block';
         miniPlaceholder.style.display = 'none';
     } else if (miniPlaceholder) {
         miniPlaceholder.style.display = 'flex';
+    }
+    if (artUrl) {
+        extractVibrantColors(artUrl).then(function(colors) {
+            miniEl.style.background = 'linear-gradient(135deg, ' + colors[0] + ', ' + colors[1] + ')';
+        }).catch(function() {
+            miniEl.style.background = '#1a1a1a';
+        });
+    } else {
+        miniEl.style.background = '#1a1a1a';
     }
 
     // Update now playing
