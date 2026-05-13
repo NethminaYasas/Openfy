@@ -159,6 +159,11 @@ a {
     background: #000;
     position: relative;
     z-index: 10;
+    transition: background 0.3s ease;
+}
+
+body.page-detail #top-bar {
+    background: transparent;
 }
 
 .top-bar-logo {
@@ -684,15 +689,21 @@ a {
 
 /* Detail Page */
 .detail-gradient {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     right: 0;
-    height: 300px;
+    height: 550px;
     pointer-events: none;
-    background: linear-gradient(180deg, #333 0%, #121212 100%);
     z-index: 0;
+    --gradient-start: #555555;
+    --gradient-mid: #333333;
+    background: linear-gradient(to bottom, var(--gradient-start) 0%, var(--gradient-mid) 25%, #000 95%);
     transition: background 0.4s ease;
+}
+
+.detail-gradient.hidden {
+    opacity: 0;
 }
 
 #page-detail {
@@ -790,6 +801,8 @@ a {
 
 .detail-tracks {
     padding: 0.5rem 0;
+    position: relative;
+    z-index: 1;
 }
 
 .detail-track {
@@ -877,9 +890,11 @@ a {
 .np-gradient {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, #333 0%, #121212 60%);
     pointer-events: none;
     z-index: 0;
+    --gradient-start: #333333;
+    --gradient-mid: #222222;
+    background: linear-gradient(to bottom, var(--gradient-start) 0%, var(--gradient-mid) 50%, #121212 100%);
     transition: background 0.4s ease;
 }
 

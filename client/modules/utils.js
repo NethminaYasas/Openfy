@@ -158,8 +158,8 @@ export function extractVibrantColors(imageUrl) {
 
       var pairs = [color1, color2].map(c => {
         var h = c.h, s = c.s, l = c.l;
-        var targetL = Math.min(Math.max(l, 0.15), 0.25);
-        var targetS = Math.min(s, 0.4);
+        var targetL = Math.min(Math.max(l, 0.25), 0.50);
+        var targetS = Math.min(s, 0.65);
         return hslToRgb(h, targetS, targetL);
       }).sort((a, b) => b.l - a.l);
 

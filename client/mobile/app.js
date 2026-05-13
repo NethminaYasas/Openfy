@@ -90,6 +90,7 @@ signupBtn.addEventListener('click', async () => {
 // ─── Navigation ──────────────────────────────────────
 function showPage(name) {
     Object.values(pages).forEach(p => p.classList.remove('active'));
+    document.body.className = '';
     if (name === 'nowPlaying') {
         pages.nowPlaying.classList.add('active');
         pages.nowPlaying.style.display = 'flex';
@@ -100,6 +101,7 @@ function showPage(name) {
     document.body.style.background = '#000';
     const page = pages[name];
     if (page) page.classList.add('active');
+    document.body.classList.add('page-' + name);
     $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
     $('top-bar-brand').style.display = name === 'detail' ? 'none' : 'block';
     $('top-bar-search').style.display = 'none';
@@ -517,14 +519,17 @@ function renderTracks(trackList) {
 async function updateGradient(el, artUrl) {
     if (!el) return;
     if (!artUrl) {
-        el.style.background = 'linear-gradient(180deg, #333 0%, #121212 100%)';
+        el.style.setProperty('--gradient-start', '#555555');
+        el.style.setProperty('--gradient-mid', '#333333');
         return;
     }
     try {
         const colors = await extractVibrantColors(artUrl);
-        el.style.background = 'linear-gradient(180deg, ' + colors[0] + ' 0%, ' + colors[1] + ' 60%, #121212 100%)';
+        el.style.setProperty('--gradient-start', colors[0]);
+        el.style.setProperty('--gradient-mid', colors[1]);
     } catch (e) {
-        el.style.background = 'linear-gradient(180deg, #333 0%, #121212 100%)';
+        el.style.setProperty('--gradient-start', '#555555');
+        el.style.setProperty('--gradient-mid', '#333333');
     }
 }
 
