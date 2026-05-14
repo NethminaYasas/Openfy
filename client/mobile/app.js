@@ -3,11 +3,10 @@ import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/stat
 import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, getArtist, getTrackStreamUrl } from '../modules/api.js';
 import { formatDuration, getArtistDisplay, extractVibrantColors } from '../modules/utils.js';
 import { loadRecentSearches, addRecentSearch, removeRecentSearch } from '../modules/recent-searches.js';
+import { queueSetList, queueJumpTo, queueInsert, queueSave, queueGet, queueLength, queueCurrentIndex, queueCurrentTrack } from '../modules/queue-manager.js';
 
 // ─── State ───────────────────────────────────────────
 let currentTrack = null;
-let queue = [];
-let queueIndex = -1;
 let isPlaying = false;
 let isLiked = false;
 let repeatMode = 0; // 0=off, 1=all, 2=one
@@ -237,9 +236,17 @@ async function initApp() {
     }
     renderLibraryItems(playlists);
     renderRecentSearches();
-    const lastTrack = await loadLastTrackPaused();
-    if (lastTrack) {
-        playTrack(lastTrack, false);
+    const queueData = await loadUserQueue();
+    if (queueData) {
+        queueSetList(queueData.tracks, queueData.index);
+        const restored = queueCurrentTrack();
+        if (restored) playTrack(restored, false);
+    } else {
+        const lastTrack = await loadLastTrackPaused();
+        if (lastTrack) {
+            queueSetList([lastTrack], 0);
+            playTrack(lastTrack, false);
+        }
     }
     await loadUserPlayerState();
     shuffle = state.shuffle;
@@ -312,10 +319,9 @@ function attachCardHandlers(card, item, list, index) {
 
 function playFromList(list, index) {
     if (!list || !list.length) return;
-    queue = list;
-    queueIndex = index;
+    queueSetList(list, index);
     try {
-        playTrack(list[index]);
+        playTrack(queueCurrentTrack());
     } catch (e) {
         console.error('playTrack error:', e);
     }
@@ -487,7 +493,7 @@ document.querySelectorAll('.ctx-item').forEach(item => {
         if (action === 'play') {
             playTrack(track);
         } else if (action === 'add-queue') {
-            queue.push(track);
+            queueInsert(track);
         } else if (action === 'add-playlist') {
             // TODO: show playlist picker
         } else if (action === 'like') {
@@ -604,8 +610,7 @@ function renderTracks(trackList) {
             <span class="detail-track-duration">${formatDuration(track.duration || track.duration_ms)}</span>
         `;
         el.addEventListener('click', () => {
-            queue = trackList;
-            queueIndex = i;
+            queueSetList(trackList, i);
             playTrack(track);
         });
         container.appendChild(el);
@@ -685,9 +690,8 @@ async function openDetail(item, type) {
 
     $('detail-play-btn').onclick = () => {
         if (tracksList.length > 0) {
-            queue = tracksList;
-            queueIndex = 0;
-            playTrack(queue[queueIndex]);
+            queueSetList(tracksList, 0);
+            playTrack(queueCurrentTrack());
             showPage('nowPlaying');
         }
     };
@@ -713,7 +717,6 @@ function playTrack(track, autoPlay = true) {
     if (!track) return;
     currentTrack = track;
     isPlaying = autoPlay;
-    queueIndex = -1;
 
     const title = track.title || track.name || 'Unknown';
     const artist = getArtistDisplay(track);
@@ -837,21 +840,24 @@ function onTrackEnd() {
         audio.play();
         return;
     }
+    let nextIndex;
     if (shuffle) {
-        queueIndex = Math.floor(Math.random() * queue.length);
+        nextIndex = Math.floor(Math.random() * queueLength());
     } else {
-        queueIndex++;
+        nextIndex = queueCurrentIndex() + 1;
     }
-    if (queueIndex >= queue.length) {
+    if (nextIndex >= queueLength()) {
         if (repeatMode === 1) {
-            queueIndex = 0;
+            nextIndex = 0;
         } else {
             isPlaying = false;
             updatePlayButtons();
             return;
         }
     }
-    playTrack(queue[queueIndex]);
+    queueJumpTo(nextIndex);
+    queueSave();
+    playTrack(queueCurrentTrack());
 }
 
 function updatePlayButtons() {
@@ -903,19 +909,21 @@ $('mini-player-play-btn').addEventListener('click', e => {
 });
 
 $('np-prev').addEventListener('click', () => {
-    if (queue.length === 0) return;
+    if (queueLength() === 0) return;
     if (audio.currentTime > 3) {
         audio.currentTime = 0;
         return;
     }
-    queueIndex = (queueIndex - 1 + queue.length) % queue.length;
-    playTrack(queue[queueIndex]);
+    const next = (queueCurrentIndex() - 1 + queueLength()) % queueLength();
+    queueJumpTo(next);
+    playTrack(queueCurrentTrack());
 });
 
 $('np-next').addEventListener('click', () => {
-    if (queue.length === 0) return;
-    queueIndex = (queueIndex + 1) % queue.length;
-    playTrack(queue[queueIndex]);
+    if (queueLength() === 0) return;
+    const next = (queueCurrentIndex() + 1) % queueLength();
+    queueJumpTo(next);
+    playTrack(queueCurrentTrack());
 });
 
 function syncShuffleUI() {
