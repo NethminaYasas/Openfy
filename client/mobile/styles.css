@@ -543,20 +543,64 @@ body.page-detail #top-bar {
     flex-shrink: 0;
 }
 
-/* Browse Chips */
-.browse-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+/* Recent Searches */
+.recent-search-empty {
+    color: #727272;
+    font-size: 0.85rem;
+    padding: 1rem 0;
+    text-align: center;
 }
 
-.browse-chip {
-    padding: 0.625rem 1rem;
-    border-radius: 999px;
-    color: #fff;
-    font-size: 0.85rem;
-    font-weight: 600;
+.recent-search-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
     cursor: pointer;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.recent-search-item:active {
+    opacity: 0.7;
+}
+
+.recent-search-item .search-result-art {
+    flex-shrink: 0;
+}
+
+.recent-search-item .search-result-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.recent-search-item .search-result-title {
+    font-size: 0.9rem;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recent-search-item .search-result-sub {
+    font-size: 0.75rem;
+    color: #b3b3b3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recent-search-remove {
+    background: none;
+    border: none;
+    color: #727272;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    flex-shrink: 0;
+}
+
+.recent-search-remove:active {
+    color: #fff;
 }
 
 /* Search */
@@ -881,6 +925,11 @@ body.page-detail .detail-gradient {
     cursor: pointer;
 }
 
+.detail-shuffle-btn.active {
+    color: #1DB954;
+    border-color: #1DB954;
+}
+
 .detail-tracks {
     padding: 0.5rem 0;
     position: relative;
@@ -961,7 +1010,7 @@ body.page-detail .detail-gradient {
     flex-direction: column;
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 55;
 }
 
 .now-playing-page.active {
@@ -1014,12 +1063,6 @@ body.page-detail .detail-gradient {
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-.np-playing-from {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #b3b3b3;
 }
 
 .np-artwork {
@@ -1106,9 +1149,9 @@ body.page-detail .detail-gradient {
 
 .np-progress-bar {
     width: 100%;
-    height: 4px;
+    height: 6px;
     background: #535353;
-    border-radius: 2px;
+    border-radius: 3px;
     cursor: pointer;
     position: relative;
 }
@@ -1201,6 +1244,11 @@ body.page-detail .detail-gradient {
     cursor: pointer;
 }
 
+.np-spacer {
+    width: 28px;
+    flex-shrink: 0;
+}
+
 .np-volume {
     display: flex;
     align-items: center;
@@ -1260,31 +1308,51 @@ body.page-detail .detail-gradient {
 
 .mini-player-progress {
     position: absolute;
-    top: 0;
+    bottom: 0;
     left: 0;
     right: 0;
     height: 2px;
-    background: #1DB954;
+    background: #fff;
     width: 0%;
     transition: width 0.1s linear;
-    border-radius: 0.75rem 0.75rem 0 0;
+    border-radius: 0 0 0.75rem 0.75rem;
 }
 
 .mini-player-content {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
     padding: 0.5rem 0.75rem;
     height: 100%;
     gap: 0.75rem;
+    width: 100%;
 }
 
 .mini-player-art {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: 0.25rem;
     overflow: hidden;
     flex-shrink: 0;
     background: #2a2a2a;
+}
+
+.mini-player-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.mini-player-play-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 1.25rem;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
 }
 
 .mini-player-art img {
@@ -1300,11 +1368,6 @@ body.page-detail .detail-gradient {
     align-items: center;
     justify-content: center;
     color: #535353;
-}
-
-.mini-player-meta {
-    flex: 1;
-    min-width: 0;
 }
 
 .mini-player-title {
@@ -1332,11 +1395,16 @@ body.page-detail .detail-gradient {
     color: #fff;
     font-size: 1.25rem;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: relative;
     flex-shrink: 0;
-    margin-left: auto;
+    grid-column: 5;
+}
+
+.mini-player-play-btn i {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
 }
 
 /* Bottom Navigation */

@@ -114,20 +114,9 @@
                 </div>
             </div>
             <div class="search-content" id="search-content">
-                <div class="section">
-                    <h2>Browse All</h2>
-                    <div class="browse-grid" id="browse-grid">
-                        <div class="browse-chip" style="background:#E13300;">Music</div>
-                        <div class="browse-chip" style="background:#1E3264;">Podcasts</div>
-                        <div class="browse-chip" style="background:#608108;">Made For You</div>
-                        <div class="browse-chip" style="background:#BA5D07;">Charts</div>
-                        <div class="browse-chip" style="background:#DC148C;">New Releases</div>
-                        <div class="browse-chip" style="background:#477D95;">Discover</div>
-                        <div class="browse-chip" style="background:#7D4B32;">Concerts</div>
-                        <div class="browse-chip" style="background:#503750;">Podcast Charts</div>
-                        <div class="browse-chip" style="background:#0D4760;">Videos</div>
-                        <div class="browse-chip" style="background:#1DB954;">Wellness</div>
-                    </div>
+                <div class="section" id="recent-searches-section">
+                    <h2>Recent Searches</h2>
+                    <div id="recent-searches"></div>
                 </div>
                 <div class="section" id="search-results-section" style="display:none;">
                     <h2>Results</h2>
@@ -183,7 +172,6 @@
                 <button class="np-btn" id="np-down-btn">
                     <i class="fa-solid fa-chevron-down"></i>
                 </button>
-                <span class="np-playing-from" id="np-playing-from">Playing from Playlist</span>
                 <button class="np-btn" id="np-menu-btn">
                     <i class="fa-solid fa-ellipsis-h"></i>
                 </button>
@@ -224,11 +212,7 @@
                 <button id="np-repeat"><i class="fa-solid fa-repeat"></i></button>
             </div>
             <div class="np-extras">
-                <button id="np-connect"><i class="fa-solid fa-mobile-screen-button"></i></button>
-                <div class="np-volume">
-                    <i class="fa-solid fa-volume-high" id="np-volume-icon"></i>
-                    <input type="range" min="0" max="100" class="np-volume-slider" id="np-volume-slider" value="100">
-                </div>
+                <div class="np-spacer"></div>
                 <button id="np-queue-btn"><i class="fa-solid fa-list"></i></button>
             </div>
         </main>

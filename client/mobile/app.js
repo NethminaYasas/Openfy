@@ -1,7 +1,8 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, runSpotifySearch, getArtist, getTrackStreamUrl } from '../modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, getArtist, getTrackStreamUrl } from '../modules/api.js';
 import { formatDuration, getArtistDisplay, extractVibrantColors } from '../modules/utils.js';
+import { loadRecentSearches, addRecentSearch, removeRecentSearch } from '../modules/recent-searches.js';
 
 // ─── State ───────────────────────────────────────────
 let currentTrack = null;
@@ -9,7 +10,6 @@ let queue = [];
 let queueIndex = -1;
 let isPlaying = false;
 let isLiked = false;
-let volume = parseInt(localStorage.getItem('mobile-volume') || '100');
 let repeatMode = 0; // 0=off, 1=all, 2=one
 let shuffle = false;
 let tracks = [];
@@ -115,6 +115,7 @@ function showPage(name) {
         $('top-bar-greeting').style.display = 'none';
         $('top-bar-profile').style.display = 'none';
         $('mini-player').style.display = 'none';
+        syncShuffleUI();
         return;
     }
     document.body.style.background = '#000';
@@ -235,6 +236,14 @@ async function initApp() {
         renderHorizCards('tracks-row-' + i, tracks.slice(i * chunkSize, (i + 1) * chunkSize));
     }
     renderLibraryItems(playlists);
+    renderRecentSearches();
+    const lastTrack = await loadLastTrackPaused();
+    if (lastTrack) {
+        playTrack(lastTrack, false);
+    }
+    await loadUserPlayerState();
+    shuffle = state.shuffle;
+    syncShuffleUI();
 }
 
 // ─── Render Helpers ──────────────────────────────────
@@ -548,23 +557,30 @@ function renderSearchResults(results) {
     const container = $('search-results');
     container.innerHTML = '';
     results.forEach(item => {
+        if (!item.id) return;
         const el = document.createElement('div');
         el.className = 'search-result-item';
-        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
+        const artUrl = withBase("/tracks/" + item.id + "/artwork");
+        const title = item.title || item.name || 'Unknown';
+        const artist = getArtistDisplay(item);
         el.innerHTML = `
             <div class="search-result-art">
-                ${artUrl
-                    ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
-                    : ''
-                }
-                <div class="search-result-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
+                <img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                <div class="search-result-art-placeholder" style="display:none"><i class="fa-solid fa-music"></i></div>
             </div>
             <div class="search-result-meta">
-                <div class="search-result-title">${escapeHtml(item.title || item.name || '')}</div>
-                <div class="search-result-sub">${escapeHtml(getArtistDisplay(item))}</div>
+                <div class="search-result-title">${escapeHtml(title)}</div>
+                <div class="search-result-sub">${escapeHtml(artist)}</div>
             </div>
         `;
-        el.addEventListener('click', () => playTrack(item));
+        el.addEventListener('click', () => {
+            addRecentSearch(state.authHash || '', {
+                id: item.id,
+                title: title,
+                artist: artist
+            });
+            playTrack(item);
+        });
         container.appendChild(el);
     });
 }
@@ -684,6 +700,8 @@ async function openDetail(item, type) {
         var opacity = Math.max(0, 1 - scrollTop / maxScroll);
         gradEl.style.opacity = opacity;
     };
+    syncShuffleUI();
+
     detailPage.removeEventListener('scroll', detailPage._gradientScroll);
     detailPage._gradientScroll = onScroll;
     detailPage.addEventListener('scroll', onScroll, { passive: true });
@@ -691,10 +709,11 @@ async function openDetail(item, type) {
 }
 
 // ─── Player ──────────────────────────────────────────
-function playTrack(track) {
+function playTrack(track, autoPlay = true) {
     if (!track) return;
     currentTrack = track;
-    isPlaying = true;
+    isPlaying = autoPlay;
+    queueIndex = -1;
 
     const title = track.title || track.name || 'Unknown';
     const artist = getArtistDisplay(track);
@@ -754,7 +773,7 @@ function playTrack(track) {
                 { src: artUrl, sizes: '512x512', type: 'image/jpeg' }
             ] : []
         });
-        navigator.mediaSession.playbackState = 'playing';
+        navigator.mediaSession.playbackState = autoPlay ? 'playing' : 'paused';
         navigator.mediaSession.setActionHandler('play', () => {
             if (audio.paused) togglePlayback();
         });
@@ -774,19 +793,21 @@ function playTrack(track) {
     }
 
     const tid = track.id;
-    getTrackStreamUrl(tid)
-        .then(streamUrl => {
-            if (currentTrack?.id !== tid) return;
-            audio.src = streamUrl;
-            return audio.play();
-        })
-        .catch(err => {
-            if (err.name === 'AbortError') return;
-            console.error('playback failed:', err);
-        });
+    if (autoPlay) {
+        getTrackStreamUrl(tid)
+            .then(streamUrl => {
+                if (currentTrack?.id !== tid) return;
+                audio.src = streamUrl;
+                return audio.play();
+            })
+            .catch(err => {
+                if (err.name === 'AbortError') return;
+                console.error('playback failed:', err);
+            });
 
-    audio.addEventListener('timeupdate', updateProgressDisplay);
-    audio.addEventListener('ended', onTrackEnd);
+        audio.addEventListener('timeupdate', updateProgressDisplay);
+        audio.addEventListener('ended', onTrackEnd);
+    }
 }
 
 function updateProgressDisplay() {
@@ -853,7 +874,20 @@ function togglePlayback() {
             isPlaying = false;
         }
     } else {
-        isPlaying = !isPlaying;
+        isPlaying = true;
+        const tid = currentTrack.id;
+        getTrackStreamUrl(tid)
+            .then(streamUrl => {
+                if (currentTrack?.id !== tid) return;
+                audio.src = streamUrl;
+                return audio.play();
+            })
+            .catch(err => {
+                if (err.name === 'AbortError') return;
+                console.error('playback failed:', err);
+            });
+        audio.addEventListener('timeupdate', updateProgressDisplay);
+        audio.addEventListener('ended', onTrackEnd);
     }
     updatePlayButtons();
     if ('mediaSession' in navigator) {
@@ -884,9 +918,21 @@ $('np-next').addEventListener('click', () => {
     playTrack(queue[queueIndex]);
 });
 
+function syncShuffleUI() {
+    const np = $('np-shuffle');
+    const detail = $('detail-shuffle-btn');
+    if (np) np.classList.toggle('active', shuffle);
+    if (detail) detail.classList.toggle('active', shuffle);
+}
+
 $('np-shuffle').addEventListener('click', () => {
     shuffle = !shuffle;
-    $('np-shuffle').classList.toggle('active');
+    syncShuffleUI();
+});
+
+$('detail-shuffle-btn').addEventListener('click', () => {
+    shuffle = !shuffle;
+    syncShuffleUI();
 });
 
 $('np-repeat').addEventListener('click', () => {
@@ -908,50 +954,97 @@ $('np-like-btn').addEventListener('click', async () => {
     }
 });
 
-// Volume
-$('np-volume-slider').addEventListener('input', e => {
-    volume = parseInt(e.target.value);
-    audio.volume = volume / 100;
-    e.target.style.setProperty('--volume', volume + '%');
-    localStorage.setItem('mobile-volume', volume);
-    const icon = $('np-volume-icon');
-    icon.className = volume === 0 ? 'fa-solid fa-volume-xmark' : volume < 50 ? 'fa-solid fa-volume-low' : 'fa-solid fa-volume-high';
-});
-
-$('np-volume-slider').value = volume;
-$('np-volume-slider').style.setProperty('--volume', volume + '%');
-audio.volume = volume / 100;
-
 // Progress bar seeking
-$('np-progress-bar').addEventListener('click', e => {
+const npBar = $('np-progress-bar');
+let seeking = false;
+
+function seekFromEvent(e) {
     if (!audio.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const rect = npBar.getBoundingClientRect();
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const pct = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+    $('np-progress-fill').style.width = pct * 100 + '%';
     audio.currentTime = pct * audio.duration;
-});
+}
+
+npBar.addEventListener('mousedown', e => { seeking = true; seekFromEvent(e); });
+document.addEventListener('mousemove', e => { if (seeking) seekFromEvent(e); });
+document.addEventListener('mouseup', () => { seeking = false; });
+
+npBar.addEventListener('touchstart', e => { seeking = true; seekFromEvent(e); }, { passive: true });
+document.addEventListener('touchmove', e => { if (seeking) seekFromEvent(e); }, { passive: true });
+document.addEventListener('touchend', () => { seeking = false; });
 
 // ─── Search ──────────────────────────────────────────
 let searchTimeout;
+
+function renderRecentSearches() {
+    const container = $('recent-searches');
+    container.innerHTML = '';
+    const items = loadRecentSearches(state.authHash || '');
+    if (!items.length) {
+        container.innerHTML = '<div class="recent-search-empty">No recent searches.</div>';
+        return;
+    }
+    items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'recent-search-item';
+        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
+        el.innerHTML = `
+            <div class="search-result-art">
+                ${artUrl
+                    ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+                    : ''
+                }
+                <div class="search-result-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
+            </div>
+            <div class="search-result-meta">
+                <div class="search-result-title">${escapeHtml(item.title || '')}</div>
+                <div class="search-result-sub">${escapeHtml(item.artist || 'Unknown')}</div>
+            </div>
+            <button class="recent-search-remove"><i class="fa-solid fa-xmark"></i></button>
+        `;
+        el.querySelector('.recent-search-remove').addEventListener('click', e => {
+            e.stopPropagation();
+            removeRecentSearch(state.authHash || '', item.id);
+            renderRecentSearches();
+        });
+        el.addEventListener('click', () => {
+            api("/tracks/" + item.id).then(track => {
+                if (!track) return;
+                addRecentSearch(state.authHash || '', {
+                    id: item.id,
+                    title: track.title || item.title,
+                    artist: getArtistDisplay(track) || item.artist
+                });
+                renderRecentSearches();
+                playTrack(track);
+            }).catch(() => {
+                playTrack(item);
+            });
+        });
+        container.appendChild(el);
+    });
+}
 
 $('search-page-input').addEventListener('input', e => {
     clearTimeout(searchTimeout);
     const q = e.target.value.trim();
     if (!q) {
         $('search-results-section').style.display = 'none';
-        $('browse-grid').style.display = 'flex';
+        $('recent-searches-section').style.display = 'block';
+        renderRecentSearches();
         return;
     }
     $('search-results-section').style.display = 'block';
-    $('browse-grid').style.display = 'none';
+    $('recent-searches-section').style.display = 'none';
     searchTimeout = setTimeout(() => performSearch(q), 300);
 });
 
 async function performSearch(q) {
     try {
         const localResults = await runSearch(q);
-        const spotifyResults = await runSpotifySearch(q);
-        const all = [...(localResults || []), ...(spotifyResults || [])];
-        renderSearchResults(all);
+        renderSearchResults(localResults || []);
     } catch (e) {
         console.error('Search failed:', e);
     }
