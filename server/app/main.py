@@ -11,6 +11,8 @@ from time import monotonic
 from threading import Lock
 from contextlib import asynccontextmanager
 import io
+import ipaddress
+import socket
 from urllib.parse import urlparse
 from urllib.request import Request as UrlRequest, urlopen
 from PIL import Image
@@ -94,6 +96,7 @@ _rate_limit_store: dict[str, list] = defaultdict(list)
 _stream_token_store: dict[str, tuple[str, str, float]] = {}
 _stream_token_lock = Lock()
 _STREAM_TOKEN_TTL_SECONDS = 120
+_MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024
 
 # Global variable to track last track update
 last_track_update = 0
@@ -206,6 +209,43 @@ def _validate_stream_token(token: str, track_id: str) -> str | None:
             _stream_token_store.pop(token, None)
             return None
         return user_hash
+
+
+def _is_public_http_image_url(raw_url: str) -> bool:
+    try:
+        parsed = urlparse(raw_url)
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    if parsed.hostname.lower() == "localhost":
+        return False
+    try:
+        addrs = {row[4][0] for row in socket.getaddrinfo(parsed.hostname, None)}
+    except Exception:
+        return False
+    for addr in addrs:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            return False
+    return True
+
+
+def _fetch_remote_image_bytes(remote_url: str, timeout_sec: int = 10) -> bytes:
+    if not _is_public_http_image_url(remote_url):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe image URL")
+    req = UrlRequest(remote_url, headers={"User-Agent": "Openfy/1.0"})
+    with urlopen(req, timeout=timeout_sec) as resp:
+        content_type = str(resp.headers.get("Content-Type", "")).lower()
+        if content_type and not content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Remote URL is not an image")
+        image_bytes = resp.read(_MAX_REMOTE_IMAGE_BYTES + 1)
+    if len(image_bytes) > _MAX_REMOTE_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Remote image is too large")
+    return image_bytes
 
 
 
@@ -1710,9 +1750,7 @@ def get_album(
     db: Session = Depends(get_db),
 ):
     """Get an album by its ID. Returns it in a format compatible with the playlist view."""
-    user = None
-    if x_auth_hash:
-        user = _get_user(db, x_auth_hash)
+    user = _require_user(db, x_auth_hash)
     album = db.execute(
         select(Album)
         .options(joinedload(Album.artist))
@@ -1837,9 +1875,7 @@ def get_album_artwork(
         # Try to proxy external image_url
         if album.image_url:
             try:
-                from urllib.parse import urlparse
-                parsed = urlparse(album.image_url)
-                if parsed.scheme in {"http", "https"}:
+                if _is_public_http_image_url(album.image_url):
                     external_covers_dir = settings.artwork_dir / "album_external"
                     external_covers_dir.mkdir(parents=True, exist_ok=True)
                     cached_cover_path = external_covers_dir / f"{album_id}.jpg"
@@ -1849,12 +1885,7 @@ def get_album_artwork(
                             media_type="image/jpeg",
                             headers={"Cache-Control": "private, max-age=86400"},
                         )
-                    req = UrlRequest(
-                        album.image_url,
-                        headers={"User-Agent": "Openfy/1.0"},
-                    )
-                    with urlopen(req, timeout=10) as resp:
-                        image_bytes = resp.read()
+                    image_bytes = _fetch_remote_image_bytes(album.image_url, timeout_sec=10)
                     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
                     img.save(cached_cover_path, format="JPEG", quality=95, optimize=True)
                     album.artwork_path = str(cached_cover_path)
@@ -2027,8 +2058,7 @@ def get_playlist_cover(
     # If playlist has a custom image_url set, proxy and cache it locally so
     # covers render quickly and consistently without cross-origin/CORS issues.
     if playlist.image_url:
-        parsed = urlparse(playlist.image_url)
-        if parsed.scheme not in {"http", "https"}:
+        if not _is_public_http_image_url(playlist.image_url):
             raise HTTPException(status_code=400, detail="Invalid playlist image URL")
         external_covers_dir = settings.artwork_dir / "playlist_external"
         external_covers_dir.mkdir(parents=True, exist_ok=True)
@@ -2040,12 +2070,7 @@ def get_playlist_cover(
                 headers={"Cache-Control": "private, max-age=86400"},
             )
         try:
-            req = UrlRequest(
-                playlist.image_url,
-                headers={"User-Agent": "Openfy/1.0"},
-            )
-            with urlopen(req, timeout=10) as resp:
-                image_bytes = resp.read()
+            image_bytes = _fetch_remote_image_bytes(playlist.image_url, timeout_sec=10)
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             img.save(cached_cover_path, format="JPEG", quality=95, optimize=True)
             return FileResponse(
@@ -2162,9 +2187,12 @@ def update_playlist(
         playlist.is_public = 1 if payload.is_public else 0
     # Allow image_url changes for any playlist (except Liked Songs)
     if payload.image_url is not None and not playlist.is_liked:
+        cleaned_image_url = payload.image_url.strip() if payload.image_url else None
+        if cleaned_image_url and not _is_public_http_image_url(cleaned_image_url):
+            raise HTTPException(status_code=400, detail="Invalid playlist image URL")
         if playlist.image_url != payload.image_url:
             _delete_playlist_external_cover(playlist_id)
-        playlist.image_url = payload.image_url
+        playlist.image_url = cleaned_image_url
     db.commit()
     db.refresh(playlist)
     return playlist
@@ -2766,9 +2794,7 @@ def import_spotify_playlist(
                 best_url = None
                 for _, candidate_url in scored:
                     try:
-                        req = UrlRequest(candidate_url, headers={"User-Agent": "Openfy/1.0"})
-                        with urlopen(req, timeout=8) as resp:
-                            raw = resp.read()
+                        raw = _fetch_remote_image_bytes(candidate_url, timeout_sec=8)
                         img_obj = Image.open(io.BytesIO(raw))
                         area = img_obj.width * img_obj.height
                         if area > best_area:

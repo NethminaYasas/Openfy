@@ -90,7 +90,6 @@ class TrackOut(TrackBase):
     track_no: int | None = None
     disc_no: int | None = None
     play_count: int = 0
-    user_hash: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -148,7 +147,7 @@ class UserSignup(BaseModel):
 
 
 class UserSignin(BaseModel):
-    auth_hash: str = Field(..., min_length=64, max_length=64)
+    auth_hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class UserUploadPreferenceUpdate(BaseModel):
