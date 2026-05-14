@@ -2649,6 +2649,10 @@ input:checked + .toggle-slider:before {
     overflow: hidden;
 }
 
+.lib-item-cover.lib-item-cover-artist {
+    border-radius: 50%;
+}
+
 .lib-item-cover i,
 .lib-item-cover .lib-item-icon {
     font-size: 1.25rem;

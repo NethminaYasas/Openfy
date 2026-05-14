@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, updateAlbumShuffle, updateAlbumPin, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, followArtist, unfollowArtist, updateAlbumShuffle, updateAlbumPin, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -1650,6 +1650,7 @@ function initPlaylistHandlers() {
 function initArtistHandlers() {
   const artistPlayBtn = document.getElementById("artist-play-btn");
   if (!artistPlayBtn) return;
+  const artistFollowBtn = document.getElementById("artist-follow-btn");
 
   artistPlayBtn.addEventListener('click', async function() {
     if (!state.currentArtistId) return;
@@ -1715,6 +1716,34 @@ function initArtistHandlers() {
       }
       scheduleQueueSave();
       renderNowPlayingQueue();
+    }
+  });
+
+  artistFollowBtn?.addEventListener('click', async function() {
+    if (!state.currentArtistId || !state.currentUser) return;
+    const isFollowed = artistFollowBtn.dataset.followed === "1";
+    try {
+      if (isFollowed) {
+        await unfollowArtist(state.currentArtistId);
+      } else {
+        await followArtist(state.currentArtistId);
+      }
+      await loadPlaylists();
+      const refreshedFollow = state.userPlaylists.some(function(item) {
+        return item.type === "artist" && item.id === state.currentArtistId && item.is_followed;
+      });
+      artistFollowBtn.dataset.followed = refreshedFollow ? "1" : "0";
+      if (refreshedFollow) {
+        artistFollowBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #000; font-size: 14px; display: flex; align-items: center; justify-content: center;"></i>';
+        artistFollowBtn.style.cssText = 'padding: 8px !important; width: 28px !important; height: 28px !important; min-width: 24px !important; min-height: 24px !important; background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+        artistFollowBtn.title = 'Unfollow artist';
+      } else {
+        artistFollowBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; font-size: 20px; display: flex; align-items: center; justify-content: center;"></i>';
+        artistFollowBtn.style.cssText = 'padding: 8px !important; width: 28px !important; height: 28px !important; min-width: 24px !important; min-height: 24px !important; background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+        artistFollowBtn.title = 'Follow artist';
+      }
+    } catch (err) {
+      console.error("Failed to toggle artist follow:", err);
     }
   });
 }

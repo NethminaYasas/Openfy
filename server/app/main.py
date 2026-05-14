@@ -52,6 +52,7 @@ from .models import (
     PlaylistTrack,
     FollowedPlaylist,
     FollowedAlbum,
+    FollowedArtist,
     DownloadJob,
     User,
     TrackPlay,
@@ -655,6 +656,27 @@ def _startup():
                 """))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_followed_playlists_user ON followed_playlists(user_hash)"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_followed_playlists_playlist ON followed_playlists(playlist_id)"))
+
+            # Create followed_artists table if it doesn't exist
+            for row in conn.execute(text("PRAGMA table_info(followed_artists)")).fetchall():
+                table_exists = True
+                break
+            else:
+                table_exists = False
+            if not table_exists:
+                conn.execute(text("""
+                    CREATE TABLE followed_artists (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_hash VARCHAR(64) NOT NULL,
+                        artist_id VARCHAR(36) NOT NULL,
+                        followed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_hash) REFERENCES users(auth_hash) ON DELETE CASCADE,
+                        FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+                        UNIQUE(user_hash, artist_id)
+                    )
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_followed_artists_user ON followed_artists(user_hash)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_followed_artists_artist ON followed_artists(artist_id)"))
 
             conn.commit()
 
@@ -1607,6 +1629,60 @@ def fetch_spotify_artist_image(
 
     return {"image_url": artist.image_url, "spotify_url": artist.spotify_url, "name": artist_info.get("name")}
 
+
+@app.post("/artists/{artist_id}/follow")
+def follow_artist(
+    artist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    artist = db.get(Artist, artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    existing = db.execute(
+        select(FollowedArtist).where(
+            FollowedArtist.user_hash == user.auth_hash,
+            FollowedArtist.artist_id == artist_id,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Already following this artist")
+
+    db.add(FollowedArtist(user_hash=user.auth_hash, artist_id=artist_id))
+    db.commit()
+    return {"success": True}
+
+
+@app.delete("/artists/{artist_id}/follow")
+def unfollow_artist(
+    artist_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not x_auth_hash:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _get_user(db, x_auth_hash)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid auth hash")
+
+    followed = db.execute(
+        select(FollowedArtist).where(
+            FollowedArtist.user_hash == user.auth_hash,
+            FollowedArtist.artist_id == artist_id,
+        )
+    ).scalar_one_or_none()
+    if followed:
+        db.delete(followed)
+        db.commit()
+    return {"success": True}
+
 @app.get("/albums", response_model=List[AlbumOut])
 def list_albums(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     _require_user(db, x_auth_hash)
@@ -1678,26 +1754,36 @@ def list_playlists(
     followed_playlists = []
     if user:
         followed_stmt = (
-            select(Playlist)
+            select(Playlist, FollowedPlaylist.followed_at)
             .options(joinedload(Playlist.user))
             .join(FollowedPlaylist, FollowedPlaylist.playlist_id == Playlist.id)
             .where(FollowedPlaylist.user_hash == user.auth_hash)
             .order_by(FollowedPlaylist.followed_at.desc())
         )
-        followed_playlists = db.execute(followed_stmt).scalars().all()
+        followed_playlists = db.execute(followed_stmt).all()
 
     # Get followed albums
     followed_albums = []
     if user:
         albums_stmt = (
-            select(Album, FollowedAlbum.pinned)
+            select(Album, FollowedAlbum.pinned, FollowedAlbum.followed_at)
             .options(joinedload(Album.artist))
             .join(FollowedAlbum, FollowedAlbum.album_id == Album.id)
             .where(FollowedAlbum.user_hash == user.auth_hash)
             .order_by(FollowedAlbum.followed_at.desc())
         )
         followed_albums_result = db.execute(albums_stmt).all()
-        followed_albums = [(alb, pinned) for alb, pinned in followed_albums_result]
+        followed_albums = [(alb, pinned, followed_at) for alb, pinned, followed_at in followed_albums_result]
+
+    followed_artists = []
+    if user:
+        artists_stmt = (
+            select(Artist, FollowedArtist.followed_at)
+            .join(FollowedArtist, FollowedArtist.artist_id == Artist.id)
+            .where(FollowedArtist.user_hash == user.auth_hash)
+            .order_by(FollowedArtist.followed_at.desc())
+        )
+        followed_artists = db.execute(artists_stmt).all()
 
     # Combine and mark is_owner and is_followed
     result = []
@@ -1713,10 +1799,11 @@ def list_playlists(
         pl_dict["track_count"] = track_count
         result.append(pl_dict)
 
-    for pl in followed_playlists:
+    for pl, followed_at in followed_playlists:
         pl_dict = pl.__dict__.copy()
         pl_dict["is_owner"] = False
         pl_dict["is_followed"] = True
+        pl_dict["followed_at"] = followed_at
         # Get track count
         track_count = db.scalar(
             select(func.count(PlaylistTrack.track_id)).where(PlaylistTrack.playlist_id == pl.id)
@@ -1725,7 +1812,7 @@ def list_playlists(
         result.append(pl_dict)
 
     # Add followed albums converted to playlist-like dicts
-    for alb, pinned in followed_albums:
+    for alb, pinned, followed_at in followed_albums:
         alb_dict = {
             "id": alb.id,
             "name": alb.title,
@@ -1736,9 +1823,27 @@ def list_playlists(
             "pinned": bool(pinned),
             "owner_name": alb.artist.name if alb.artist else "Unknown Artist",
             "created_at": alb.created_at,
+            "followed_at": followed_at,
             "track_count": db.scalar(select(func.count(Track.id)).where(Track.album_id == alb.id)) or 0
         }
         result.append(alb_dict)
+
+    for artist, followed_at in followed_artists:
+        artist_dict = {
+            "id": artist.id,
+            "name": artist.name,
+            "type": "artist",
+            "is_public": True,
+            "is_owner": False,
+            "is_followed": True,
+            "pinned": False,
+            "owner_name": None,
+            "created_at": followed_at,
+            "followed_at": followed_at,
+            "track_count": db.scalar(select(func.count(Track.id)).where(Track.artist_id == artist.id)) or 0,
+            "image_url": artist.image_url,
+        }
+        result.append(artist_dict)
 
     return result
 

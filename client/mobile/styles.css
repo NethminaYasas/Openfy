@@ -747,6 +747,10 @@ body.page-detail #top-bar {
     overflow: hidden;
 }
 
+.lib-item-art.lib-item-art-artist {
+    border-radius: 50%;
+}
+
 .lib-item-art img {
     width: 100%;
     height: 100%;

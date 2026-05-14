@@ -138,6 +138,8 @@ class PlaylistOut(BaseModel):
     track_count: int = 0
     type: str = "playlist"
     owner_name: Optional[str] = None
+    image_url: str | None = None
+    followed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

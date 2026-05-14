@@ -246,6 +246,22 @@ export async function loadArtistPage(artistId) {
         }
 
         document.getElementById("artist-name").textContent = artist.name;
+        const artistFollowBtn = document.getElementById("artist-follow-btn");
+        if (artistFollowBtn) {
+            const followedArtist = state.userPlaylists.find(function(item) {
+                return item.type === "artist" && item.id === artist.id && item.is_followed;
+            });
+            artistFollowBtn.dataset.followed = followedArtist ? "1" : "0";
+            if (followedArtist) {
+                artistFollowBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #000; font-size: 14px; display: flex; align-items: center; justify-content: center;"></i>';
+                artistFollowBtn.style.cssText = 'padding: 8px !important; width: 28px !important; height: 28px !important; min-width: 24px !important; min-height: 24px !important; background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+                artistFollowBtn.title = 'Unfollow artist';
+            } else {
+                artistFollowBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; font-size: 20px; display: flex; align-items: center; justify-content: center;"></i>';
+                artistFollowBtn.style.cssText = 'padding: 8px !important; width: 28px !important; height: 28px !important; min-width: 24px !important; min-height: 24px !important; background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+                artistFollowBtn.title = 'Follow artist';
+            }
+        }
 
         // Update meta (track count)
         const trackCount = artist.tracks?.length || 0;
@@ -1343,12 +1359,28 @@ export function renderLibrary() {
   if (!libBox) return;
 
   libBox.innerHTML = "";
+  function timestampForLibraryItem(item) {
+    const primary = Date.parse(item.followed_at || "");
+    if (!Number.isNaN(primary)) return primary;
+    const fallback = Date.parse(item.created_at || "");
+    if (!Number.isNaN(fallback)) return fallback;
+    return 0;
+  }
+  function libraryTypeRank(item) {
+    if (item.is_liked) return 0;
+    if (item.type === 'playlist') return 1;
+    if (item.type === 'album') return 2;
+    if (item.type === 'artist') return 3;
+    return 4;
+  }
   state.userPlaylists.sort(function(a, b) {
     if (a.is_liked && !b.is_liked) return -1;
     if (!a.is_liked && b.is_liked) return 1;
     if (a.pinned && !b.pinned) return -1;
     if (!a.pinned && b.pinned) return 1;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    const rankDiff = libraryTypeRank(a) - libraryTypeRank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return timestampForLibraryItem(b) - timestampForLibraryItem(a);
   });
   
   state.userPlaylists.forEach(function(pl) {
@@ -1359,6 +1391,9 @@ export function renderLibrary() {
 
     var cover = document.createElement("div");
     cover.className = "lib-item-cover";
+    if (pl.type === 'artist') {
+      cover.classList.add("lib-item-cover-artist");
+    }
 
     if (pl.is_liked) {
       cover.style.background = "linear-gradient(135deg,#450af5,#c4efd9)";
@@ -1372,6 +1407,10 @@ export function renderLibrary() {
       var icon;
       if (pl.type === 'album') {
         icon = createAlbumIconSvg();
+      } else if (pl.type === 'artist') {
+        icon = document.createElement("i");
+        icon.className = "fa-solid fa-microphone-lines";
+        icon.style.color = "#b3b3b3";
       } else {
         icon = createPlaylistIconSvg();
       }
@@ -1380,7 +1419,7 @@ export function renderLibrary() {
       // For albums, always try to load the artwork.
       // For playlists, only try if it has tracks (need 4+ for meaningful collage fallback)
       var trackCount = pl.track_count || 0;
-      if (pl.type === 'album' || trackCount >= 1) {
+      if (pl.type === 'album' || trackCount >= 1 || (pl.type === 'artist' && pl.image_url)) {
         // Try to load custom cover (collage from tracks)
         var img = document.createElement("img");
         img.alt = escapeHtml(pl.name || "Playlist");
@@ -1404,13 +1443,17 @@ export function renderLibrary() {
           if (renderLibraryId !== currentRenderId) return;
         };
         cover.appendChild(img);
-        setAuthenticatedImage(
-          img,
-          pl.type === 'album' ? "/albums/" + pl.id + "/artwork" : "/playlists/" + pl.id + "/cover",
-          function() {
-            if (renderLibraryId !== currentRenderId) return;
-          }
-        );
+        if (pl.type === 'artist') {
+          img.src = pl.image_url;
+        } else {
+          setAuthenticatedImage(
+            img,
+            pl.type === 'album' ? "/albums/" + pl.id + "/artwork" : "/playlists/" + pl.id + "/cover",
+            function() {
+              if (renderLibraryId !== currentRenderId) return;
+            }
+          );
+        }
       }
     }
 
@@ -1444,6 +1487,8 @@ export function renderLibrary() {
       typeEl.appendChild(document.createTextNode("Playlist • " + trackCount + " song" + (trackCount !== 1 ? "s" : "")));
     } else if (pl.type === 'album') {
       typeEl.appendChild(document.createTextNode("Album" + (pl.owner_name ? " • " + pl.owner_name : "")));
+    } else if (pl.type === 'artist') {
+      typeEl.appendChild(document.createTextNode("Artist"));
     } else if (pl.is_followed) {
       typeEl.appendChild(document.createTextNode("Public Playlist"));
     } else {
@@ -1455,11 +1500,21 @@ export function renderLibrary() {
 
     item.appendChild(cover);
     item.appendChild(info);
-    item.addEventListener("click", function() { openPlaylist(pl.id, pl.type === 'album'); });
-    item.addEventListener("contextmenu", function(e) {
-      e.preventDefault();
-      if (window.showContextMenu) window.showContextMenu(e, pl);
+    item.addEventListener("click", function() {
+      if (pl.type === 'artist') {
+        state.currentArtistId = pl.id;
+        setUrl('/artist/' + pl.id);
+        setActivePage('artist');
+        return;
+      }
+      openPlaylist(pl.id, pl.type === 'album');
     });
+    if (pl.type !== 'artist') {
+      item.addEventListener("contextmenu", function(e) {
+        e.preventDefault();
+        if (window.showContextMenu) window.showContextMenu(e, pl);
+      });
+    }
     libBox.appendChild(item);
   });
 }

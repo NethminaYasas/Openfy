@@ -13,6 +13,7 @@ let repeatMode = 0; // 0=off, 1=all, 2=one
 let shuffle = false;
 let tracks = [];
 let playlists = [];
+let currentLibraryFilter = 'all';
 
 const audio = document.getElementById('audio-player');
 
@@ -234,7 +235,7 @@ async function initApp() {
     for (let i = 0; i < 3; i++) {
         renderHorizCards('tracks-row-' + i, tracks.slice(i * chunkSize, (i + 1) * chunkSize));
     }
-    renderLibraryItems(playlists);
+    renderLibraryItems(getFilteredLibraryItems());
     renderRecentSearches();
     const queueData = await loadUserQueue();
     if (queueData) {
@@ -518,16 +519,33 @@ $('ctx-overlay').addEventListener('click', hideContextMenu);
 function renderLibraryItems(items) {
     const container = $('library-items');
     container.innerHTML = '';
+    function timestampForLibraryItem(item) {
+        const primary = Date.parse(item.followed_at || '');
+        if (!Number.isNaN(primary)) return primary;
+        const fallback = Date.parse(item.created_at || '');
+        if (!Number.isNaN(fallback)) return fallback;
+        return 0;
+    }
+    function libraryTypeRank(item) {
+        if (item.is_liked) return 0;
+        if (item.type === 'playlist') return 1;
+        if (item.type === 'album') return 2;
+        if (item.type === 'artist') return 3;
+        return 4;
+    }
     items.slice().sort(function(a, b) {
         if (a.is_liked && !b.is_liked) return -1;
         if (!a.is_liked && b.is_liked) return 1;
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        const rankDiff = libraryTypeRank(a) - libraryTypeRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return timestampForLibraryItem(b) - timestampForLibraryItem(a);
     }).forEach(item => {
         const el = document.createElement('div');
         el.className = 'lib-item';
         const isAlbum = item.type === 'album';
+        const isArtist = item.type === 'artist';
         if (item.is_liked) {
             el.innerHTML = `
                 <div class="lib-item-art lib-item-art-liked">
@@ -540,23 +558,40 @@ function renderLibraryItems(items) {
             `;
         } else {
             const artUrl = item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
+            const placeholderIcon = isArtist ? 'fa-solid fa-microphone-lines' : 'fa-solid fa-list';
             el.innerHTML = `
-                <div class="lib-item-art">
+                <div class="lib-item-art${isArtist ? ' lib-item-art-artist' : ''}">
                     ${artUrl
                         ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
                         : ''
                     }
-                    <div class="lib-item-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-list"></i></div>
+                    <div class="lib-item-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="${placeholderIcon}"></i></div>
                 </div>
                 <div class="lib-item-meta">
                     <div class="lib-item-title">${escapeHtml(item.name)}</div>
-                    <div class="lib-item-sub">${item.is_public ? 'Public' : 'Private'} ${isAlbum ? 'album' : 'playlist'}</div>
+                    <div class="lib-item-sub">${isArtist ? 'Artist' : (item.is_public ? 'Public' : 'Private') + ' ' + (isAlbum ? 'album' : 'playlist')}</div>
                 </div>
             `;
         }
-        el.addEventListener('click', () => openDetail(item, isAlbum ? 'album' : 'playlist'));
+        el.addEventListener('click', () => openDetail(item, isArtist ? 'artist' : (isAlbum ? 'album' : 'playlist')));
         container.appendChild(el);
     });
+}
+
+function getFilteredLibraryItems() {
+    if (currentLibraryFilter === 'all') {
+        return playlists;
+    }
+    if (currentLibraryFilter === 'playlists') {
+        return playlists.filter(p => p.is_liked || p.type === 'playlist');
+    }
+    if (currentLibraryFilter === 'albums') {
+        return playlists.filter(p => p.type === 'album');
+    }
+    if (currentLibraryFilter === 'artists') {
+        return playlists.filter(p => p.type === 'artist');
+    }
+    return playlists;
 }
 
 function renderSearchResults(results) {
@@ -656,28 +691,44 @@ async function openDetail(item, type) {
             ? withBase("/albums/" + item.id + "/artwork")
             : type === 'playlist'
                 ? withBase("/playlists/" + item.id + "/cover")
-                : withBase("/tracks/" + item.id + "/artwork");
+                : type === 'artist'
+                    ? (item.image_url || null)
+                    : withBase("/tracks/" + item.id + "/artwork");
         art.onerror = function() { this.style.display = 'none'; placeholder.style.display = 'flex'; };
-        art.src = artUrl;
-        art.style.display = 'block';
-        placeholder.style.display = 'none';
+        if (artUrl) {
+            art.src = artUrl;
+            art.style.display = 'block';
+            placeholder.style.display = 'none';
+        } else {
+            art.style.display = 'none';
+            placeholder.style.display = 'flex';
+        }
         updateGradient($('detail-gradient'), artUrl);
     }
 
     title.textContent = item.title || item.name || 'Unknown';
     if (item.is_liked) {
         subtitle.textContent = 'Playlist';
+    } else if (type === 'artist') {
+        subtitle.textContent = 'Artist';
     } else if (type === 'playlist') {
         subtitle.textContent = item.is_public ? 'Public playlist' : 'Private playlist';
     } else if (type === 'album') {
         subtitle.textContent = 'Album';
-    } else {
+    } else if (type === 'track') {
         subtitle.textContent = getArtistDisplay(item);
     }
 
     let tracksList = [];
     if (type === 'track') {
         tracksList = [item];
+    } else if (type === 'artist') {
+        try {
+            const artistData = await api("/artists/" + item.id);
+            tracksList = (artistData && artistData.tracks) ? artistData.tracks : [];
+        } catch (e) {
+            console.error('Failed to load artist tracks:', e);
+        }
     } else {
         try {
             const apiTracks = await api("/playlists/" + item.id + "/tracks");
@@ -1063,6 +1114,8 @@ document.querySelectorAll('.pill-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        currentLibraryFilter = btn.dataset.filter;
+        renderLibraryItems(getFilteredLibraryItems());
     });
 });
 
