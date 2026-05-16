@@ -1,6 +1,7 @@
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+exclude = ["SpotiFLAC", "spotify_scraper"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
