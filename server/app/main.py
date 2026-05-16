@@ -3862,14 +3862,11 @@ def _get_index_html() -> str:
     return _index_html_cache or "<!DOCTYPE html><html><body><h1>Not Found</h1></body></html>"
 
 def _get_mobile_index_html() -> str:
-    global _mobile_index_html_cache
-    if _mobile_index_html_cache is None:
-        for candidate in [Path(__file__).resolve().parent.parent / "client" / "mobile" / "index.html",
-                          Path(__file__).resolve().parent.parent.parent / "client" / "mobile" / "index.html"]:
-            if candidate.exists():
-                _mobile_index_html_cache = candidate.read_text()
-                break
-    return _mobile_index_html_cache or _get_index_html()
+    for candidate in [Path(__file__).resolve().parent.parent / "client" / "mobile" / "index.html",
+                      Path(__file__).resolve().parent.parent.parent / "client" / "mobile" / "index.html"]:
+        if candidate.exists():
+            return candidate.read_text()
+    return _get_index_html()
 
 def _is_mobile(request: Request) -> bool:
     ua = request.headers.get("user-agent", "")

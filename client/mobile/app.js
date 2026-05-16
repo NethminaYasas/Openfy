@@ -1,6 +1,6 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, getArtist, getTrackStreamUrl } from '../modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, runSearch, getArtist, getTrackStreamUrl, savePlayerState, followPlaylist, followAlbum, followArtist, unfollowPlaylist, unfollowAlbum, unfollowArtist, updateRegularPlaylistTrackCache, togglePlaylistShuffle, updateAlbumShuffle } from '../modules/api.js';
 import { formatDuration, getArtistDisplay, extractVibrantColors } from '../modules/utils.js';
 import { loadRecentSearches, addRecentSearch, removeRecentSearch } from '../modules/recent-searches.js';
 import { queueSetList, queueJumpTo, queueInsert, queueSave, queueGet, queueLength, queueCurrentIndex, queueCurrentTrack } from '../modules/queue-manager.js';
@@ -14,6 +14,8 @@ let shuffle = false;
 let tracks = [];
 let playlists = [];
 let currentLibraryFilter = 'all';
+var currentDetailId = null;
+var currentDetailType = null;
 
 const audio = document.getElementById('audio-player');
 
@@ -88,18 +90,22 @@ signupBtn.addEventListener('click', async () => {
 });
 
 // ─── Navigation ──────────────────────────────────────
+var previousPage = 'home';
+
 function showPage(name) {
+    if (!pages[name]) return;
+    var closePlayer = pages.nowPlaying.classList.contains('active') && name !== 'nowPlaying';
     document.body.className = '';
-    if (pages.nowPlaying.classList.contains('active') && name !== 'nowPlaying') {
+    if (closePlayer) {
+        previousPage = name;
         document.body.style.background = '#000';
         if (currentTrack) $('mini-player').style.display = 'flex';
-        var target = pages[name];
-        if (target) target.classList.add('active');
+        if (pages[name]) pages[name].classList.add('active');
         document.body.classList.add('page-' + name);
-        var isHome = name === 'home';
+        var _h = name === 'home';
         $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
-        $('top-bar-greeting').style.display = isHome ? 'block' : 'none';
-        $('top-bar-profile').style.display = isHome ? 'flex' : 'none';
+        $('top-bar-greeting').style.display = _h ? 'block' : 'none';
+        $('top-bar-profile').style.display = _h ? 'flex' : 'none';
         $('top-bar-search').style.display = 'none';
         pages.nowPlaying.classList.add('slide-down');
         pages.nowPlaying.addEventListener('animationend', function handler() {
@@ -108,7 +114,10 @@ function showPage(name) {
         });
         return;
     }
-    Object.values(pages).forEach(p => p.classList.remove('active'));
+    if (name !== 'nowPlaying') {
+        previousPage = name;
+    }
+    Object.values(pages).forEach(function(p) { if (p) p.classList.remove('active'); });
     if (name === 'nowPlaying') {
         pages.nowPlaying.classList.add('active');
         document.body.style.background = '#121212';
@@ -120,8 +129,7 @@ function showPage(name) {
     }
     document.body.style.background = '#000';
     if (currentTrack) $('mini-player').style.display = 'flex';
-    const page = pages[name];
-    if (page) page.classList.add('active');
+    if (pages[name]) pages[name].classList.add('active');
     document.body.classList.add('page-' + name);
     var isHome = name === 'home';
     $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
@@ -146,13 +154,12 @@ $('top-bar-back').addEventListener('click', () => {
     document.querySelector('.nav-item[data-page="library"]').classList.add('active');
 });
 
-// ─── Detail -> Now Playing ──────────────────────────
-$('detail-play-btn').addEventListener('click', () => {
-    showPage('nowPlaying');
-});
-
-$('np-down-btn').addEventListener('click', () => {
-    showPage('home');
+$('np-down-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    var target = previousPage || 'home';
+    if (target === 'nowPlaying') target = 'home';
+    showPage(target);
 });
 
 $('mini-player').addEventListener('click', () => {
@@ -230,6 +237,8 @@ async function initApp() {
     ]);
     tracks = allTracks;
     playlists = allPlaylists;
+    state.userPlaylists = allPlaylists;
+    updateRegularPlaylistTrackCache();
     renderHorizCards('most-played-grid', mostPlayed);
     const chunkSize = 9;
     for (let i = 0; i < 3; i++) {
@@ -251,6 +260,9 @@ async function initApp() {
     }
     await loadUserPlayerState();
     shuffle = state.shuffle;
+    repeatMode = state.repeatState === 'loop-once' ? 1 : state.repeatState === 'loop-twice' ? 2 : 0;
+    $('np-repeat').classList.toggle('active', repeatMode > 0);
+    $('np-repeat').style.color = repeatMode ? '#1DB954' : '#b3b3b3';
     syncShuffleUI();
 }
 
@@ -672,6 +684,8 @@ async function updateGradient(el, artUrl) {
 
 // ─── Detail View ─────────────────────────────────────
 async function openDetail(item, type) {
+    currentDetailId = item.id;
+    currentDetailType = type;
     showPage('detail');
     const title = $('detail-title');
     const subtitle = $('detail-subtitle');
@@ -739,11 +753,94 @@ async function openDetail(item, type) {
     }
     renderTracks(tracksList);
 
+    var followBtn = $('detail-follow-btn');
+    var isLoggedIn = !!state.currentUser;
+    if (type === 'track' || !isLoggedIn) {
+        followBtn.style.display = 'none';
+    } else if (type === 'playlist' && (!item.is_public || item.is_liked || item.is_owner)) {
+        followBtn.style.display = 'none';
+    } else {
+        var isFollowed = type === 'artist'
+            ? state.userPlaylists.some(function(p) { return p.type === 'artist' && p.id === item.id && p.is_followed; })
+            : !!item.is_followed;
+        followBtn.style.display = 'flex';
+        function updateFollowUI() {
+            if (isFollowed) {
+                followBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #000; font-size: 14px; display: flex; align-items: center; justify-content: center;"></i>';
+                followBtn.style.cssText = 'padding: 8px !important; width: 28px !important; height: 28px !important; background: #1db954 !important; border: none !important; border-radius: 50% !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+                followBtn.title = 'Unfollow ' + (type === 'artist' ? 'artist' : type === 'album' ? 'album' : 'playlist');
+            } else {
+                followBtn.innerHTML = '<i class="fa-solid fa-plus" style="color: #b3b3b3; font-size: 20px; display: flex; align-items: center; justify-content: center;"></i>';
+                followBtn.style.cssText = 'padding: 8px !important; width: 28px !important; height: 28px !important; background: none !important; border: none !important; display: flex !important; align-items: center !important; justify-content: center !important;';
+                followBtn.title = 'Follow ' + (type === 'artist' ? 'artist' : type === 'album' ? 'album' : 'playlist');
+            }
+        }
+        updateFollowUI();
+        followBtn.onclick = function() {
+            if (isFollowed && type !== 'artist') {
+                var overlay = $('confirm-overlay');
+                var titleEl = $('confirm-title-text');
+                var msgEl = $('confirm-message');
+                var delBtn = $('confirm-delete-btn');
+                var cancelBtn = $('confirm-cancel-btn');
+                if (type === 'album') {
+                    titleEl.textContent = 'Remove from Library?';
+                    msgEl.textContent = 'Remove "' + (item.title || item.name) + '" from your library?';
+                    delBtn.textContent = 'Remove';
+                } else {
+                    titleEl.textContent = 'Unfollow Playlist?';
+                    msgEl.textContent = 'Unfollow "' + (item.title || item.name) + '"?';
+                    delBtn.textContent = 'Unfollow';
+                }
+                overlay.style.display = 'flex';
+                delBtn.onclick = async function() {
+                    overlay.style.display = 'none';
+                    delBtn.onclick = null;
+                    cancelBtn.onclick = null;
+                    try {
+                        if (type === 'album') await unfollowAlbum(item.id);
+                        else await unfollowPlaylist(item.id);
+                        item.is_followed = false;
+                        isFollowed = false;
+                        apiLoadPlaylists();
+                        updateFollowUI();
+                    } catch (e) { console.error('Unfollow failed:', e); }
+                };
+                cancelBtn.onclick = function() {
+                    overlay.style.display = 'none';
+                    delBtn.onclick = null;
+                    cancelBtn.onclick = null;
+                };
+                return;
+            }
+            followAction();
+        };
+        async function followAction() {
+            try {
+                if (isFollowed) {
+                    if (type === 'artist') await unfollowArtist(item.id);
+                } else {
+                    if (type === 'playlist') await followPlaylist(item.id);
+                    else if (type === 'album') await followAlbum(item.id);
+                    else if (type === 'artist') await followArtist(item.id);
+                }
+                isFollowed = !isFollowed;
+                if (type === 'artist') {
+                    await apiLoadPlaylists();
+                    isFollowed = state.userPlaylists.some(function(p) { return p.type === 'artist' && p.id === item.id && p.is_followed; });
+                } else {
+                    item.is_followed = isFollowed;
+                    apiLoadPlaylists();
+                }
+                updateFollowUI();
+            } catch (e) { console.error('Follow action failed:', e); }
+        }
+    }
+
     $('detail-play-btn').onclick = () => {
         if (tracksList.length > 0) {
             queueSetList(tracksList, 0);
             playTrack(queueCurrentTrack());
-            showPage('nowPlaying');
         }
     };
 
@@ -755,6 +852,10 @@ async function openDetail(item, type) {
         var opacity = Math.max(0, 1 - scrollTop / maxScroll);
         gradEl.style.opacity = opacity;
     };
+    if (item.shuffle !== undefined) {
+        shuffle = !!item.shuffle;
+        state.shuffle = shuffle;
+    }
     syncShuffleUI();
 
     detailPage.removeEventListener('scroll', detailPage._gradientScroll);
@@ -768,6 +869,9 @@ function playTrack(track, autoPlay = true) {
     if (!track) return;
     currentTrack = track;
     isPlaying = autoPlay;
+    isLiked = state.likedTrackIds.has(track.id || track.track_id);
+    $('np-like-btn').classList.toggle('liked', isLiked);
+    $('np-like-btn').querySelector('i').className = isLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
 
     const title = track.title || track.name || 'Unknown';
     const artist = getArtistDisplay(track);
@@ -986,30 +1090,46 @@ function syncShuffleUI() {
 
 $('np-shuffle').addEventListener('click', () => {
     shuffle = !shuffle;
+    state.shuffle = shuffle;
     syncShuffleUI();
+    savePlayerState();
 });
 
 $('detail-shuffle-btn').addEventListener('click', () => {
     shuffle = !shuffle;
+    state.shuffle = shuffle;
     syncShuffleUI();
+    savePlayerState();
+    if (currentDetailId && currentDetailType === 'album') {
+        updateAlbumShuffle(currentDetailId, shuffle);
+    } else if (currentDetailId && currentDetailType === 'playlist') {
+        togglePlaylistShuffle(currentDetailId, shuffle);
+    }
 });
 
 $('np-repeat').addEventListener('click', () => {
     repeatMode = (repeatMode + 1) % 3;
     $('np-repeat').classList.toggle('active', repeatMode > 0);
     $('np-repeat').style.color = repeatMode === 2 ? '#1DB954' : repeatMode === 1 ? '#1DB954' : '#b3b3b3';
+    state.repeatState = repeatMode === 1 ? 'loop-once' : repeatMode === 2 ? 'loop-twice' : 'off';
+    savePlayerState();
 });
 
 $('np-like-btn').addEventListener('click', async () => {
     if (!currentTrack) return;
+    var tid = currentTrack.id || currentTrack.track_id;
     isLiked = !isLiked;
     $('np-like-btn').classList.toggle('liked', isLiked);
     $('np-like-btn').querySelector('i').className = isLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+    if (isLiked) state.likedTrackIds.add(tid);
+    else state.likedTrackIds.delete(tid);
     try {
-        await toggleLiked(currentTrack.id || currentTrack.track_id);
+        await toggleLiked(tid);
     } catch (e) {
         isLiked = !isLiked;
         $('np-like-btn').classList.toggle('liked', isLiked);
+        if (isLiked) state.likedTrackIds.add(tid);
+        else state.likedTrackIds.delete(tid);
     }
 });
 
