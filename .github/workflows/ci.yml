@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend — Lint, Security, Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          cd server
+          pip install -r requirements.txt
+          pip install ruff bandit pip-audit pytest
+      - name: Lint (ruff)
+        run: ruff check server/
+      - name: Security scan (bandit)
+        run: bandit -r server/app/ -ll
+      - name: Dependency audit (pip-audit)
+        run: pip-audit -r server/requirements.txt
+      - name: Tests (pytest)
+        run: |
+          cd server
+          pytest --tb=short
+
+  docker:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -f server/Dockerfile .

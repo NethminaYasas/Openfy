@@ -1,7 +1,7 @@
 # Openfy Security Audit Report
 
 **Project:** Openfy (self-hosted music streaming server)  
-**Path:** `/home/nethmina/Documents/GITHUB/Openfy`  
+**Path:** `(repository root)`  
 **Initial Audit:** April 07, 2026  
 **Recheck:** April 16, 2026  
 **Previous Update:** April 26, 2026  

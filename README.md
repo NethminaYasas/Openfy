@@ -2,11 +2,16 @@
 
 A self-hosted music streaming platform.
 
+## Prerequisites
+- Docker and Docker Compose
+- For manual setup: Python 3.12+
+
 ## Quick Start
 
 ```bash
 git clone https://github.com/NethminaYasas/Openfy.git
 cd Openfy
+cp .env.example .env   # fill in your values
 docker compose up --build -d
 ```
 
@@ -48,28 +53,22 @@ uvicorn app.main:app --reload
 ## Screenshots
 
 ### Home Page
-![Home Page](repo_images/home_page.png)
+![Home Page](docs/screenshots/home_page.png)
 
 ### Upload Page
-![Upload Page](repo_images/upload_page.png)
+![Upload Page](docs/screenshots/upload_page.png)
 
 ### Artist Page
-![Artist Page](repo_images/artist_page.png)
+![Artist Page](docs/screenshots/artist_page.png)
 
 ### Playlist Page
-![Playlist Page](repo_images/playlist_page.png)
+![Playlist Page](docs/screenshots/playlist_page.png)
+
+> See the `docs/screenshots/` directory for more screenshots.
 
 ## Configuration
 
-Create `server/.env`:
-
-```env
-OPENFY_ENV=dev
-OPENFY_ADMIN_USERNAME=admin
-OPENFY_ADMIN_HASH=your_secure_hash
-OPENFY_ALLOWED_ORIGINS=http://localhost:8000
-OPENFY_MAX_UPLOAD_SIZE_MB=200
-```
+Copy `.env.example` to `.env` and fill in your values before starting.
 
 Available environment variables (all prefixed with `OPENFY_`):
 
@@ -85,6 +84,16 @@ Available environment variables (all prefixed with `OPENFY_`):
 | `ADMIN_USERNAME` | `` | Admin username (auto-created on startup) |
 | `ADMIN_HASH` | `` | Admin auth hash |
 | `MAX_UPLOAD_SIZE_MB` | `200` | Maximum upload file size in MB |
+
+## Generating an Admin Hash
+
+```bash
+python scripts/generate_hash.py yourpassword
+```
+
+Copy the output hash into your `.env` as `OPENFY_ADMIN_HASH`.
+
+The `scripts/` directory contains developer/admin utilities.
 
 ## Architecture
 

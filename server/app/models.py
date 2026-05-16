@@ -139,7 +139,7 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Integer, default=0)
     upload_enabled: Mapped[bool] = mapped_column(Integer, default=1)
     last_track_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("tracks.id"), nullable=True
+        String(36), ForeignKey("tracks.id", use_alter=True, name="fk_users_last_track"), nullable=True
     )
     library_minimized: Mapped[bool] = mapped_column(Integer, default=0)
     shuffle: Mapped[bool] = mapped_column(Integer, default=0)

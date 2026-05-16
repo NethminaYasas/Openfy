@@ -35,10 +35,8 @@ server/.env
 server/.env.*
 !server/.env.example
 
-# Local runtime data
-data/*.db
-data/*.sqlite
-data/*.sqlite3
+# Runtime data (Docker volume or local)
+data/
 
 # Local tooling state
 .superpowers/
