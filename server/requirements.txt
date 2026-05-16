@@ -1,9 +1,9 @@
-fastapi==0.115.6
+fastapi==0.136.1
 uvicorn==0.30.6
 SQLAlchemy==2.0.36
 pydantic==2.9.2
 pydantic-settings==2.5.2
-python-multipart==0.0.12
+python-multipart==0.0.27
 mutagen==1.47.0
 git+https://github.com/ShuShuzinhuu/SpotiFLAC-Module-Version.git
 
@@ -13,4 +13,4 @@ requests
 ytmusicapi
 beautifulsoup4
 yt-dlp
-Pillow==10.4.0
+Pillow==12.2.0
