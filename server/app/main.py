@@ -239,7 +239,7 @@ def _fetch_remote_image_bytes(remote_url: str, timeout_sec: int = 10) -> bytes:
     if not _is_public_http_image_url(remote_url):
         raise HTTPException(status_code=400, detail="Invalid or unsafe image URL")
     req = UrlRequest(remote_url, headers={"User-Agent": "Openfy/1.0"})
-    with urlopen(req, timeout=timeout_sec) as resp:
+    with urlopen(req, timeout=timeout_sec) as resp:  # nosec B310 - URL is validated to public http(s) only
         content_type = str(resp.headers.get("Content-Type", "")).lower()
         if content_type and not content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="Remote URL is not an image")
