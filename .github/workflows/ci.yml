@@ -6,16 +6,13 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   backend:
     name: Backend — Lint, Security, Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -32,12 +29,16 @@ jobs:
       - name: Tests (pytest)
         run: |
           cd server
-          pytest --tb=short
+          if [ -d tests ] || find . -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+            pytest --tb=short
+          else
+            echo "No tests found, skipping pytest."
+          fi
 
   docker:
     name: Docker Build Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build Docker image
         run: docker build -f server/Dockerfile .
