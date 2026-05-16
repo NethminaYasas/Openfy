@@ -22,7 +22,7 @@ def _ensure_spotify_scraper_import() -> bool:
 
     # First, try importing directly (works in Docker where it's in site-packages)
     try:
-        import spotify_scraper
+        __import__("spotify_scraper")
         _spotify_scraper_added = True
         logger.info("SpotifyScraper found in site-packages")
         return True
@@ -41,7 +41,7 @@ def _ensure_spotify_scraper_import() -> bool:
             if src_str not in sys.path:
                 sys.path.insert(0, src_str)
             try:
-                import spotify_scraper
+                __import__("spotify_scraper")
                 _spotify_scraper_added = True
                 logger.info(f"SpotifyScraper imported from: {src}")
                 return True

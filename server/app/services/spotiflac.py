@@ -111,7 +111,6 @@ def _validate_download_against_expected(
     expected_title = str(track_info.get("name", "")).strip()
     expected_artist = str(track_info.get("artist", "")).strip()
     expected_duration_ms = int(track_info.get("duration_ms", 0) or 0)
-    trusted_override = bool(track_info.get("trusted_override"))
 
     if not expected_title:
         raise Exception("Missing expected title metadata from URL")
@@ -174,7 +173,7 @@ def _download_with_yt_music(
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"[DOWNLOAD] Starting download job {job_id}: query={query}, album_source_id={album_source_id}")
-    
+
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -442,7 +441,7 @@ def _run_download(
 
             # Get album_source_id from job
             album_source_id = job.album_source_id if job else None
-            
+
             scan_paths(
                 db,
                 moved_files,

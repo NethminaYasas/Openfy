@@ -5,7 +5,7 @@ import json
 import time
 import re
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Any
 from collections import defaultdict
 from time import monotonic
 from threading import Lock
@@ -1000,7 +1000,7 @@ def get_track_by_spotify_id(
     x_auth_hash: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    user = _require_user(db, x_auth_hash)
+    _require_user(db, x_auth_hash)
     if not re.match(r"^[A-Za-z0-9]+$", spotify_id):
         raise HTTPException(status_code=400, detail="Invalid Spotify track ID format")
 
@@ -1019,7 +1019,7 @@ def get_track_by_spotify_id(
             track.album_id = album.id
             db.add(track)
             if not album.artwork_path and track.file_path:
-                from app.services.library import _store_artwork, _extract_artwork, ensure_dirs
+                from app.services.library import _extract_artwork, ensure_dirs
                 file_path = Path(track.file_path)
                 if file_path.exists():
                     artwork = _extract_artwork(file_path)
@@ -1032,7 +1032,7 @@ def get_track_by_spotify_id(
                         album.artwork_path = str(target)
                         db.add(album)
             db.commit()
-    
+
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
@@ -1321,7 +1321,7 @@ def list_artists(x_auth_hash: str | None = Header(None), db: Session = Depends(g
 @app.get("/artists/{artist_id}", response_model=ArtistOut)
 def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     from app.models import Artist, Track
-    from sqlalchemy import select, or_
+    from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
     _require_user(db, x_auth_hash)
@@ -1358,7 +1358,7 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
     # Get valid albums for this artist
     # A valid album has more than 1 track OR has been imported (has source_id set)
     from sqlalchemy import func
-    
+
     valid_albums = db.execute(
         select(Album)
         .outerjoin(Track, Album.id == Track.album_id)
@@ -1369,7 +1369,7 @@ def get_artist(artist_id: str, x_auth_hash: str | None = Header(None), db: Sessi
         )
         .order_by(Album.title)
     ).scalars().all()
-    
+
     # Replace albums with valid albums only
     artist.albums = valid_albums
 
@@ -1421,7 +1421,7 @@ def refresh_artist_albums(
                         updated += 1
             except Exception:
                 pass
-    
+
     if updated > 0:
         db.commit()
 
@@ -1434,21 +1434,19 @@ def fix_missing_albums(
     db: Session = Depends(get_db),
 ):
     """Fix tracks that don't have albums - create albums for them."""
-    from app.models import Artist, Album
     from app.services.library import _get_or_create_album
 
-    user = _require_user(db, x_auth_hash)
+    _require_user(db, x_auth_hash)
 
     # Find tracks without album_id
     tracks_without_album = db.execute(
-        select(Track).where(Track.album_id == None)
+        select(Track).where(Track.album_id.is_(None))
     ).scalars().all()
 
     fixed = 0
     for track in tracks_without_album:
         if track.artist_id:
             # Get artist name
-            artist = db.get(Artist, track.artist_id)
             artist_id = track.artist_id
             # Create album with track title as album name
             album_title = track.title  # Use track title as placeholder album name
@@ -1579,7 +1577,9 @@ def fetch_spotify_artist_image(
     from sqlalchemy import select
     from app.services.artist_service import get_artist_from_spotify_url
 
-    _require_admin(db, x_auth_hash)
+    user = _require_user(db, x_auth_hash)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
 
     artist = db.get(Artist, artist_id)
     if not artist:
@@ -1896,7 +1896,7 @@ def get_album(
             "artists": [],
             "album": None,
         }
-        
+
         # Include primary artist
         if track.artist:
             track_dict["artist"] = {
@@ -1904,14 +1904,14 @@ def get_album(
                 "name": track.artist.name,
                 "image_url": track.artist.image_url,
             }
-        
+
         # Include all artists
         if track.artists:
             track_dict["artists"] = [
                 {"id": a.id, "name": a.name, "image_url": a.image_url}
                 for a in track.artists
             ]
-        
+
         # Include album with artwork_path
         if track.album:
             track_dict["album"] = {
@@ -1920,9 +1920,9 @@ def get_album(
                 "artwork_path": track.album.artwork_path,
                 "image_url": track.album.image_url,
             }
-        
+
         formatted_tracks.append({"position": idx, "track": track_dict})
-    
+
     # Check if user already follows this album
     is_followed = False
     album_shuffle = False
@@ -2142,7 +2142,7 @@ def get_playlist_cover(
     if x_auth_hash:
         try:
             user = _get_user(db, x_auth_hash)
-        except:
+        except Exception:
             pass
 
     playlist = db.get(Playlist, playlist_id)
@@ -2791,7 +2791,7 @@ def create_download(
         raise HTTPException(
             status_code=403, detail="Uploads are disabled for your account"
         )
-    
+
     return queue_download(
         db, payload.query, payload.source or "auto", user.auth_hash,
         artist_url=payload.artist_url, album_source_id=payload.album_source_id
@@ -2943,7 +2943,7 @@ def import_spotify_playlist(
             }
         )
 
-    
+
 
     # If it's an album, create or find the Album model entry
     internal_album_id = None
@@ -2957,7 +2957,7 @@ def import_spotify_playlist(
                 album_year = int(release_date[:4])
             except ValueError:
                 pass
-        
+
         # IMPORTANT: When adding background tasks in async endpoints, always use threading.Thread
         # with daemon=True. NEVER call synchronous blocking functions (like external API calls,
         # heavy computation, or file I/O) directly in async endpoints - this blocks the event
@@ -3014,7 +3014,7 @@ def import_spotify_playlist(
                         db.add(artist)
                         db.flush()
                     artist_id = artist.id
-        
+
         # Find or create Album entry
         internal_album_id = None
         if album_title:
@@ -3024,7 +3024,7 @@ def import_spotify_playlist(
                     Album.artist_id == artist_id
                 )
             ).scalar_one_or_none()
-            
+
             if existing_album:
                 # Always update source_id if url_type is album (needed for track linking)
                 if url_type == "album":
@@ -3285,7 +3285,6 @@ def upload_user_avatar(
         raise HTTPException(400, "Invalid image format — use jpg, png, gif, or webp")
 
     # Generate unique filename and store using store_avatar
-    from .services.storage import store_avatar
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(content)
         tmp.flush()
@@ -3351,7 +3350,7 @@ def delete_user_avatar(
     try:
         if path.exists():
             path.unlink()
-    except Exception as e:
+    except Exception:
         # Log but continue
         pass
 
@@ -3508,13 +3507,13 @@ def get_admin_stats(
     admin_user = _require_user(db, x_auth_hash)
     if not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     total_users = db.scalar(select(func.count(User.id)))
-    
+
     # Online users: active in last 5 minutes
     five_mins_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
     online_users = db.scalar(select(func.count(User.id)).where(User.last_active_at >= five_mins_ago))
-    
+
     # Storage used: sum of all track files
     music_dir = settings.music_dir
     total_bytes = 0
@@ -3526,7 +3525,7 @@ def get_admin_stats(
                     total_bytes += f.stat().st_size
                 except Exception:  # nosec B112 – skip unreadable files in size tally
                     continue
-                
+
     return {
         "total_users": total_users,
         "online_users": online_users,
@@ -3543,7 +3542,7 @@ def get_admin_settings(
     admin_user = _require_user(db, x_auth_hash)
     if not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     manual_enabled = _get_app_setting_bool(db, MANUAL_AUDIO_UPLOAD_SETTING_KEY, default=True)
     playlist_import_enabled = _get_app_setting_bool(db, PLAYLIST_IMPORT_SETTING_KEY, default=True)
     timezone_row = db.get(AppSetting, "timezone")
@@ -3564,7 +3563,7 @@ def update_admin_settings(
     admin_user = _require_user(db, x_auth_hash)
     if not admin_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     res = {}
     if payload.manual_audio_upload_enabled is not None:
         res["manual_audio_upload_enabled"] = _set_app_setting_bool(
@@ -3596,7 +3595,7 @@ def update_admin_settings(
     else:
         tz_row = db.get(AppSetting, "timezone")
         res["timezone"] = tz_row.value if tz_row else "UTC"
-        
+
     return res
 
 

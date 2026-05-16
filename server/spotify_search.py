@@ -9,13 +9,13 @@ import json
 import os
 import time
 import requests
-from datetime import datetime, timedelta
 
 
 # Cache file location
 CACHE_DIR = "/app/data"
 CACHE_FILE = os.path.join(CACHE_DIR, "search_cache.json")
 CACHE_DAYS = 30
+SEARCH_ENGINE = "spotify-web-api"
 
 
 def load_cache():

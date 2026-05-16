@@ -59,7 +59,7 @@ def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: i
             if image_url and not album.image_url:
                 album.image_url = image_url
             return album
-    
+
     # Fallback to title + artist_id matching (only if title is provided)
     if title:
         stmt = select(Album).where(Album.title == title, Album.artist_id == artist_id)
@@ -74,7 +74,7 @@ def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: i
                 album.image_url = image_url
                 db.add(album)
             return album
-    
+
     # Create new album if title is provided (even without source_id for single track downloads)
     if title:
         album = Album(title=title, artist_id=artist_id, year=year, source_id=source_id, image_url=image_url)
@@ -106,7 +106,7 @@ def _get_or_create_album(db: Session, title: str, artist_id: str | None, year: i
                     new_db.close()
             threading.Thread(target=background_album_fetch, daemon=True).start()
         return album
-    
+
     return None
 
 
