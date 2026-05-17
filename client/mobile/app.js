@@ -107,6 +107,15 @@ function showPage(name) {
         $('top-bar-greeting').style.display = _h ? 'block' : 'none';
         $('top-bar-profile').style.display = _h ? 'flex' : 'none';
         $('top-bar-search').style.display = 'none';
+        if (name === 'detail') {
+            var tb = $('top-bar');
+            tb.style.transition = 'none';
+            tb.style.background = 'transparent';
+            void tb.offsetHeight;
+            tb.style.transition = '';
+        } else {
+            $('top-bar').style.background = '';
+        }
         pages.nowPlaying.classList.add('slide-down');
         pages.nowPlaying.addEventListener('animationend', function handler() {
             pages.nowPlaying.removeEventListener('animationend', handler);
@@ -121,6 +130,7 @@ function showPage(name) {
     if (name === 'nowPlaying') {
         pages.nowPlaying.classList.add('active');
         document.body.style.background = '#121212';
+        $('top-bar').style.background = '';
         $('top-bar-greeting').style.display = 'none';
         $('top-bar-profile').style.display = 'none';
         $('mini-player').style.display = 'none';
@@ -136,6 +146,15 @@ function showPage(name) {
     $('top-bar-greeting').style.display = isHome ? 'block' : 'none';
     $('top-bar-profile').style.display = isHome ? 'flex' : 'none';
     $('top-bar-search').style.display = 'none';
+    if (name === 'detail') {
+        var tb2 = $('top-bar');
+        tb2.style.transition = 'none';
+        tb2.style.background = 'transparent';
+        void tb2.offsetHeight;
+        tb2.style.transition = '';
+    } else {
+        $('top-bar').style.background = '';
+    }
 }
 
 document.querySelectorAll('.nav-item').forEach(item => {
@@ -245,6 +264,8 @@ async function initApp() {
         renderHorizCards('tracks-row-' + i, tracks.slice(i * chunkSize, (i + 1) * chunkSize));
     }
     renderLibraryItems(getFilteredLibraryItems());
+    preloadLibraryImages(allPlaylists);
+    preloadTrackImages(allTracks);
     renderRecentSearches();
     const queueData = await loadUserQueue();
     if (queueData) {
@@ -587,6 +608,26 @@ function renderLibraryItems(items) {
         }
         el.addEventListener('click', () => openDetail(item, isArtist ? 'artist' : (isAlbum ? 'album' : 'playlist')));
         container.appendChild(el);
+    });
+}
+
+function preloadLibraryImages(items) {
+    items.forEach(item => {
+        if (item.is_liked) return;
+        const isAlbum = item.type === 'album';
+        const artUrl = item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
+        if (artUrl) {
+            const img = new Image();
+            img.src = artUrl;
+        }
+    });
+}
+
+function preloadTrackImages(items) {
+    items.forEach(item => {
+        if (!item.id) return;
+        const img = new Image();
+        img.src = withBase("/tracks/" + item.id + "/artwork");
     });
 }
 

@@ -28,6 +28,10 @@ from fastapi import (
     File,
 )
 from fastapi.staticfiles import StaticFiles
+import mimetypes
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/ttf", ".ttf")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     StreamingResponse,
