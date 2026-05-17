@@ -28,10 +28,6 @@ from fastapi import (
     File,
 )
 from fastapi.staticfiles import StaticFiles
-import mimetypes
-mimetypes.add_type("font/woff2", ".woff2")
-mimetypes.add_type("font/woff", ".woff")
-mimetypes.add_type("font/ttf", ".ttf")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     StreamingResponse,
@@ -46,6 +42,7 @@ from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
 import logging
+import mimetypes
 
 from .db import Base, engine, get_db, SessionLocal
 from .models import (
@@ -88,6 +85,10 @@ from .settings import settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
+
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/ttf", ".ttf")
 
 # Configure logging for security events
 logging.basicConfig(
