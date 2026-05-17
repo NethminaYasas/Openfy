@@ -295,6 +295,19 @@ def _upsert_track(
             # Track already exists from same source, return existing without updating
             return existing
 
+    # Check by content hash (universal_track_id) to catch identical files with different names/sources
+    existing_by_hash = db.execute(
+        select(Track).where(Track.universal_track_id == universal_track_id)
+    ).scalar_one_or_none()
+    if existing_by_hash:
+        if source_id and not existing_by_hash.source_id:
+            existing_by_hash.source_id = source_id
+        if source_url and not existing_by_hash.source_url:
+            existing_by_hash.source_url = source_url
+        db.add(existing_by_hash)
+        db.commit()
+        return existing_by_hash
+
     # Check if track already exists by file path
     existing = db.execute(select(Track).where(Track.file_path == str(file_path))).scalar_one_or_none()
 

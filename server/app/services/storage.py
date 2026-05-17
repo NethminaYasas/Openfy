@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import secrets
@@ -9,6 +10,26 @@ from ..settings import settings
 
 
 SUPPORTED_EXTENSIONS = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
+
+
+def compute_file_hash(file_path: Path, chunk_size: int = 1024 * 1024) -> str:
+    hasher = hashlib.sha256()
+    with file_path.open("rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def find_existing_by_hash(file_path: Path, dest_dir: Path) -> Path | None:
+    new_hash = compute_file_hash(file_path)
+    for existing in dest_dir.iterdir():
+        if existing.is_file() and existing.suffix.lower() in SUPPORTED_EXTENSIONS:
+            if compute_file_hash(existing) == new_hash:
+                return existing
+    return None
 
 
 def ensure_dirs() -> None:
@@ -29,6 +50,10 @@ def store_upload(
 ) -> Path:
     dest_dir = destination_dir or settings.music_dir
     dest_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = find_existing_by_hash(file_path, dest_dir)
+    if existing is not None:
+        return existing
 
     suffix = file_path.suffix
     if preferred_stem:

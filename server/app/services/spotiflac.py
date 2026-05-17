@@ -506,6 +506,37 @@ def queue_download(
             db.commit()
             return job
 
+    # Fuzzy duplicate check by title + artist for any URL
+    is_apple = "music.apple.com" in query
+    is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
+    is_youtube_music = "music.youtube.com" in query or "youtube.com/watch" in query
+    if is_apple or is_spotify or is_youtube_music:
+        try:
+            _ensure_spotiflac_import()
+            from SpotiFLAC.appleDL import AppleMusicDownloader
+            downloader = AppleMusicDownloader()
+            url_type = downloader.parse_url_type(query)
+            track_info = None
+            if url_type == "spotify":
+                track_info = downloader._extract_spotify_metadata(query)
+            elif url_type == "apple":
+                parsed = downloader.parse_apple_music_url(query)
+                if parsed and parsed.get("track_id"):
+                    track_info = downloader.get_track_info(parsed["track_id"])
+            if track_info:
+                expected_title = _normalize_for_match(str(track_info.get("name", "")))
+                expected_artist = _normalize_for_match(str(track_info.get("artist", "")))
+                if expected_title and expected_artist:
+                    all_tracks = db.execute(select(Track)).scalars().all()
+                    for t in all_tracks:
+                        if _normalize_for_match(t.title) == expected_title and _normalize_for_match(t.artist.name if t.artist else "") == expected_artist:
+                            job.status = "failed"
+                            job.log = f"Duplicate track already in library: {t.title} by {t.artist.name if t.artist else 'Unknown'}"
+                            db.commit()
+                            return job
+        except Exception:
+            pass  # Don't block download if metadata fetch fails
+
     # Route Apple Music, Spotify, and YouTube Music URLs to the ytmusicapi-based downloader
     is_apple = "music.apple.com" in query
     is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
