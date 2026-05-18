@@ -1,5 +1,5 @@
 import { state, withBase } from './state.js';
-import { getTrackStreamUrl, savePlayerState, checkIfLiked as apiCheckIfLiked } from './api.js';
+import { getTrackStreamUrl, savePlayerState, checkIfLiked as apiCheckIfLiked, loadTrackPlaylists } from './api.js';
 import { getArtistDisplay, formatDuration, drawCanvas, clearCanvas, queueArtworkUrl, seededColor, extractVibrantColors, escapeHtml } from './utils.js';
 import { emitTrackChanged, getGradientManager } from './gradient-manager.js';
 import { setUrl, setActivePage } from './ui.js';
@@ -301,6 +301,7 @@ export function playTrack(track) {
     npLikeBtn.classList.remove("liked", "adding");
     npLikeBtn.innerHTML = "";
     checkIfLiked(track.id);
+    checkInRegularPlaylists(track.id);
   } else {
     npLikeBtn.classList.add("hidden");
   }
@@ -357,6 +358,7 @@ export async function loadTrackPaused(track, preserveQueue = false) {
     npLikeBtn.classList.remove("liked", "adding");
     npLikeBtn.innerHTML = "";
     checkIfLiked(track.id);
+    checkInRegularPlaylists(track.id);
   } else {
     npLikeBtn.classList.add("hidden");
   }
@@ -387,6 +389,26 @@ async function checkIfLiked(trackId) {
     if (state.currentTrackId === trackId) {
       syncLikeButtonState({ id: trackId });
     }
+  }
+}
+
+async function checkInRegularPlaylists(trackId) {
+  if (!state.authHash) return;
+  try {
+    const playlists = await loadTrackPlaylists(trackId);
+    const inRegular = playlists.some(pl =>
+      !pl.is_liked && pl.is_owner && pl.type !== 'album' && pl.type !== 'artist'
+    );
+    if (inRegular) {
+      state.trackIdsInRegularPlaylists.add(trackId);
+    } else {
+      state.trackIdsInRegularPlaylists.delete(trackId);
+    }
+    if (state.currentTrackId === trackId) {
+      syncLikeButtonState({ id: trackId });
+    }
+  } catch (e) {
+    console.error("checkInRegularPlaylists error:", e);
   }
 }
 

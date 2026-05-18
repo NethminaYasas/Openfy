@@ -410,24 +410,7 @@ function initEventListeners() {
       return;
     }
     event.stopPropagation();
-
-    // Check current state based on button classes
-    const isLiked = state.likedTrackIds.has(state.currentTrackId);
-    const isInPlaylist = state.trackIdsInRegularPlaylists.has(state.currentTrackId);
-
-    if (isLiked && isInPlaylist) {
-      // Track is both liked AND in a playlist - show full modal
-      await showAddToPlaylistModal();
-    } else if (isLiked) {
-      // Track is only liked - show full modal
-      await showAddToPlaylistModal();
-    } else if (isInPlaylist) {
-      // Track is only in playlist(s) - show full modal
-      await showAddToPlaylistModal();
-    } else {
-      // Plus icon - add directly to liked songs
-      await addToLikedSongsDirect();
-    }
+    await showAddToPlaylistModal();
     npLikeBtn.disabled = false;
   });
 
@@ -3506,6 +3489,9 @@ function buildAddToPlaylistItems(playlists, filter = '') {
 
   const filtered = playlists.filter(pl => {
     if (pl.is_liked) return false;
+    if (pl.type === 'artist') return false;
+    if (pl.type === 'album') return false;
+    if (!pl.is_owner) return false;
     return pl.name.toLowerCase().includes(filterLower);
   });
 

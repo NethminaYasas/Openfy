@@ -168,6 +168,12 @@
                     </button>
                 </div>
                 <div class="detail-tracks" id="detail-tracks"></div>
+                <div class="detail-albums" id="detail-albums" style="display:none;">
+                    <h3 class="detail-section-title">Albums</h3>
+                    <div class="horiz-scroll">
+                        <div class="horiz-scroll-inner" id="detail-albums-grid"></div>
+                    </div>
+                </div>
             </div>
         </main>
 
@@ -215,7 +221,7 @@
                     <i class="fa-solid fa-pause pause-icon" style="display:none;"></i>
                 </button>
                 <button id="np-next"><i class="fa-solid fa-forward-step"></i></button>
-                <button id="np-repeat"><i class="fa-solid fa-repeat"></i></button>
+                <button id="np-repeat"><i class="fa-solid fa-repeat"></i><span class="repeat-dot"></span></button>
             </div>
             <div class="np-extras">
                 <button id="np-share"><i class="fa-solid fa-share-nodes"></i></button>
@@ -295,6 +301,25 @@
         </div>
     </div>
 
+    <!-- Add to Playlist Bottom Sheet -->
+    <div class="playlist-sheet-overlay" id="playlist-sheet-overlay" style="display:none;"></div>
+    <div class="playlist-sheet" id="playlist-sheet" style="display:none;">
+        <div class="playlist-sheet-header">
+            <h2>Add to Playlist</h2>
+            <button class="playlist-sheet-close" id="playlist-sheet-close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="playlist-sheet-search">
+            <input type="text" id="playlist-sheet-search-input" placeholder="Search playlists..." />
+        </div>
+        <div class="playlist-sheet-items" id="playlist-sheet-items"></div>
+        <div class="playlist-sheet-footer">
+            <button class="playlist-sheet-cancel" id="playlist-sheet-cancel">Cancel</button>
+            <button class="playlist-sheet-confirm" id="playlist-sheet-confirm" style="display:none;">Confirm</button>
+        </div>
+    </div>
+
     <!-- Confirm Modal -->
     <div class="confirm-overlay" id="confirm-overlay" style="display:none;">
         <div class="confirm-modal">
@@ -314,6 +339,6 @@
     <!-- Audio element -->
     <audio id="audio-player" preload="metadata"></audio>
 
-    <script type="module" src="/static/mobile/app.js?v=6"></script>
+    <script type="module" src="/static/mobile/app.js?v=17"></script>
 </body>
 </html>
