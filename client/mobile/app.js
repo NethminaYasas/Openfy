@@ -97,8 +97,176 @@ signupBtn.addEventListener('click', async () => {
 
 // ─── Navigation ──────────────────────────────────────
 var previousPage = 'home';
+var navigationHistory = [];
+var currentHistoryIndex = -1;
+var isNavigating = false;
 
-function showPage(name) {
+function pageToUrl(pageName) {
+    if (pageName === 'home') return '/';
+    if (pageName === 'library') return '/library';
+    if (pageName === 'search') return '/search';
+    if (pageName.startsWith('detail:')) {
+        const parts = pageName.split(':');
+        const type = parts[1];
+        const id = parts[2];
+        if (type === 'artist') return '/artist/' + id;
+        if (type === 'album') return '/album/' + id;
+        if (type === 'playlist') return '/playlist/' + id;
+    }
+    return '/';
+}
+
+function urlToPage(url) {
+    if (url === '/' || url === '') return { name: 'home' };
+    if (url === '/library') return { name: 'library' };
+    if (url === '/search') return { name: 'search' };
+    if (url.startsWith('/artist/')) {
+        return { name: 'detail', type: 'artist', id: url.split('/artist/')[1] };
+    }
+    if (url.startsWith('/album/')) {
+        return { name: 'detail', type: 'album', id: url.split('/album/')[1] };
+    }
+    if (url.startsWith('/playlist/')) {
+        return { name: 'detail', type: 'playlist', id: url.split('/playlist/')[1] };
+    }
+    return { name: 'home' };
+}
+
+function pushHistory(pageName) {
+    const currentPath = getCurrentPath();
+    if (currentHistoryIndex < navigationHistory.length - 1) {
+        navigationHistory = navigationHistory.slice(0, currentHistoryIndex + 1);
+    }
+    if (currentPath && currentPath !== pageName) {
+        navigationHistory.push(pageName);
+        currentHistoryIndex = navigationHistory.length - 1;
+        // Update browser URL
+        const url = pageToUrl(pageName);
+        if (window.location.pathname !== url) {
+            history.pushState({ pageIndex: currentHistoryIndex }, '', url);
+        }
+    }
+}
+
+function getCurrentPath() {
+    if (currentHistoryIndex >= 0 && currentHistoryIndex < navigationHistory.length) {
+        return navigationHistory[currentHistoryIndex];
+    }
+    return null;
+}
+
+function updateBackButton(forceShow = null) {
+    if (forceShow !== null) {
+        $('top-bar-back').style.display = forceShow ? 'flex' : 'none';
+        return;
+    }
+    const detailPage = pages.detail.classList.contains('active');
+    $('top-bar-back').style.display = (detailPage && currentHistoryIndex > 0) ? 'flex' : 'none';
+}
+
+function navigateToPath(path, isBackNav = false) {
+    const parsed = urlToPage(path);
+    
+    if (parsed.name === 'home' || parsed.name === 'library' || parsed.name === 'search') {
+        showPage(parsed.name, null, null, isBackNav);
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        const navItem = document.querySelector('.nav-item[data-page="' + parsed.name + '"]');
+        if (navItem) navItem.classList.add('active');
+    } else if (parsed.name === 'detail') {
+        // Fetch the item data and open detail
+        fetchDetailItem(parsed.type, parsed.id, isBackNav);
+    }
+}
+
+async function fetchDetailItem(type, id, isBackNav) {
+    try {
+        let item = { id: id, type: type };
+        if (type === 'artist') {
+            const data = await api("/artists/" + id);
+            item.name = data.name || data.title;
+            item.image_url = data.image_url;
+        } else if (type === 'album') {
+            const data = await api("/albums/" + id);
+            item.name = data.title || data.name;
+            item.image_url = data.image_url;
+            item.is_followed = data.is_followed;
+            item.shuffle = data.shuffle;
+        } else if (type === 'playlist') {
+            const data = await api("/playlists/" + id);
+            item.name = data.name;
+            item.image_url = data.image_url;
+            item.is_public = data.is_public;
+            item.is_owner = data.is_owner;
+            item.is_followed = data.is_followed;
+        }
+        openDetail(item, type, isBackNav);
+    } catch (e) {
+        console.error('Failed to fetch detail item:', e);
+        showPage('home');
+    }
+}
+
+function goBackMobile() {
+    if (currentHistoryIndex <= 0) {
+        history.replaceState({ pageIndex: 0 }, '', '/');
+        showPage('home');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector('.nav-item[data-page="home"]').classList.add('active');
+        return;
+    }
+    currentHistoryIndex--;
+    const previousPath = navigationHistory[currentHistoryIndex];
+    const url = pageToUrl(previousPath);
+    history.pushState({ pageIndex: currentHistoryIndex }, '', url);
+    
+    if (previousPath === 'home' || previousPath === 'library' || previousPath === 'search') {
+        showPage(previousPath, null, null, true);
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        const navItem = document.querySelector('.nav-item[data-page="' + previousPath + '"]');
+        if (navItem) navItem.classList.add('active');
+    } else if (previousPath.startsWith('detail:')) {
+        const parts = previousPath.split(':');
+        const type = parts[1];
+        const id = parts[2];
+        const item = JSON.parse(decodeURIComponent(parts[3] || '{}'));
+        openDetail(item, type, true);
+    }
+    updateBackButton();
+}
+
+// Handle browser back/forward buttons
+window.addEventListener('popstate', function(e) {
+    if (isNavigating) return;
+    isNavigating = true;
+    
+    const state = e.state;
+    if (state && state.pageIndex !== undefined) {
+        currentHistoryIndex = state.pageIndex;
+        const previousPath = navigationHistory[currentHistoryIndex];
+        if (previousPath) {
+            if (previousPath === 'home' || previousPath === 'library' || previousPath === 'search') {
+                showPage(previousPath, null, null, true);
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                const navItem = document.querySelector('.nav-item[data-page="' + previousPath + '"]');
+                if (navItem) navItem.classList.add('active');
+            } else if (previousPath.startsWith('detail:')) {
+                const parts = previousPath.split(':');
+                const type = parts[1];
+                const id = parts[2];
+                const item = JSON.parse(decodeURIComponent(parts[3] || '{}'));
+                openDetail(item, type, true);
+            }
+        }
+    } else {
+        // Fallback: parse current URL
+        navigateToPath(window.location.pathname, true);
+    }
+    updateBackButton();
+    
+    setTimeout(() => { isNavigating = false; }, 100);
+});
+
+function showPage(name, detailType = null, detailItem = null, isBackNav = false) {
     if (!pages[name]) return;
     var closePlayer = pages.nowPlaying.classList.contains('active') && name !== 'nowPlaying';
     document.body.className = '';
@@ -109,7 +277,6 @@ function showPage(name) {
         if (pages[name]) pages[name].classList.add('active');
         document.body.classList.add('page-' + name);
         var _h = name === 'home';
-        $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
         $('top-bar-greeting').style.display = _h ? 'block' : 'none';
         $('top-bar-profile').style.display = _h ? 'flex' : 'none';
         $('top-bar-search').style.display = 'none';
@@ -119,8 +286,10 @@ function showPage(name) {
             tb.style.background = 'transparent';
             void tb.offsetHeight;
             tb.style.transition = '';
+            updateBackButton(currentHistoryIndex > 0);
         } else {
             $('top-bar').style.background = '';
+            updateBackButton(false);
         }
         pages.nowPlaying.classList.add('slide-down');
         pages.nowPlaying.addEventListener('animationend', function handler() {
@@ -131,6 +300,24 @@ function showPage(name) {
     }
     if (name !== 'nowPlaying') {
         previousPage = name;
+        if (!isBackNav) {
+            if (name === 'detail' && detailType && detailItem) {
+                const detailPath = 'detail:' + detailType + ':' + detailItem.id + ':' + encodeURIComponent(JSON.stringify({
+                    id: detailItem.id,
+                    type: detailType,
+                    name: detailItem.name || detailItem.title,
+                    image_url: detailItem.image_url,
+                    is_liked: detailItem.is_liked,
+                    is_public: detailItem.is_public,
+                    is_owner: detailItem.is_owner,
+                    is_followed: detailItem.is_followed,
+                    shuffle: detailItem.shuffle
+                }));
+                pushHistory(detailPath);
+            } else if (name !== 'detail') {
+                pushHistory(name);
+            }
+        }
     }
     if (name !== 'nowPlaying') {
         Object.values(pages).forEach(function(p) { if (p) p.classList.remove('active'); });
@@ -147,7 +334,6 @@ function showPage(name) {
     if (pages[name]) pages[name].classList.add('active');
     document.body.classList.add('page-' + name);
     var isHome = name === 'home';
-    $('top-bar-back').style.display = name === 'detail' ? 'flex' : 'none';
     $('top-bar-greeting').style.display = isHome ? 'block' : 'none';
     $('top-bar-profile').style.display = isHome ? 'flex' : 'none';
     $('top-bar-search').style.display = 'none';
@@ -157,8 +343,10 @@ function showPage(name) {
         tb2.style.background = 'transparent';
         void tb2.offsetHeight;
         tb2.style.transition = '';
+        updateBackButton(currentHistoryIndex > 0);
     } else {
         $('top-bar').style.background = '';
+        updateBackButton(false);
     }
 }
 
@@ -173,9 +361,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
 });
 
 $('top-bar-back').addEventListener('click', () => {
-    showPage('library');
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector('.nav-item[data-page="library"]').classList.add('active');
+    goBackMobile();
 });
 
 $('np-down-btn').addEventListener('click', function(e) {
@@ -231,6 +417,13 @@ $('profile-dropdown-admin').addEventListener('click', () => {
 
 // ─── Load Data ───────────────────────────────────────
 async function initApp() {
+    // Initialize navigation history with home page
+    navigationHistory = ['home'];
+    currentHistoryIndex = 0;
+    
+    // Set initial browser state
+    history.replaceState({ pageIndex: 0 }, '', '/');
+    
     authOverlay.style.display = 'none';
     $('app').style.display = 'flex';
     var hr = new Date().getHours();
@@ -846,10 +1039,10 @@ async function refreshLibrary() {
 }
 
 // ─── Detail View ─────────────────────────────────────
-async function openDetail(item, type) {
+async function openDetail(item, type, isBackNavigation = false) {
     currentDetailId = item.id;
     currentDetailType = type;
-    showPage('detail');
+    showPage('detail', type, item, isBackNavigation);
     var detailPage = $('page-detail');
     if (detailPage) detailPage.scrollTop = 0;
     const title = $('detail-title');

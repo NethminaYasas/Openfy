@@ -5,7 +5,7 @@ import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradi
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
 import { audioPlayer, togglePlay, playByIndex, playTrack, loadTrackPaused, setQueueFromList, reorderQueue, enforceQueueCapacity, shuffleQueueOnce, unshuffleQueue, scheduleQueueSave, renderNowPlayingQueue, buildQueueItem, getShowFullQueue, setShowFullQueue, getCollapseTimeout, setCollapseTimeout, syncLikeButtonState, updateNowPlaying } from './modules/audio-player.js';
 import { queueSetList, queueReorder, queueInsert, queueRemove, queueSave, queueShuffle, queueUnshuffle } from './modules/queue-manager.js';
-import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates, setUrl, renderSearch } from './modules/ui.js';
+import { pages, setActivePage, navigateFromUrl, loadTracks as uiLoadTracks, loadUserUploads as uiLoadUserUploads, loadMostPlayed as uiLoadMostPlayed, renderTracks, renderUploads, renderMostPlayed, buildTrackCard, buildPlaylistCover, openPlaylist, openPlaylistById, renderLibrary, loadPlaylists, populateProfilePage, renderSearchDropdown, renderRecentSearchDropdown, hideSearchDropdown, updateTrackRowScrollButtons, updateAllScrollButtonStates, setUrl, renderSearch, goBack } from './modules/ui.js';
 import { loadRecentSearches, addRecentSearch } from './modules/recent-searches.js';
 import { updateAdminButtonVisibility, loadAdminStatsUI, loadAdminSettingsUI, applyManualUploadUI, loadUsersListUI, loadTracksListUI, initAdminEventListeners } from './modules/admin.js';
 
@@ -270,6 +270,11 @@ async function tryAutoLogin() {
 }
 
 function initEventListeners() {
+  document.getElementById("top-bar-back").addEventListener("click", function(event) {
+    event.preventDefault();
+    goBack();
+  });
+
   document.getElementById("top-bar-home").addEventListener("click", function(event) {
     event.preventDefault();
     setActivePage("home");

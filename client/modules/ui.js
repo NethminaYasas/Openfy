@@ -8,6 +8,10 @@ import { playTrack, setQueueFromList, loadTrackPaused, renderNowPlayingQueue, se
 import { getGradientManager } from './gradient-manager.js';
 import { saveScrollPositions, restoreScrollPositions } from './scroll-manager.js';
 
+// Navigation history stack for back button
+let navigationHistory = [];
+let currentHistoryIndex = -1;
+
 export const pages = {
   home: null,
   library: null,
@@ -52,7 +56,48 @@ export function setUrl(path) {
   }
 }
 
-export function setActivePage(pageId, updateUrl = true) {
+function getCurrentPath() {
+  return window.location.pathname;
+}
+
+function getPathForPage(pageId) {
+  if (pageId === 'home') return '/';
+  if (pageId === 'library') return '/library';
+  if (pageId === 'settings') return '/settings';
+  if (pageId === 'profile') return '/profile';
+  if (pageId === 'admin') return '/admin';
+  if (pageId === 'playlist' && state.currentPlaylistId) {
+    const type = (window.currentPlaylistData && window.currentPlaylistData.type === 'album') ? 'album' : 'playlist';
+    return '/' + type + '/' + state.currentPlaylistId;
+  }
+  if (pageId === 'artist' && state.currentArtistId) {
+    return '/artist/' + state.currentArtistId;
+  }
+  return '/';
+}
+
+function updateBackButton() {
+  const backBtn = document.getElementById('top-bar-back');
+  if (!backBtn) return;
+  
+  const shouldShow = currentHistoryIndex > 0;
+  backBtn.style.display = shouldShow ? 'flex' : 'none';
+}
+
+export function goBack() {
+  if (currentHistoryIndex <= 0) return;
+  
+  currentHistoryIndex--;
+  const previousPath = navigationHistory[currentHistoryIndex];
+  
+  // Update URL without adding to history
+  history.replaceState(null, '', previousPath);
+  
+  // Navigate to the previous page
+  navigateFromUrl();
+}
+
+export function setActivePage(pageId, updateUrl = true, isBackNavigation = false) {
   // Check for /artist/ route in URL - only on initial load, not when explicitly navigating away
   const pathname = window.location.pathname;
   const explicitPages = ['home', 'library', 'playlist', 'profile', 'admin', 'settings'];
@@ -67,6 +112,26 @@ export function setActivePage(pageId, updateUrl = true) {
   const currentActivePage = document.querySelector('.page.active');
   const isLeavingPlaylist = currentActivePage && currentActivePage.id === 'page-playlist';
   const isLeavingArtist = currentActivePage && currentActivePage.id === 'page-artist';
+
+  // Track navigation history (skip for back button navigations)
+  if (!isBackNavigation) {
+    const currentPath = getCurrentPath();
+    const newPath = getPathForPage(pageId);
+    
+    // Remove any forward history if we're navigating to a new page
+    if (currentHistoryIndex < navigationHistory.length - 1) {
+      navigationHistory = navigationHistory.slice(0, currentHistoryIndex + 1);
+    }
+    
+    // Only add to history if path is different
+    if (currentPath && currentPath !== newPath) {
+      navigationHistory.push(newPath);
+      currentHistoryIndex = navigationHistory.length - 1;
+    }
+  }
+
+  // Update back button visibility
+  updateBackButton();
 
   // Only save scroll if leaving a non-playlist page (playlist scroll never persists to global)
   // Also skip saving for artist page (scroll should reset on both artist and home)

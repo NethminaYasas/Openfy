@@ -49,6 +49,24 @@ html, body {
     margin-left: 20px;
 }
 
+.top-bar-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+    font-size: 1rem;
+}
+
+.top-bar-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
 .top-bar-center {
     flex: 1;
     max-width: 600px;
@@ -1060,16 +1078,16 @@ a {
 }
 
 .sticky-nav {
-    position: sticky;
-    top: 0;
-    background-color: #121212;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    z-index: 10;
-    gap: 1rem;
-}
+     position: sticky;
+     top: 60px;
+     background-color: #121212;
+     display: flex;
+     align-items: center;
+     justify-content: space-between;
+     padding: 0.75rem 1rem;
+     z-index: 10;
+     gap: 1rem;
+ }
 
 .sticky-nav-left {
     display: flex;
@@ -4832,6 +4850,7 @@ input:checked + .toggle-slider:before {
     min-height: 100vh;
     margin: 0;
     padding: 0;
+    padding-top: 60px;
 }
 
 #page-playlist.active {
@@ -4844,6 +4863,7 @@ input:checked + .toggle-slider:before {
     min-height: 100vh;
     margin: 0;
     padding: 0;
+    padding-top: 60px;
 }
 
 #artist-name {
@@ -5345,23 +5365,23 @@ input:checked + .toggle-slider:before {
 }
 
 .playlist-songs-header {
-    display: grid;
-    grid-template-columns: 40px 40px 1fr 60px;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #282828;
-    color: #b3b3b3;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    position: sticky;
-    top: 0;
-    background: transparent;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    z-index: 10;
-    column-gap: 12px;
-}
+     display: grid;
+     grid-template-columns: 40px 40px 1fr 60px;
+     align-items: center;
+     padding: 0.75rem 1rem;
+     border-bottom: 1px solid #282828;
+     color: #b3b3b3;
+     font-size: 0.75rem;
+     text-transform: uppercase;
+     letter-spacing: 0.1em;
+     position: sticky;
+     top: 60px;
+     background: transparent;
+     backdrop-filter: none;
+     -webkit-backdrop-filter: none;
+     z-index: 10;
+     column-gap: 12px;
+ }
 
 .ps-col-num { grid-column: 1; width: 40px; text-align: center; }
 .ps-col-art { grid-column: 2; width: 40px; }
