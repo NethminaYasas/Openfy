@@ -2,11 +2,11 @@ import { state, withBase } from './state.js';
 import { api, setAuthenticatedImage, loadTracks as apiLoadTracks, loadUserUploads as apiLoadUserUploads, loadMostPlayed as apiLoadMostPlayed, refreshManualUploadSetting, getArtist, runSearch, runSpotifySearch, followAlbum } from './api.js';
 import { getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, createAlbumIconSvg, buildPlaylistCover as buildPlaylistCoverUtil, drawCanvas, seededColor } from './utils.js';
 import { addRecentSearch, loadRecentSearches, removeRecentSearch } from './recent-searches.js';
-
-let renderLibraryId = 0;
 import { playTrack, setQueueFromList, loadTrackPaused, renderNowPlayingQueue, setCurrentPlayingPlaylistId, getCurrentTrackId, getCurrentIndex, getCurrentPlayingPlaylistId } from './audio-player.js';
 import { getGradientManager } from './gradient-manager.js';
 import { saveScrollPositions, restoreScrollPositions } from './scroll-manager.js';
+
+let renderLibraryId = 0;
 
 // Navigation history stack for back button
 let navigationHistory = [];
