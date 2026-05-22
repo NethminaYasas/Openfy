@@ -80,6 +80,7 @@ from .schemas import (
     SystemSettingsUpdate,
     SystemSettingsOut,
     SpotifyImportRequest,
+    SearchResultOut,
 )
 from .settings import settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
@@ -1081,6 +1082,32 @@ def track_artwork(
                 if _is_within_dir(cache_path, settings.artwork_dir):
                     return FileResponse(cache_path)
 
+    # Fallback: proxy external album image_url if available
+    if track.album and track.album.image_url:
+        try:
+            if _is_public_http_image_url(track.album.image_url):
+                external_covers_dir = settings.artwork_dir / "album_external"
+                external_covers_dir.mkdir(parents=True, exist_ok=True)
+                cached_cover_path = external_covers_dir / f"{track.album.id}.jpg"
+                if cached_cover_path.exists():
+                    track.album.artwork_path = str(cached_cover_path)
+                    db.add(track.album)
+                    db.commit()
+                    return FileResponse(
+                        cached_cover_path,
+                        media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"},
+                    )
+                image_bytes = _fetch_remote_image_bytes(track.album.image_url, timeout_sec=10)
+                img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                img.save(cached_cover_path, format="JPEG", quality=95, optimize=True)
+                track.album.artwork_path = str(cached_cover_path)
+                db.add(track.album)
+                db.commit()
+                return FileResponse(cached_cover_path, media_type="image/jpeg")
+        except Exception:
+            pass
+
     raise HTTPException(status_code=404, detail="Artwork not found")
 
 
@@ -1688,6 +1715,43 @@ def unfollow_artist(
         db.commit()
     return {"success": True}
 
+
+@app.get("/artists/{artist_id}/artwork")
+def get_artist_artwork(
+    artist_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get artist artwork, downloading and caching remote images locally."""
+    artist = db.get(Artist, artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    if not artist.image_url:
+        return Response(status_code=204)
+
+    external_artists_dir = settings.artwork_dir / "artist_external"
+    external_artists_dir.mkdir(parents=True, exist_ok=True)
+
+    cached_path = external_artists_dir / f"{artist_id}.jpg"
+    if cached_path.exists():
+        return FileResponse(
+            cached_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    try:
+        if not _is_public_http_image_url(artist.image_url):
+            return Response(status_code=204)
+
+        image_bytes = _fetch_remote_image_bytes(artist.image_url, timeout_sec=15)
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img.save(cached_path, format="JPEG", quality=95, optimize=True)
+        return FileResponse(cached_path, media_type="image/jpeg")
+    except Exception:
+        return Response(status_code=204)
+
+
 @app.get("/albums", response_model=List[AlbumOut])
 def list_albums(x_auth_hash: str | None = Header(None), db: Session = Depends(get_db)):
     _require_user(db, x_auth_hash)
@@ -1695,7 +1759,7 @@ def list_albums(x_auth_hash: str | None = Header(None), db: Session = Depends(ge
     return albums
 
 
-@app.get("/search", response_model=List[TrackOut])
+@app.get("/search", response_model=SearchResultOut)
 def search(
     q: str = Query(..., min_length=1, max_length=255, description="Search query"),
     limit: int = Query(50, ge=1, le=200),
@@ -1704,17 +1768,23 @@ def search(
 ):
     _require_user(db, x_auth_hash)
     pattern = f"%{q}%"
-    stmt = (
+
+    track_stmt = (
         select(Track)
         .options(selectinload(Track.artists))
-        .join(Album, isouter=True)  # keep for album title search
+        .join(Album, isouter=True)
         .where(
             (Track.title.ilike(pattern))
             | (Track.artists.any(Artist.name.ilike(pattern)))
             | (Album.title.ilike(pattern))
         )
     )
-    return db.execute(stmt.limit(limit)).scalars().all()
+    tracks = db.execute(track_stmt.limit(limit)).scalars().all()
+
+    artist_stmt = select(Artist).where(Artist.name.ilike(pattern)).limit(limit)
+    artists = db.execute(artist_stmt).scalars().all()
+
+    return {"tracks": tracks, "artists": artists}
 
 
 @app.get("/spotify-search")

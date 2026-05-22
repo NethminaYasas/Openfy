@@ -336,12 +336,13 @@ export async function loadArtistPage(artistId) {
         const artistImageEl = document.getElementById("artist-image");
         const artistMosaicEl = document.getElementById("artist-mosaic");
         if (artist.image_url) {
-            artistImageEl.src = artist.image_url;
+            const artworkUrl = withBase("/artists/" + artist.id + "/artwork");
+            artistImageEl.src = artworkUrl;
             artistImageEl.style.display = "block";
             artistMosaicEl.style.display = "none";
 
             // Extract colors from artist image for gradient
-            fetch(artist.image_url)
+            fetch(artworkUrl)
                 .then(res => {
                     if (!res.ok) throw new Error("HTTP " + res.status);
                     return res.blob();
@@ -520,21 +521,31 @@ export function buildTrackCard(track, list, index) {
   var art = createArtCanvas(track.title, getArtistDisplay(track));
   var img = document.createElement("img");
   img.className = "card-img";
-  img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
   img.alt = track.title;
   img.style.display = "none";
 
-  img.addEventListener("load", function() {
-    art.style.display = "none";
-    img.style.display = "block";
-  });
-  img.addEventListener("error", function() {
-    img.style.display = "none";
-    art.style.display = "block";
-  });
+  fetch(withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")))
+    .then(function(resp) {
+      if (!resp.ok) throw new Error("Not found");
+      return resp.blob();
+    })
+    .then(function(blob) {
+      img.src = URL.createObjectURL(blob);
+      img.addEventListener("load", function() {
+        art.style.display = "none";
+        img.style.display = "block";
+      });
+      img.addEventListener("error", function() {
+        img.style.display = "none";
+        art.style.display = "block";
+      });
+      artContainer.appendChild(img);
+    })
+    .catch(function() {
+      art.style.display = "block";
+    });
 
   artContainer.appendChild(art);
-  artContainer.appendChild(img);
   card.appendChild(artContainer);
 
   var title = document.createElement("p");
@@ -1179,7 +1190,7 @@ export async function openPlaylist(playlistId, isAlbum = false) {
       }
 
       if (artist && artist.image_url) {
-        avatarHtml = `<img src="${artist.image_url}" class="playlist-owner-avatar album-artist-avatar" alt="${ownerName}">`;
+        avatarHtml = `<img src="${withBase('/artists/' + artist.id + '/artwork')}" class="playlist-owner-avatar album-artist-avatar" alt="${ownerName}">`;
       } else {
         avatarHtml = '<div class="playlist-meta-avatar"></div>';
         // Trigger background refresh if artist ID is known
@@ -1585,7 +1596,6 @@ export function renderLibrary() {
 }
 
 export async function renderSearch(query) {
-  // Show search page
   const searchPage = document.getElementById("page-search");
   const searchQueryDisplay = document.getElementById("search-query-display");
   const searchLocalResults = document.getElementById("search-local-results");
@@ -1596,42 +1606,126 @@ export async function renderSearch(query) {
     return;
   }
 
-  // Update header
   searchQueryDisplay.textContent = "Search Results";
-
-  // Set active page immediately so user sees the search page
   setActivePage('search');
 
-  // Show loading state
   searchLocalResults.innerHTML = '<p class="empty-message">Searching library...</p>';
   searchSpotifyResults.innerHTML = '<p class="empty-message">Searching Spotify...</p>';
 
-  // Load real data
-  let localResults = [];
+  let results = { tracks: [], artists: [] };
   let spotifyResults = [];
 
   try {
-    localResults = await runSearch(query).catch(() => []);
+    results = await runSearch(query).catch(() => ({ tracks: [], artists: [] }));
   } catch (e) {}
 
   try {
     spotifyResults = await runSpotifySearch(query, 20).catch(() => []);
   } catch (e) {}
 
-  // Render local results
-  if (localResults.length === 0) {
-    searchLocalResults.innerHTML = '<p class="empty-message">No tracks found in your library</p>';
+  searchLocalResults.innerHTML = '';
+
+  if (results.artists.length === 0 && results.tracks.length === 0) {
+    searchLocalResults.innerHTML = '<p class="empty-message">No results found in your library</p>';
   } else {
-    searchLocalResults.innerHTML = '';
-    localResults.forEach((track, index) => {
-      const card = buildTrackCard(track, localResults, index);
-      card.style.flex = '0 0 auto';
-      card.style.width = '180px';
-      searchLocalResults.appendChild(card);
-    });
+    if (results.artists.length > 0) {
+      const artistsSection = document.createElement('div');
+      artistsSection.className = 'search-section';
+      const artistsHeader = document.createElement('h3');
+      artistsHeader.textContent = 'Artists';
+      artistsHeader.style.marginBottom = '0.75rem';
+      artistsSection.appendChild(artistsHeader);
+
+      const artistsContainer = document.createElement('div');
+      artistsContainer.style.display = 'flex';
+      artistsContainer.style.gap = '1rem';
+      artistsContainer.style.flexWrap = 'wrap';
+
+      results.artists.forEach(function(artist) {
+        const card = document.createElement("div");
+        card.className = "card artist-card";
+        card.dataset.artistId = artist.id;
+        card.style.flex = '0 0 auto';
+        card.style.width = '150px';
+        card.style.cursor = 'pointer';
+        card.style.textAlign = 'center';
+
+        const artContainer = document.createElement("div");
+        artContainer.className = "artwork-container";
+        artContainer.style.borderRadius = '50%';
+        artContainer.style.overflow = 'hidden';
+        artContainer.style.width = '120px';
+        artContainer.style.height = '120px';
+        artContainer.style.margin = '0 auto';
+
+        if (artist.image_url) {
+          const img = document.createElement("img");
+          img.className = "card-img";
+          img.src = withBase("/artists/" + artist.id + "/artwork");
+          img.alt = artist.name;
+          img.loading = "lazy";
+          img.style.borderRadius = '50%';
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'cover';
+          artContainer.appendChild(img);
+        } else {
+          const art = createArtCanvas(artist.name, 'Artist');
+          art.style.borderRadius = '50%';
+          artContainer.appendChild(art);
+        }
+
+        card.appendChild(artContainer);
+
+        const title = document.createElement("p");
+        title.className = "card-title";
+        title.textContent = artist.name;
+        title.style.textAlign = 'center';
+        title.style.marginTop = '0.5rem';
+        card.appendChild(title);
+
+        card.addEventListener("click", () => {
+          if (window.navigateToArtist) {
+            window.navigateToArtist(artist.id);
+          }
+        });
+
+        artistsContainer.appendChild(card);
+      });
+
+      artistsSection.appendChild(artistsContainer);
+      searchLocalResults.appendChild(artistsSection);
+    }
+
+    if (results.tracks.length > 0) {
+      const tracksSection = document.createElement('div');
+      tracksSection.className = 'search-section';
+      if (results.artists.length > 0) {
+        tracksSection.style.marginTop = '1.5rem';
+      }
+      const tracksHeader = document.createElement('h3');
+      tracksHeader.textContent = 'Tracks';
+      tracksHeader.style.marginBottom = '0.75rem';
+      tracksSection.appendChild(tracksHeader);
+
+      const tracksContainer = document.createElement('div');
+      tracksContainer.style.display = 'flex';
+      tracksContainer.style.gap = '1rem';
+      tracksContainer.style.overflowX = 'auto';
+      tracksContainer.style.paddingBottom = '0.5rem';
+
+      results.tracks.forEach((track, index) => {
+        const card = buildTrackCard(track, results.tracks, index);
+        card.style.flex = '0 0 auto';
+        card.style.width = '180px';
+        tracksContainer.appendChild(card);
+      });
+
+      tracksSection.appendChild(tracksContainer);
+      searchLocalResults.appendChild(tracksSection);
+    }
   }
 
-  // Render Spotify results
   if (spotifyResults.length === 0) {
     searchSpotifyResults.innerHTML = '<p class="empty-message">No results found</p>' +
       '<p class="empty-message" style="font-size:0.8rem;margin-top:0.5rem;">' +
@@ -1829,14 +1923,17 @@ export function renderSearchDropdown(results) {
   const searchDropdown = document.getElementById("search-dropdown");
   if (!searchDropdown) return;
 
-  const items = Array.isArray(results) ? results : [];
+  const tracks = Array.isArray(results.tracks) ? results.tracks : [];
+  const artists = Array.isArray(results.artists) ? results.artists : [];
+  const spotifyTracks = Array.isArray(results.spotify_tracks) ? results.spotify_tracks : [];
+
   searchDropdown.innerHTML = "";
   searchDropdown.style.display = "block";
 
   const inner = document.createElement("div");
   inner.className = "search-dropdown-inner";
 
-  if (!items.length) {
+  if (!tracks.length && !artists.length && !spotifyTracks.length) {
     const empty = document.createElement("div");
     empty.className = "search-dropdown-empty";
     empty.textContent = "No results.";
@@ -1845,73 +1942,155 @@ export function renderSearchDropdown(results) {
     return;
   }
 
-  // Separate local tracks from Spotify results
-  const localTracks = items.filter(t => t.id && !t.spotify_url);
-  const spotifyTracks = items.filter(t => t.spotify_url);
+  // Render artists first
+  if (artists.length > 0) {
+    artists.forEach(function(artist) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "search-result";
 
-  // Render local tracks first
-  localTracks.forEach(function(track, index) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "search-result";
+      const seed = (artist.name || "").trim() || "Artist";
 
-    const artistText = getArtistDisplay(track) || "Unknown";
-    const seed = ((track.title || "") + " " + artistText).trim() || "Openfy";
+      const art = document.createElement("div");
+      art.className = "search-result-art";
+      art.style.setProperty("--sr-color", seededColor(seed));
+      art.style.borderRadius = "50%";
+      art.style.overflow = "hidden";
 
-    const art = document.createElement("div");
-    art.className = "search-result-art";
-    art.style.setProperty("--sr-color", seededColor(seed));
-
-    const img = document.createElement("img");
-    img.alt = (track.title || "Track") + " artwork";
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
-    img.onerror = function() { img.remove(); };
-    art.appendChild(img);
-
-    const meta = document.createElement("div");
-    meta.className = "search-result-meta";
-
-    const titleEl = document.createElement("div");
-    titleEl.className = "search-result-title";
-    titleEl.textContent = track.title || "";
-
-    const artistEl = document.createElement("div");
-    artistEl.className = "search-result-artist";
-    artistEl.textContent = artistText;
-
-    meta.appendChild(titleEl);
-    meta.appendChild(artistEl);
-
-    btn.appendChild(art);
-    btn.appendChild(meta);
-
-    btn.addEventListener("click", function(ev) {
-      ev.preventDefault();
-      // Don't do anything if clicking the currently playing track
-      if (state.currentTrackId === track.id) {
-        hideSearchDropdown();
-        return;
+      if (artist.image_url) {
+        const img = document.createElement("img");
+        img.alt = artist.name + " artwork";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.src = withBase("/artists/" + artist.id + "/artwork");
+        img.onerror = function() { img.remove(); };
+        img.style.borderRadius = "50%";
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.objectFit = "cover";
+        art.appendChild(img);
+      } else {
+        const icon = document.createElement("i");
+        icon.className = "fa-solid fa-user";
+        icon.style.fontSize = "1.5rem";
+        icon.style.color = "#fff";
+        art.appendChild(icon);
       }
-      setQueueFromList(items, index);
-      if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
-      addRecentSearch(state.authHash || '', {
-        id: track.id,
-        title: track.title,
-        artist: getArtistDisplay(track)
-      });
-      hideSearchDropdown();
-      document.getElementById("search-input").blur();
-    });
 
-    inner.appendChild(btn);
-  });
+      const meta = document.createElement("div");
+      meta.className = "search-result-meta";
+
+      const titleEl = document.createElement("div");
+      titleEl.className = "search-result-title";
+      titleEl.textContent = artist.name || "";
+
+      const typeEl = document.createElement("div");
+      typeEl.className = "search-result-artist";
+      typeEl.textContent = "Artist";
+
+      meta.appendChild(titleEl);
+      meta.appendChild(typeEl);
+
+      btn.appendChild(art);
+      btn.appendChild(meta);
+
+      btn.addEventListener("click", function(ev) {
+        ev.preventDefault();
+        addRecentSearch(state.authHash || '', {
+          id: artist.id,
+          title: artist.name,
+          artist: 'Artist',
+          type: 'artist'
+        });
+        if (window.navigateToArtist) {
+          window.navigateToArtist(artist.id);
+        }
+        hideSearchDropdown();
+        document.getElementById("search-input").blur();
+      });
+
+      inner.appendChild(btn);
+    });
+  }
+
+  // Render local tracks
+  if (tracks.length > 0) {
+    if (artists.length > 0) {
+      const divider = document.createElement("div");
+      divider.className = "search-dropdown-divider";
+      divider.textContent = "Tracks";
+      inner.appendChild(divider);
+    }
+
+    const allItems = tracks;
+    tracks.forEach(function(track, index) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "search-result";
+
+      const artistText = getArtistDisplay(track) || "Unknown";
+      const seed = ((track.title || "") + " " + artistText).trim() || "Openfy";
+
+      const art = document.createElement("div");
+      art.className = "search-result-art";
+      art.style.setProperty("--sr-color", seededColor(seed));
+
+      const img = document.createElement("img");
+      img.alt = (track.title || "Track") + " artwork";
+      img.loading = "lazy";
+      img.decoding = "async";
+      fetch(withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")))
+        .then(function(resp) {
+          if (!resp.ok) throw new Error("Not found");
+          return resp.blob();
+        })
+        .then(function(blob) {
+          img.src = URL.createObjectURL(blob);
+          art.appendChild(img);
+        })
+        .catch(function() { img.remove(); });
+
+      const meta = document.createElement("div");
+      meta.className = "search-result-meta";
+
+      const titleEl = document.createElement("div");
+      titleEl.className = "search-result-title";
+      titleEl.textContent = track.title || "";
+
+      const artistEl = document.createElement("div");
+      artistEl.className = "search-result-artist";
+      artistEl.textContent = artistText;
+
+      meta.appendChild(titleEl);
+      meta.appendChild(artistEl);
+
+      btn.appendChild(art);
+      btn.appendChild(meta);
+
+      btn.addEventListener("click", function(ev) {
+        ev.preventDefault();
+        if (state.currentTrackId === track.id) {
+          hideSearchDropdown();
+          return;
+        }
+        setQueueFromList(allItems, index);
+        if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+        addRecentSearch(state.authHash || '', {
+          id: track.id,
+          title: track.title,
+          artist: getArtistDisplay(track)
+        });
+        hideSearchDropdown();
+        document.getElementById("search-input").blur();
+      });
+
+      inner.appendChild(btn);
+    });
+  }
 
   // Render Spotify results
   if (spotifyTracks.length > 0) {
-    // Add a divider if there are local results
-    if (localTracks.length > 0) {
+    if (artists.length > 0 || tracks.length > 0) {
       const divider = document.createElement("div");
       divider.className = "search-dropdown-divider";
       divider.textContent = "Search Results";
@@ -1931,7 +2110,6 @@ export function renderSearchDropdown(results) {
       art.className = "search-result-art";
       art.style.setProperty("--sr-color", seededColor(seed));
 
-      // Use Spotify cover art if available, otherwise use placeholder
       if (track.cover_art) {
         const img = document.createElement("img");
         img.alt = trackTitle + " artwork";
@@ -1953,7 +2131,6 @@ export function renderSearchDropdown(results) {
       artistEl.className = "search-result-artist";
       artistEl.textContent = artistText;
 
-      // Add Spotify badge
       const spotifyBadge = document.createElement("span");
       spotifyBadge.className = "spotify-badge";
       spotifyBadge.innerHTML = '<i class="fa-solid fa-download"></i> Download';
@@ -1967,7 +2144,6 @@ export function renderSearchDropdown(results) {
 
       btn.addEventListener("click", function(ev) {
         ev.preventDefault();
-        // Download and play the track instead of opening in browser
         if (track.spotify_url && window.downloadAndPlayTrack) {
           window.downloadAndPlayTrack(track);
         }
@@ -2014,15 +2190,55 @@ export function renderRecentSearchDropdown(recentItems) {
     const seed = (item.title + " " + item.artist).trim() || "Openfy";
     const art = document.createElement("div");
     art.className = "search-result-art";
-    art.style.setProperty("--sr-color", seededColor(seed));
+    const isArtist = item.type === 'artist';
+    if (isArtist) {
+      art.style.borderRadius = "50%";
+      art.style.overflow = "hidden";
+      art.style.background = "#2a2a2a";
+    } else {
+      art.style.setProperty("--sr-color", seededColor(seed));
+    }
 
     const img = document.createElement("img");
     img.alt = (item.title || "Track") + " artwork";
     img.loading = "lazy";
     img.decoding = "async";
-    img.src = withBase("/tracks/" + item.id + "/artwork?v=" + Date.now());
-    img.onerror = function() { img.remove(); };
-    art.appendChild(img);
+
+    function showFallbackIcon(iconClass) {
+      img.remove();
+      const icon = document.createElement("i");
+      icon.className = iconClass;
+      icon.style.fontSize = "1.2rem";
+      icon.style.color = "#fff";
+      art.appendChild(icon);
+    }
+
+    if (isArtist) {
+      img.src = withBase("/artists/" + item.id + "/artwork?v=" + Date.now());
+      img.style.borderRadius = "50%";
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.objectFit = "cover";
+      img.onerror = function() { showFallbackIcon("fa-solid fa-user"); };
+      art.appendChild(img);
+    } else {
+      fetch(withBase("/tracks/" + item.id + "/artwork?v=" + Date.now()))
+        .then(function(resp) {
+          if (!resp.ok) throw new Error("Not found");
+          return resp.blob();
+        })
+        .then(function(blob) {
+          img.src = URL.createObjectURL(blob);
+          img.style.borderRadius = "4px";
+          img.style.width = "100%";
+          img.style.height = "100%";
+          img.style.objectFit = "cover";
+          art.appendChild(img);
+        })
+        .catch(function() {
+          showFallbackIcon("fa-solid fa-music");
+        });
+    }
 
     const meta = document.createElement("div");
     meta.className = "search-result-meta";
@@ -2061,19 +2277,35 @@ export function renderRecentSearchDropdown(recentItems) {
 
     btn.addEventListener("click", async function(ev) {
       ev.preventDefault();
-      try {
-        const track = await api("/tracks/" + item.id);
-        // Don't do anything if clicking the currently playing track
-        if (state.currentTrackId === track.id) return;
-        setQueueFromList([track], 0);
-        if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
-      } catch (err) {
-        console.error("Failed to load track:", err);
+      if (item.type === 'artist') {
+        if (window.navigateToArtist) {
+          window.navigateToArtist(item.id);
+        }
+      } else {
+        try {
+          const track = await api("/tracks/" + item.id);
+          if (state.currentTrackId === track.id) return;
+          setQueueFromList([track], 0);
+          if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
+        } catch (err) {
+          if (err.message && err.message.includes("404")) {
+            removeRecentSearch(state.authHash || '', item.id);
+            if (window.navigateToArtist) {
+              window.navigateToArtist(item.id);
+            }
+            hideSearchDropdown();
+            document.getElementById("search-input").blur();
+            return;
+          } else {
+            console.error("Failed to load track:", err);
+          }
+        }
       }
       addRecentSearch(state.authHash || '', {
         id: item.id,
         title: item.title,
-        artist: item.artist
+        artist: item.artist,
+        type: item.type || undefined
       });
       hideSearchDropdown();
       document.getElementById("search-input").blur();

@@ -22,6 +22,7 @@ export function addRecentSearch(userId, track) {
     recent[existingIndex].lastSearched = Date.now();
     recent[existingIndex].title = track.title;
     recent[existingIndex].artist = track.artist;
+    if (track.type) recent[existingIndex].type = track.type;
     const [item] = recent.splice(existingIndex, 1);
     recent.unshift(item);
   } else {
@@ -29,6 +30,7 @@ export function addRecentSearch(userId, track) {
       id: track.id,
       title: track.title,
       artist: track.artist,
+      type: track.type || undefined,
       count: 1,
       lastSearched: Date.now()
     });

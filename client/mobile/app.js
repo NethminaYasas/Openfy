@@ -532,10 +532,10 @@ async function initApp() {
     if (queueData) {
         queueSetList(queueData.tracks, queueData.index);
         const restored = queueCurrentTrack();
-        if (restored) playTrack(restored, false);
+        if (restored && restored.title && restored.type !== 'artist') playTrack(restored, false);
     } else {
         const lastTrack = await loadLastTrackPaused();
-        if (lastTrack) {
+        if (lastTrack && lastTrack.title && lastTrack.type !== 'artist') {
             queueSetList([lastTrack], 0);
             playTrack(lastTrack, false);
         }
@@ -891,7 +891,9 @@ function renderLibraryItems(items) {
                 </div>
             `;
         } else {
-            const artUrl = item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
+            const artUrl = isArtist
+                ? (item.image_url ? withBase("/artists/" + item.id + "/artwork") : null)
+                : item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
             const placeholderIcon = isArtist ? 'fa-solid fa-microphone-lines' : 'fa-solid fa-list';
             el.innerHTML = `
                 <div class="lib-item-art${isArtist ? ' lib-item-art-artist' : ''}">
@@ -916,7 +918,10 @@ function preloadLibraryImages(items) {
     items.forEach(item => {
         if (item.is_liked) return;
         const isAlbum = item.type === 'album';
-        const artUrl = item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
+        const isArtist = item.type === 'artist';
+        const artUrl = isArtist
+            ? (item.image_url ? withBase("/artists/" + item.id + "/artwork") : null)
+            : item.image_url || (item.id ? withBase((isAlbum ? "/albums/" : "/playlists/") + item.id + (isAlbum ? "/artwork" : "/cover")) : null);
         if (artUrl) {
             const img = new Image();
             img.src = artUrl;
@@ -951,7 +956,44 @@ function getFilteredLibraryItems() {
 function renderSearchResults(results) {
     const container = $('search-results');
     container.innerHTML = '';
-    results.forEach(item => {
+
+    const artists = Array.isArray(results.artists) ? results.artists : [];
+    const tracks = Array.isArray(results.tracks) ? results.tracks : [];
+
+    if (artists.length === 0 && tracks.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No results found</p></div>';
+        return;
+    }
+
+    artists.forEach(item => {
+        if (!item.id) return;
+        const el = document.createElement('div');
+        el.className = 'search-result-item artist-result';
+        const artUrl = item.image_url ? withBase("/artists/" + item.id + "/artwork") : '';
+        const title = item.name || 'Unknown Artist';
+        el.innerHTML = `
+            <div class="search-result-art">
+                ${artUrl ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />` : ''}
+                <div class="search-result-art-placeholder" style="display:${artUrl ? 'none' : 'flex'}"><i class="fa-solid fa-user"></i></div>
+            </div>
+            <div class="search-result-meta">
+                <div class="search-result-title">${escapeHtml(title)}</div>
+                <div class="search-result-sub">Artist</div>
+            </div>
+        `;
+        el.addEventListener('click', () => {
+            addRecentSearch(state.authHash || '', {
+                id: item.id,
+                title: title,
+                artist: 'Artist',
+                type: 'artist'
+            });
+            openDetail({ id: item.id, type: 'artist', name: title }, 'artist');
+        });
+        container.appendChild(el);
+    });
+
+    tracks.forEach((item, index) => {
         if (!item.id) return;
         const el = document.createElement('div');
         el.className = 'search-result-item';
@@ -1112,6 +1154,7 @@ async function openDetail(item, type, isBackNavigation = false) {
     const subtitle = $('detail-subtitle');
     const art = $('detail-art-img');
     const placeholder = $('detail-art-placeholder');
+    const artContainer = $('detail-art');
 
     if (item.is_liked) {
         art.style.display = 'none';
@@ -1120,14 +1163,19 @@ async function openDetail(item, type, isBackNavigation = false) {
         placeholder.style.display = 'flex';
         updateGradient($('detail-gradient'), null);
     } else {
+        if (type === 'artist') {
+            artContainer.style.borderRadius = '50%';
+        } else {
+            artContainer.style.borderRadius = '0.5rem';
+        }
         placeholder.style.background = '#2a2a2a';
-        placeholder.innerHTML = '<i class="fa-solid fa-music"></i>';
+        placeholder.innerHTML = type === 'artist' ? '<i class="fa-solid fa-user"></i>' : '<i class="fa-solid fa-music"></i>';
         const artUrl = type === 'album'
             ? withBase("/albums/" + item.id + "/artwork")
             : type === 'playlist'
                 ? withBase("/playlists/" + item.id + "/cover")
                 : type === 'artist'
-                    ? (item.image_url || null)
+                    ? withBase("/artists/" + item.id + "/artwork")
                     : withBase("/tracks/" + item.id + "/artwork");
         art.onerror = function() { this.style.display = 'none'; placeholder.style.display = 'flex'; };
         if (artUrl) {
@@ -1316,7 +1364,7 @@ async function openDetail(item, type, isBackNavigation = false) {
 
 // ─── Player ──────────────────────────────────────────
 function playTrack(track, autoPlay = true) {
-    if (!track) return;
+    if (!track || track.type === 'artist') return;
     currentTrack = track;
     isPlaying = autoPlay;
     syncLikeButtonMobile();
@@ -2484,14 +2532,24 @@ function renderRecentSearches() {
     items.forEach(item => {
         const el = document.createElement('div');
         el.className = 'recent-search-item';
-        const artUrl = item.id ? withBase("/tracks/" + item.id + "/artwork") : null;
+        const isArtist = item.type === 'artist';
+        const artPath = item.id
+            ? withBase((isArtist ? "/artists/" : "/tracks/") + item.id + "/artwork")
+            : null;
+        const placeholderIcon = isArtist ? 'fa-solid fa-user' : 'fa-solid fa-music';
+        const imgStyle = isArtist
+            ? 'border-radius:50%;width:100%;height:100%;object-fit:cover;'
+            : 'width:100%;height:100%;object-fit:cover;';
+        const placeholderStyle = isArtist
+            ? 'border-radius:50%;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#2a2a2a;'
+            : 'display:flex;align-items:center;justify-content:center;';
         el.innerHTML = `
-            <div class="search-result-art">
-                ${artUrl
-                    ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
+            <div class="search-result-art"${isArtist ? ' style="border-radius:50%;overflow:hidden;background:#2a2a2a;"' : ''}>
+                ${artPath
+                    ? `<img src="${artPath}" alt="" loading="lazy" style="${imgStyle}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';this.nextElementSibling.style.alignItems='center';this.nextElementSibling.style.justifyContent='center';" />`
                     : ''
                 }
-                <div class="search-result-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="fa-solid fa-music"></i></div>
+                <div class="search-result-art-placeholder" ${artPath ? 'style="display:none"' : 'style="' + placeholderStyle + '"'}><i class="${placeholderIcon}"></i></div>
             </div>
             <div class="search-result-meta">
                 <div class="search-result-title">${escapeHtml(item.title || '')}</div>
@@ -2505,6 +2563,10 @@ function renderRecentSearches() {
             renderRecentSearches();
         });
         el.addEventListener('click', () => {
+            if (item.type === 'artist') {
+                openDetail({ id: item.id, type: 'artist', name: item.title }, 'artist');
+                return;
+            }
             api("/tracks/" + item.id).then(track => {
                 if (!track) return;
                 addRecentSearch(state.authHash || '', {
@@ -2515,7 +2577,9 @@ function renderRecentSearches() {
                 renderRecentSearches();
                 playTrack(track);
             }).catch(() => {
-                playTrack(item);
+                removeRecentSearch(state.authHash || '', item.id);
+                renderRecentSearches();
+                openDetail({ id: item.id, type: 'artist', name: item.title }, 'artist');
             });
         });
         container.appendChild(el);
@@ -2538,8 +2602,8 @@ $('search-page-input').addEventListener('input', e => {
 
 async function performSearch(q) {
     try {
-        const localResults = await runSearch(q);
-        renderSearchResults(localResults || []);
+        const results = await runSearch(q);
+        renderSearchResults(results || { tracks: [], artists: [] });
     } catch (e) {
         console.error('Search failed:', e);
     }

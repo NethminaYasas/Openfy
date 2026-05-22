@@ -221,6 +221,11 @@ class PlaylistTrackOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class SearchResultOut(BaseModel):
+    tracks: List[TrackOut] = Field(default_factory=list)
+    artists: List[ArtistOut] = Field(default_factory=list)
+
+
 class DownloadRequest(BaseModel):
     query: str = Field(..., min_length=1)
     source: str | None = "auto"

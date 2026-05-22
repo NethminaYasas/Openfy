@@ -239,7 +239,7 @@ async function tryAutoLogin() {
     const queueData = await loadUserQueue();
     if (!queueData) {
       const lastTrack = await loadLastTrackPaused();
-      if (lastTrack) {
+      if (lastTrack && lastTrack.title && lastTrack.type !== 'artist') {
         audioPlayer.src = "";
         audioPlayer.pause();
         document.getElementById("btn-play").classList.remove("playing");
@@ -249,7 +249,7 @@ async function tryAutoLogin() {
     } else {
       setQueueFromList(queueData.tracks, queueData.index);
       const currentTrack = state.currentQueue[state.currentIndex];
-      if (currentTrack) {
+      if (currentTrack && currentTrack.title && currentTrack.type !== 'artist') {
         loadTrackPaused(currentTrack, true);
       }
     }
@@ -939,8 +939,11 @@ async function importSpotifyPlaylist() {
                 }
             }
 
-            const searchQuery = encodeURIComponent(track.name || "");
-            const searchResp = await fetch(`/search?q=${searchQuery}&limit=10`, {
+            if (!track.name) {
+                trackStatus[i].toDownload = track;
+                continue;
+            }
+            const searchResp = await fetch(`/search?q=${encodeURIComponent(track.name)}&limit=10`, {
                 headers: { "x-auth-hash": state.authHash }
             });
 
@@ -2944,13 +2947,12 @@ async function handleSearch() {
   }
 
   try {
-    // Only run local library search on input (Spotify runs on Enter)
-    const localResults = await runSearch(query).catch(() => []);
-    state.lastSearchResults = localResults;
-    renderSearchDropdown(localResults);
+    const results = await runSearch(query).catch(() => ({ tracks: [], artists: [] }));
+    state.lastSearchResults = results;
+    renderSearchDropdown(results);
   } catch (err) {
     console.error(err);
-    renderSearchDropdown([]);
+    renderSearchDropdown({ tracks: [], artists: [] });
   }
 }
 

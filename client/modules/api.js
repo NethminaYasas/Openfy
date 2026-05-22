@@ -199,9 +199,14 @@ export async function pollJobStatus(jobId) {
 }
 
 export async function runSearch(query) {
-  const q = query;
-  var data = await api("/search?q=" + encodeURIComponent(q) + "&limit=12");
-  return Array.isArray(data) ? data : [];
+  if (!query || !query.trim()) {
+    return { tracks: [], artists: [] };
+  }
+  var data = await api("/search?q=" + encodeURIComponent(query.trim()) + "&limit=12");
+  return {
+    tracks: Array.isArray(data.tracks) ? data.tracks : [],
+    artists: Array.isArray(data.artists) ? data.artists : []
+  };
 }
 
 export async function runSpotifySearch(query, limit = 10) {

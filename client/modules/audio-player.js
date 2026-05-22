@@ -255,6 +255,7 @@ export function playByIndex(index, fromRepeat) {
 }
 
 export function playTrack(track) {
+  if (!track || track.type === 'artist') return;
   state.currentTrackId = track.id;
   state.currentStreamToken = null;
   state.currentStreamTokenTrackId = null;
@@ -278,19 +279,33 @@ export function playTrack(track) {
   
   emitTrackChanged(track);
   
-  var img = new Image();
-  img.onload = function() {
-    var ctx = document.getElementById("now-cover").getContext("2d");
-    ctx.clearRect(0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
-    var size = Math.min(img.width, img.height);
-    ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
-    document.getElementById("now-cover").classList.add("visible");
-  };
-  img.onerror = function() {
-    drawCanvas(document.getElementById("now-cover"), track.title, getArtistDisplay(track) || "");
-    document.getElementById("now-cover").classList.add("visible");
-  };
-  img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+  fetch(withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")))
+    .then(function(resp) {
+      if (!resp.ok) throw new Error("Not found");
+      return resp.blob();
+    })
+    .then(function(blob) {
+      var blobUrl = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function() {
+        var ctx = document.getElementById("now-cover").getContext("2d");
+        ctx.clearRect(0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
+        var size = Math.min(img.width, img.height);
+        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
+        document.getElementById("now-cover").classList.add("visible");
+        URL.revokeObjectURL(blobUrl);
+      };
+      img.onerror = function() {
+        drawCanvas(document.getElementById("now-cover"), track.title, getArtistDisplay(track) || "");
+        document.getElementById("now-cover").classList.add("visible");
+        URL.revokeObjectURL(blobUrl);
+      };
+      img.src = blobUrl;
+    })
+    .catch(function() {
+      drawCanvas(document.getElementById("now-cover"), track.title, getArtistDisplay(track) || "");
+      document.getElementById("now-cover").classList.add("visible");
+    });
   
   updateNowPlaying(track);
   renderNowPlayingQueue();
@@ -310,6 +325,7 @@ export function playTrack(track) {
 }
 
 export async function loadTrackPaused(track, preserveQueue = false) {
+  if (!track || track.type === 'artist' || !track.title) return;
   console.log('Loading track (paused):', track.title);
   state.currentTrackId = track.id;
   state.currentStreamToken = null;
@@ -335,19 +351,33 @@ export async function loadTrackPaused(track, preserveQueue = false) {
   
   emitTrackChanged(track);
   
-  var img = new Image();
-  img.onload = function() {
-    var ctx = document.getElementById("now-cover").getContext("2d");
-    ctx.clearRect(0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
-    var size = Math.min(img.width, img.height);
-    ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
-    document.getElementById("now-cover").classList.add("visible");
-  };
-  img.onerror = function() {
-    drawCanvas(document.getElementById("now-cover"), track.title, getArtistDisplay(track) || "");
-    document.getElementById("now-cover").classList.add("visible");
-  };
-  img.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+  fetch(withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")))
+    .then(function(resp) {
+      if (!resp.ok) throw new Error("Not found");
+      return resp.blob();
+    })
+    .then(function(blob) {
+      var blobUrl = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function() {
+        var ctx = document.getElementById("now-cover").getContext("2d");
+        ctx.clearRect(0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
+        var size = Math.min(img.width, img.height);
+        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, document.getElementById("now-cover").width, document.getElementById("now-cover").height);
+        document.getElementById("now-cover").classList.add("visible");
+        URL.revokeObjectURL(blobUrl);
+      };
+      img.onerror = function() {
+        drawCanvas(document.getElementById("now-cover"), track.title, getArtistDisplay(track) || "");
+        document.getElementById("now-cover").classList.add("visible");
+        URL.revokeObjectURL(blobUrl);
+      };
+      img.src = blobUrl;
+    })
+    .catch(function() {
+      drawCanvas(document.getElementById("now-cover"), track.title, getArtistDisplay(track) || "");
+      document.getElementById("now-cover").classList.add("visible");
+    });
   
   updateNowPlaying(track);
   renderNowPlayingQueue();
@@ -454,18 +484,21 @@ export function updateNowPlaying(track) {
   npCover.style.display = "none";
   npImg.style.display = "none";
   
-  var npImgEl = new Image();
-  npImgEl.onload = function() {
-    npImg.src = npImgEl.src;
-    npImg.style.display = "block";
-    npCover.style.display = "none";
-  };
-  npImgEl.onerror = function() {
-    drawCanvas(npCover, track.title, getArtistDisplay(track) || "");
-    npCover.style.display = "block";
-    npImg.style.display = "none";
-  };
-  npImgEl.src = withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || ""));
+  fetch(withBase("/tracks/" + track.id + "/artwork?v=" + encodeURIComponent(track.updated_at || "")))
+    .then(function(resp) {
+      if (!resp.ok) throw new Error("Not found");
+      return resp.blob();
+    })
+    .then(function(blob) {
+      npImg.src = URL.createObjectURL(blob);
+      npImg.style.display = "block";
+      npCover.style.display = "none";
+    })
+    .catch(function() {
+      drawCanvas(npCover, track.title, getArtistDisplay(track) || "");
+      npCover.style.display = "block";
+      npImg.style.display = "none";
+    });
   
   syncLikeButtonState(track);
 }
