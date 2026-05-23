@@ -24,7 +24,7 @@ class ArtistForTrack(BaseModel):
 class AlbumForTrack(BaseModel):
     """Shallow album info for embedding in TrackForArtist"""
     id: str
-    title: str
+    title: str | None = None
     artwork_path: str | None = None
     image_url: str | None = None
     source_id: str | None = None
@@ -59,7 +59,7 @@ class ArtistOut(ArtistBase):
 
 
 class AlbumBase(BaseModel):
-    title: str
+    title: str | None = None
     year: int | None = None
     artist_id: str | None = None
 
