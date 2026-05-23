@@ -757,6 +757,10 @@ def _startup():
         finally:
             db.close()
 
+    # Prefetch artist images in background so they're cached before users request them
+    import threading
+    threading.Thread(target=_prefetch_artist_images, daemon=True).start()
+
 
 def _get_user(db: Session, auth_hash: str) -> "User | None":
     user = db.execute(
@@ -1540,9 +1544,10 @@ def refresh_artist_image(
     return {"status": "triggered"}
 
 
-def _auto_fetch_artist_image(db: Session, artist: Artist) -> None:
-    """Automatically fetch artist image from Spotify using existing track URLs."""
-    from app.models import Track
+def _auto_fetch_artist_image(db: Session, artist: Artist) -> str | None:
+    """Automatically fetch artist image from Spotify using existing track URLs.
+    Returns the image URL if found, None otherwise."""
+    from app.models import Track, track_artist
     from sqlalchemy import select
     from app.services.artist_service import get_artist_info_from_spotify
 
@@ -1555,47 +1560,192 @@ def _auto_fetch_artist_image(db: Session, artist: Artist) -> None:
         except Exception as e:
             print(f"Direct artist info fetch failed for {artist.name}: {e}")
 
-    # 2. Fallback to track-based discovery if needed
+    # 2. Try primary tracks where this artist is the PRIMARY artist.
     if not artist_info:
-        # Look for a Spotify track URL in the artist's tracks
         tracks = db.execute(
             select(Track).where(Track.artist_id == artist.id).limit(10)
         ).scalars().all()
-
-        spotify_track_url = None
         for track in tracks:
             if track.source_url and "open.spotify.com" in track.source_url and "/track/" in track.source_url:
-                spotify_track_url = track.source_url
-                break
+                try:
+                    artist_info = get_artist_info_from_spotify(track.source_url)
+                    if artist_info:
+                        break
+                except Exception:
+                    continue
 
-        if spotify_track_url:
+    # 3. Try association tracks (track_artist) — for secondary artists.
+    #    Get track info from Spotify, then find OUR artist by name in the
+    #    response's artist list and fetch that specific artist's info.
+    if not artist_info:
+        assoc_track_ids = db.execute(
+            select(track_artist.c.track_id).where(track_artist.c.artist_id == artist.id)
+        ).scalars().all()
+        if assoc_track_ids:
+            assoc_tracks = db.execute(
+                select(Track).where(
+                    Track.id.in_(assoc_track_ids),
+                    Track.source_url.like("%open.spotify.com/track/%")
+                )
+            ).scalars().all()
+            for track in assoc_tracks:
+                try:
+                    artist_data = _get_artist_info_from_track_by_name(track.source_url, artist.name)
+                    if artist_data:
+                        artist_info = artist_data
+                        break
+                except Exception:
+                    continue
+
+    # 4. Try albums with Spotify source_ids — for artists whose tracks have
+    #    no source_url but whose albums have Spotify album IDs.
+    if not artist_info:
+        from app.models import Album
+        albums = db.execute(
+            select(Album).where(
+                Album.artist_id == artist.id,
+                Album.source_id.isnot(None),
+                Album.source_id.like("spotify:%")
+            )
+        ).scalars().all()
+        for album in albums:
             try:
-                artist_info = get_artist_info_from_spotify(spotify_track_url)
-            except Exception as e:
-                print(f"Track-based artist info fetch failed for {artist.name}: {e}")
+                spotify_album_id = album.source_id.rsplit(":", 1)[-1]
+                album_url = f"https://open.spotify.com/album/{spotify_album_id}"
+                from spotify_scraper import SpotifyClient
+                client = SpotifyClient()
+                album_info = client.get_album_info(album_url)
+                if album_info:
+                    album_tracks = album_info.get("tracks", [])
+                    for album_track in album_tracks:
+                        uri = album_track.get("uri", "")
+                        if uri and uri.startswith("spotify:track:"):
+                            track_id = uri.rsplit(":", 1)[-1]
+                            track_url = f"https://open.spotify.com/track/{track_id}"
+                            artist_data = _get_artist_info_from_track_by_name(track_url, artist.name)
+                            if artist_data:
+                                artist_info = artist_data
+                                break
+                    if artist_info:
+                        break
+            except Exception:
+                continue
 
     if not artist_info:
-        return
+        return None
 
     try:
-        artist_info = get_artist_info_from_spotify(spotify_track_url)
-        if not artist_info:
-            return
-
-        # Get the largest available image
+        image_url = None
         if artist_info.get("images"):
             images = sorted(artist_info["images"], key=lambda x: x.get("width", 0), reverse=True)
             if images and images[0].get("url"):
-                artist.image_url = images[0]["url"]
+                image_url = images[0]["url"]
 
-        # Store Spotify artist URL if available
+        if image_url:
+            artist.image_url = image_url
+
         if not artist.spotify_url and artist_info.get("external_urls", {}).get("spotify"):
             artist.spotify_url = artist_info["external_urls"]["spotify"]
 
-        if artist.image_url or artist.spotify_url:
+        if image_url or artist.spotify_url:
             db.commit()
+
+        return image_url
     except Exception as e:
         print(f"[DEBUG] Auto-fetch artist image failed: {e}")
+        return None
+
+
+def _get_artist_info_from_track_by_name(track_url: str, artist_name: str) -> dict | None:
+    """Fetch track info from Spotify, find an artist matching artist_name
+    in the response, and return that artist's info (with images)."""
+    try:
+        from spotify_scraper import SpotifyClient
+        client = SpotifyClient()
+        track_info = client.get_track_info(track_url)
+        if not track_info:
+            return None
+        artists = track_info.get("artists", [])
+        target_name_lower = artist_name.lower().strip()
+        for a in artists:
+            if a.get("name", "").lower().strip() == target_name_lower:
+                artist_id = a.get("id")
+                if not artist_id:
+                    continue
+                artist_url = f"https://open.spotify.com/artist/{artist_id}"
+                artist_data = client.get_artist_info(artist_url)
+                if artist_data:
+                    images = artist_data.get("images", [])
+                    if images:
+                        sorted_images = sorted(images, key=lambda x: x.get("width", 0), reverse=True)
+                        artist_data["largest_image"] = sorted_images[0].get("url") if sorted_images else None
+                    return artist_data
+    except Exception as e:
+        print(f"Failed to get artist info from track by name: {e}")
+    return None
+
+
+def _cache_artist_image(artist_id: str, image_url: str) -> bool:
+    """Download and cache an artist image to disk. Returns True on success."""
+    external_artists_dir = settings.artwork_dir / "artist_external"
+    external_artists_dir.mkdir(parents=True, exist_ok=True)
+    cached_path = external_artists_dir / f"{artist_id}.jpg"
+    if cached_path.exists():
+        return True
+    try:
+        if not _is_public_http_image_url(image_url):
+            return False
+        image_bytes = _fetch_remote_image_bytes(image_url, timeout_sec=15)
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img.save(cached_path, format="JPEG", quality=95, optimize=True)
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to cache artist image for {artist_id}: {e}")
+        return False
+
+
+def _prefetch_artist_images():
+    """Background task: prefetch and cache artist images for all artists missing them."""
+    import threading
+    from .db import SessionLocal
+
+    logger.info("Starting background artist image prefetch...")
+    db = SessionLocal()
+    try:
+        artists = db.execute(select(Artist)).scalars().all()
+        total = len(artists)
+        external_artists_dir = settings.artwork_dir / "artist_external"
+        external_artists_dir.mkdir(parents=True, exist_ok=True)
+
+        for idx, artist in enumerate(artists):
+            cached_path = external_artists_dir / f"{artist.id}.jpg"
+            if cached_path.exists():
+                continue
+
+            image_url = artist.image_url
+            if not image_url:
+                fresh_db = SessionLocal()
+                try:
+                    bg_artist = fresh_db.get(Artist, artist.id)
+                    if bg_artist:
+                        image_url = _auto_fetch_artist_image(fresh_db, bg_artist)
+                        fresh_db.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to fetch image URL for artist {artist.name}: {e}")
+                finally:
+                    fresh_db.close()
+
+            if image_url:
+                _cache_artist_image(artist.id, image_url)
+
+            if (idx + 1) % 5 == 0:
+                logger.info(f"Artist image prefetch: {idx + 1}/{total}")
+
+        logger.info(f"Artist image prefetch complete ({total} artists processed)")
+    except Exception as e:
+        logger.error(f"Artist image prefetch failed: {e}")
+    finally:
+        db.close()
 
 
 @app.post("/artists/{artist_id}/fetch-spotify-image")
@@ -1727,7 +1877,7 @@ def get_artist_artwork(
         raise HTTPException(status_code=404, detail="Artist not found")
 
     if not artist.image_url:
-        return Response(status_code=204)
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
     external_artists_dir = settings.artwork_dir / "artist_external"
     external_artists_dir.mkdir(parents=True, exist_ok=True)
@@ -1742,14 +1892,14 @@ def get_artist_artwork(
 
     try:
         if not _is_public_http_image_url(artist.image_url):
-            return Response(status_code=204)
+            return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
         image_bytes = _fetch_remote_image_bytes(artist.image_url, timeout_sec=15)
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img.save(cached_path, format="JPEG", quality=95, optimize=True)
         return FileResponse(cached_path, media_type="image/jpeg")
     except Exception:
-        return Response(status_code=204)
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/albums", response_model=List[AlbumOut])

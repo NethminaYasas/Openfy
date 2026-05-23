@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
 import threading
@@ -15,6 +16,111 @@ from ..models import DownloadJob, Track
 from ..settings import settings
 from .storage import ensure_dirs, is_audio_file, store_upload
 from .library import scan_paths
+
+
+def _resolve_apple_music_url(track_name: str, artist_name: str, duration_ms: int = 0) -> str | None:
+    """Resolve an Apple Music track URL using iTunes Search API."""
+    import urllib.parse
+    try:
+        first_artist = artist_name.split(",")[0].strip()
+        query = f"{track_name} {first_artist}"
+        url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=5"
+        import requests
+        resp = requests.get(url, timeout=15, headers={"User-Agent": "AppleMusic/1.0"})
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+
+        best_match = None
+        best_score = -1
+        for r in results:
+            score = 0
+            t_name = r.get("trackName", "").lower()
+            a_name = r.get("artistName", "").lower()
+            if track_name.lower() in t_name or t_name in track_name.lower():
+                score += 30
+            if artist_name.lower() in a_name or a_name in artist_name.lower():
+                score += 20
+            t_time = r.get("trackTimeMillis", 0)
+            if duration_ms > 0 and t_time > 0 and abs(duration_ms - t_time) <= 10000:
+                score += 15
+            if score > best_score:
+                best_score = score
+                best_match = r.get("trackViewUrl")
+
+        return best_match
+    except Exception as e:
+        logger.warning("iTunes search failed: %s", e)
+    return None
+
+
+def _download_via_apple_proxy(track_url: str, output_dir: str, codec: str = "aac") -> str:
+    """Download a track from Apple Music via zarz.moe proxy."""
+    import requests
+    api_url = "https://api.zarz.moe/v1/dl/app2"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "AppleMusic/1.0",
+        "Origin": "https://music.apple.com",
+        "Referer": "https://music.apple.com/"
+    }
+    logger.info("Downloading via Apple proxy: %s", track_url)
+    job_resp = requests.post(
+        api_url,
+        json={"url": track_url, "codec": codec},
+        headers=headers,
+        timeout=30
+    )
+    if job_resp.headers.get("cf-mitigated", "").lower() == "challenge":
+        raise Exception("Apple Music proxy blocked by Cloudflare")
+
+    job_data = job_resp.json()
+    stream_url = None
+
+    if job_data.get("success") and job_data.get("stream_url"):
+        stream_url = job_data["stream_url"]
+    elif job_data.get("job_id"):
+        # Queued download - poll for completion
+        job_id = job_data["job_id"]
+        deadline = time.time() + 600
+        while time.time() < deadline:
+            time.sleep(2.5)
+            st_resp = requests.get(
+                f"https://api.zarz.moe/v1/dl/app/status/{job_id}",
+                headers=headers, timeout=15
+            )
+            st = st_resp.json()
+            status = st.get("status", "").lower()
+            if status == "completed":
+                stream_url = f"https://api.zarz.moe/v1/dl/app/file/{job_id}"
+                break
+            elif status == "failed":
+                raise Exception(f"Apple proxy failed: {st.get('error', 'unknown')}")
+
+        if not stream_url:
+            raise Exception("Apple Music proxy timed out")
+    else:
+        raise Exception(f"Apple Music proxy error: {job_data}")
+
+    # Download the stream
+    os.makedirs(output_dir, exist_ok=True)
+    from urllib.parse import urlparse
+    parsed = urlparse(track_url)
+    path_parts = [p for p in parsed.path.split("/") if p]
+    filename = path_parts[-1] if len(path_parts) > 1 else "track.m4a"
+    if not filename.endswith(".m4a"):
+        filename += ".m4a"
+    output_path = os.path.join(output_dir, filename)
+
+    with requests.get(stream_url, stream=True, timeout=30) as r:
+        r.raise_for_status()
+        with open(output_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+    logger.info("Downloaded via Apple proxy: %s", output_path)
+    return output_path
 
 
 def _extract_source_id(url: str) -> str | None:
@@ -195,117 +301,37 @@ def _download_with_yt_music(
         db.commit()
 
         try:
-            _ensure_spotiflac_import()
-            from SpotiFLAC.appleDL import AppleMusicDownloader
-
             ensure_dirs()
             _append_log(db, job, f"Starting download to {settings.downloads_dir}")
 
+            is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
+            is_apple_music = "music.apple.com" in query
+
+            if not is_spotify and not is_apple_music:
+                raise Exception("Only Spotify and Apple Music URLs are supported")
+
+            _ensure_spotiflac_import()
+            from SpotiFLAC.appleDL import AppleMusicDownloader
             downloader = AppleMusicDownloader()
-            expected_track_info: dict | None = None
 
-            # Auto-detect URL type and download
-            url_type = downloader.parse_url_type(query)
-            if url_type == "spotify":
-                expected_track_info = downloader._extract_spotify_metadata(query)
-                if not expected_track_info:
-                    raise Exception(
-                        "Could not extract Spotify metadata for strict verification"
-                    )
-                if not expected_track_info.get("duration_ms"):
-                    raise Exception(
-                        "Spotify duration metadata missing; refusing non-verifiable download"
-                    )
-                _append_log(
-                    db, job, "Spotify track detected, searching for audio source..."
+            if is_apple_music:
+                downloaded_file = downloader.download_by_apple_music_url(
+                    query, str(settings.downloads_dir)
                 )
-
-                # Run download with timeout to prevent hanging
-                def do_download():
-                    return downloader.download_from_spotify(
-                        spotify_url=query,
-                        output_dir=str(settings.downloads_dir),
-                    )
-
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(do_download)
-                    try:
-                        downloaded_file = future.result(
-                            timeout=600
-                        )  # 10 minute timeout
-                    except FutureTimeoutError:
-                        _append_log(db, job, "Download timed out after 10 minutes")
-                        job.status = "failed"
-                        db.commit()
-                        return
-                    except Exception as e:
-                        _append_log(db, job, f"Download failed: {e}")
-                        job.status = "failed"
-                        db.commit()
-                        return
             else:
-                parsed = downloader.parse_apple_music_url(query)
-                if not parsed:
-                    raise Exception("Could not parse Apple Music URL")
-                # Check if it's an album URL (has album_id but no track_id)
-                if parsed.get("album_id") and not parsed.get("track_id"):
-                    raise Exception("Album URLs are not supported. Please provide a direct track URL from Apple Music.")
-                if not parsed.get("track_id"):
-                    raise Exception("Could not parse Apple Music track URL")
-                expected_track_info = downloader.get_track_info(parsed["track_id"])
-                if not expected_track_info:
-                    raise Exception(
-                        "Could not extract Apple Music metadata for strict verification"
-                    )
-                if not expected_track_info.get("duration_ms"):
-                    raise Exception(
-                        "Apple Music duration metadata missing; refusing non-verifiable download"
-                    )
-                _append_log(
-                    db, job, "Apple Music track detected, searching for audio source..."
+                downloaded_file = downloader.download_from_spotify(
+                    query, str(settings.downloads_dir)
                 )
-
-                def do_download():
-                    return downloader.download_by_apple_music_url(
-                        apple_music_url=query,
-                        output_dir=str(settings.downloads_dir),
-                    )
-
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(do_download)
-                    try:
-                        downloaded_file = future.result(
-                            timeout=600
-                        )  # 10 minute timeout
-                    except FutureTimeoutError:
-                        _append_log(db, job, "Download timed out after 10 minutes")
-                        job.status = "failed"
-                        db.commit()
-                        return
-                    except Exception as e:
-                        _append_log(db, job, f"Download failed: {e}")
-                        job.status = "failed"
-                        db.commit()
-                        return
 
             _append_log(db, job, f"Download complete: {Path(downloaded_file).name}")
 
+            downloaded_path = Path(downloaded_file)
+
             # Move to library and scan
-            if is_audio_file(Path(downloaded_file)):
-                downloaded_path = Path(downloaded_file)
-                if expected_track_info:
-                    _validate_download_against_expected(
-                        downloaded_path, expected_track_info
-                    )
-                preferred_stem = (
-                    str(expected_track_info.get("name", "")).strip()
-                    if expected_track_info
-                    else None
-                )
+            if is_audio_file(downloaded_path):
                 moved = store_upload(
                     downloaded_path,
                     settings.music_dir,
-                    preferred_stem=preferred_stem or None,
                 )
                 source_id = _extract_source_id(query)
                 album_source_id = job.album_source_id if job else None

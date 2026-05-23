@@ -193,19 +193,26 @@ document.addEventListener('DOMContentLoaded', async function() {
   initResizeObserver();
 
   // Navigate to URL AFTER authentication so admin status is known
-  const ok = await tryAutoLogin();
-  if (!ok) {
+  if (!state.authHash) {
     document.getElementById("auth-overlay").style.display = "flex";
     animateAuthGradient();
     document.getElementById("app-main").style.display = "none";
     saveIntendedUrl();
   } else {
-    // Navigate AFTER authentication so admin status is known
-    navigateFromUrl();
-    await uiLoadTracks();
-    await uiLoadMostPlayed();
-    await loadPlaylists();
-    await uiLoadUserUploads();
+    const ok = await tryAutoLogin();
+    if (!ok) {
+      document.getElementById("auth-overlay").style.display = "flex";
+      animateAuthGradient();
+      document.getElementById("app-main").style.display = "none";
+      saveIntendedUrl();
+    } else {
+      // Navigate AFTER authentication so admin status is known
+      navigateFromUrl();
+      await uiLoadTracks();
+      await uiLoadMostPlayed();
+      await loadPlaylists();
+      await uiLoadUserUploads();
+    }
   }
 });
 
@@ -270,10 +277,7 @@ async function tryAutoLogin() {
 }
 
 function initEventListeners() {
-  document.getElementById("top-bar-back").addEventListener("click", function(event) {
-    event.preventDefault();
-    goBack();
-  });
+
 
   document.getElementById("top-bar-home").addEventListener("click", function(event) {
     event.preventDefault();

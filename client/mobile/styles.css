@@ -211,6 +211,12 @@ body.page-detail #top-bar {
     justify-content: center;
 }
 
+.top-bar-back {
+    display: none;
+    font-size: 1.2rem;
+    color: #fff;
+}
+
 .top-bar-profile-icon {
     font-size: 1.1rem;
     color: #b3b3b3;

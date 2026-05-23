@@ -2640,6 +2640,10 @@ audio.addEventListener('pause', () => {
 
 // ─── Bootstrap ──────────────────────────────────────
 async function bootstrap() {
+    if (!state.authHash) {
+        authOverlay.style.display = 'flex';
+        return;
+    }
     try {
         const user = await apiTryAutoLogin();
         if (user) {
