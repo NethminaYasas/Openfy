@@ -435,6 +435,13 @@ $('np-down-btn').addEventListener('click', function(e) {
     showPage(target);
 });
 
+$('np-menu-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!currentTrack) return;
+    showContextMenu(currentTrack, null, -1);
+});
+
 $('mini-player').addEventListener('click', () => {
     showPage('nowPlaying');
 });
@@ -2150,7 +2157,7 @@ let longPressTimer = null;
             return;
         }
         if (!currentTrack) return;
-        if ($('np-like-btn').classList.contains('liked')) {
+        if ($('np-like-btn').classList.contains('liked') || $('np-like-btn').classList.contains('in-playlist')) {
             if (!state.authHash) {
                 alert('Please log in to manage playlists.');
                 return;

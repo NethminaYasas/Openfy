@@ -2766,7 +2766,10 @@ def list_track_playlists(
         )
         .order_by(Playlist.created_at.desc())
     )
-    return db.execute(stmt).scalars().all()
+    playlists = db.execute(stmt).scalars().all()
+    for pl in playlists:
+        pl.is_owner = True
+    return playlists
 
 
 @app.delete("/playlists/{playlist_id}/tracks/{track_id}")
@@ -3216,6 +3219,7 @@ def toggle_liked(
             select(PlaylistTrack.position)
             .where(PlaylistTrack.playlist_id == liked.id)
             .order_by(PlaylistTrack.position.desc())
+            .limit(1)
         ).scalar_one_or_none()
         link = PlaylistTrack(
             playlist_id=liked.id, track_id=track_id, position=(position or 0) + 1

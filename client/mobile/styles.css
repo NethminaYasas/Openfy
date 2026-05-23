@@ -1640,16 +1640,24 @@ body.page-detail .detail-gradient {
 }
 
 .nav-item i {
-    font-size: 1.25rem;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.nav-item svg {
+    width: 24px;
+    height: 24px;
 }
 
 .nav-icon-img {
-    opacity: 0.55;
-    transition: opacity 0.15s ease;
+    width: 24px;
+    height: 24px;
+    filter: brightness(0) invert(0.45);
+    transition: filter 0.15s ease;
 }
 
 .nav-item.active .nav-icon-img {
-    opacity: 1;
+    filter: brightness(0) invert(1);
 }
 
 .nav-item.active {
