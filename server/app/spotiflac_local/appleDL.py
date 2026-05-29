@@ -4,7 +4,6 @@ Uses the free iTunes lookup API to get track metadata, then downloads from YouTu
 Uses ytmusicapi for proper YouTube Music search (official audio tracks only, no music videos).
 No Spotify API credentials required.
 """
-import json
 import os
 import re
 import requests
@@ -14,7 +13,7 @@ from typing import Callable
 from urllib.parse import quote
 
 # Import configuration
-from .config import SCORE_THRESHOLDS, SEARCH_STRATEGIES, FALLBACK_METHODS, SAFETY_CHECKS, LOGGING, ERROR_MESSAGES
+from .config import SCORE_THRESHOLDS, SAFETY_CHECKS, LOGGING
 
 from mutagen.id3 import ID3, ID3NoHeaderError, TIT2, TPE1, TALB, TPE2, TDRC, TRCK, TPOS, APIC, WXXX, COMM
 
@@ -35,7 +34,7 @@ class AppleMusicDownloader:
     Downloads tracks using YouTube Music's API (official audio tracks only).
     Supports both Apple Music and Spotify URLs.
     """
-    
+
     def _extract_spotify_metadata(self, spotify_url: str) -> dict | None:
         """Extract track metadata from a Spotify URL by parsing embed page JSON (no auth needed)."""
         max_retries = 3
@@ -49,7 +48,7 @@ class AppleMusicDownloader:
                 parsed = urllib.parse.urlparse(spotify_url)
                 path_parts = [p for p in parsed.path.split("/") if p]
                 if len(path_parts) < 2 or path_parts[0] != "track":
-                    print(f"[DEBUG] Invalid track URL format")
+                    print("[DEBUG] Invalid track URL format")
                     return None
                 track_id = path_parts[1]
                 print(f"[DEBUG] Track ID: {track_id}")
@@ -127,7 +126,7 @@ class AppleMusicDownloader:
 
                 # Fallback: if no artists from embed, try Songlink (may rate limit)
                 if not artist and attempt < max_retries - 1:
-                    print(f"[DEBUG] No artists from embed, trying Songlink fallback")
+                    print("[DEBUG] No artists from embed, trying Songlink fallback")
                     try:
                         songlink_url = f"https://api.song.link/v1-alpha.1/links?url={urllib.parse.quote(spotify_url)}&userCountry=US"
                         songlink_resp = self.session.get(songlink_url, timeout=10)
@@ -192,7 +191,7 @@ class AppleMusicDownloader:
                 time.sleep(2 ** attempt)  # Exponential backoff
 
         return None
-    
+
     @staticmethod
     def parse_url_type(url: str) -> str:
         """Determine if URL is from Apple Music or Spotify."""
@@ -219,7 +218,7 @@ class AppleMusicDownloader:
         from urllib.parse import urlparse, parse_qs
 
         parsed = urlparse(url)
-        path_parts = parsed.path.strip("/").split("/")
+        parsed.path.strip("/").split("/")
 
         # Format: /us/song/{name}/{id} or /us/album/{name}/{album_id}?i={track_id}
         result = {"url": url}
@@ -305,7 +304,7 @@ class AppleMusicDownloader:
         """Find YouTube Music URL for a track using ytmusicapi.
         Searches YouTube Music for official audio tracks only (no music videos).
         """
-        print(f"[DEBUG] === SEARCH START ===")
+        print("[DEBUG] === SEARCH START ===")
         print(f"[DEBUG] Searching YouTube Music for: '{track_name}' by '{artist_name}' (expected duration: {expected_duration_ms}ms)")
 
         # Try multiple search strategies
@@ -505,7 +504,7 @@ class AppleMusicDownloader:
                     if LOGGING["log_search_scores"]:
                         print(f"✓ Best match (score {best_score}): {best_match.get('title')} - {best_match.get('artists', [{}])[0].get('name', 'Unknown')}")
                     if best_score >= SCORE_THRESHOLDS["high_confidence_match"]:
-                        print(f"🎯 High confidence match found!")
+                        print("🎯 High confidence match found!")
                     video_id = best_match.get("videoId")
                     if video_id:
                         return f"https://music.youtube.com/watch?v={video_id}"
@@ -521,7 +520,7 @@ class AppleMusicDownloader:
                     if best_match:
                         print(f"Best available: {best_match.get('title')} by {best_match.get('artists', [{}])[0].get('name', 'Unknown')}")
 
-            print(f"[DEBUG] No suitable match found in any strategy")
+            print("[DEBUG] No suitable match found in any strategy")
 
         except ImportError:
             print("[!] ytmusicapi not available, falling back to search")
@@ -531,8 +530,8 @@ class AppleMusicDownloader:
             traceback.print_exc()
 
         # Fallback: Regular search
-        print(f"[DEBUG] All strategies failed, using fallback search")
-        print(f"[DEBUG] === SEARCH END (FALLBACK) ===")
+        print("[DEBUG] All strategies failed, using fallback search")
+        print("[DEBUG] === SEARCH END (FALLBACK) ===")
         return self._search_youtube_fallback(track_name, artist_name)
 
     def _search_youtube_fallback(self, track_name: str, artist_name: str) -> str:
@@ -577,7 +576,7 @@ class AppleMusicDownloader:
                             best = candidates[0]
                             print(f"✓ Selected: {best['title']} - {best['artists']} (score: {best['score']})")
                             if best['score'] < 10:
-                                print(f"⚠ Low confidence match, possible wrong song")
+                                print("⚠ Low confidence match, possible wrong song")
                             return f"https://music.youtube.com/watch?v={best['video_id']}"
             except Exception as e:
                 print(f"[!] yt-dlp fallback error: {e}")
@@ -615,7 +614,7 @@ class AppleMusicDownloader:
                                 artist_text = ', '.join(artists)
                                 if vid:
                                     videos.append({'videoId': vid, 'title': title, 'artists': artist_text})
-                    
+
                     if videos:
                         # Score candidates
                         candidates = []
@@ -628,12 +627,12 @@ class AppleMusicDownloader:
                                 'score': score
                             })
                             print(f"  HTML Candidate: {v['title']} - {v['artists']} (score: {score})")
-                        
+
                         candidates.sort(key=lambda x: x['score'], reverse=True)
                         best = candidates[0]
                         print(f"✓ Selected: {best['title']} - {best['artists']} (score: {best['score']})")
                         if best['score'] < 10:
-                            print(f"⚠ Low confidence match, possible wrong song")
+                            print("⚠ Low confidence match, possible wrong song")
                         return f"https://music.youtube.com/watch?v={best['video_id']}"
                 except Exception as json_err:
                     print(f"[!] JSON parse error: {json_err}")
@@ -733,7 +732,7 @@ class AppleMusicDownloader:
         video_title = ""
         video_artists = ""
         try:
-            print(f"[DEBUG] === VERIFICATION START ===")
+            print("[DEBUG] === VERIFICATION START ===")
             print(f"[DEBUG] Video ID: {video_id}")
             print(f"[DEBUG] Expected track: '{expected_track}'")
             print(f"[DEBUG] Expected artist: '{expected_artist}'")
@@ -758,7 +757,7 @@ class AppleMusicDownloader:
                             video_artists = ', '.join([a.get('name', '') for a in artists_info])
                         else:
                             video_artists = ', '.join(artists_info) if artists_info else ''
-                        print(f"[DEBUG] yt-dlp found video:")
+                        print("[DEBUG] yt-dlp found video:")
                         print(f"[DEBUG]   Title: '{video_title}'")
                         print(f"[DEBUG]   Artists: '{video_artists}'")
 
@@ -780,21 +779,21 @@ class AppleMusicDownloader:
                             print(f"[DEBUG] Duration check: {video_duration}s vs {expected_duration/1000}s (diff: {duration_diff}s)")
                             if duration_diff <= 3:  # Within 3 seconds = likely correct track
                                 duration_match = True
-                                print(f"[DEBUG] Duration MATCH (within 3s)")
+                                print("[DEBUG] Duration MATCH (within 3s)")
 
                         if title_ok and artist_ok and score >= 20:
-                            print(f"[DEBUG] ✓ Verification PASSED (score >= 20)")
+                            print("[DEBUG] ✓ Verification PASSED (score >= 20)")
                             return True
                         elif duration_match and artist_ok:
                             # If duration matches and artist matches, trust it
-                            print(f"[DEBUG] ✓ Verification PASSED (duration match + artist match)")
+                            print("[DEBUG] ✓ Verification PASSED (duration match + artist match)")
                             return True
                         elif duration_match and score >= 10:
                             # If duration matches and decent score, trust it
-                            print(f"[DEBUG] ✓ Verification PASSED (duration match + reasonable score)")
+                            print("[DEBUG] ✓ Verification PASSED (duration match + reasonable score)")
                             return True
                         else:
-                            print(f"[DEBUG] ✗ Verification FAILED (strict title/artist check)")
+                            print("[DEBUG] ✗ Verification FAILED (strict title/artist check)")
 
             except ImportError:
                 print("[!] yt-dlp not available for verification")
@@ -805,24 +804,24 @@ class AppleMusicDownloader:
 
             # Fallback: require both title and artist consistency even without
             # strong yt-dlp metadata, rather than allowing title-only matches.
-            print(f"[DEBUG] Trying fallback verification...")
+            print("[DEBUG] Trying fallback verification...")
             if video_title:
                 if self._title_matches_strict(video_title, expected_track) and (
                     not video_artists or self._artist_matches_strict(video_artists, expected_artist)
                 ):
-                    print(f"[DEBUG] ✓ Fallback verification PASSED")
+                    print("[DEBUG] ✓ Fallback verification PASSED")
                     return True
             else:
-                print(f"[DEBUG] No video title available for fallback check")
+                print("[DEBUG] No video title available for fallback check")
 
-            print(f"[DEBUG] === VERIFICATION FAILED ===")
+            print("[DEBUG] === VERIFICATION FAILED ===")
             return False
 
         except Exception as e:
             print(f"[!] Unexpected verification error: {e}")
             import traceback
             traceback.print_exc()
-            print(f"[DEBUG] === VERIFICATION FAILED (ERROR) ===")
+            print("[DEBUG] === VERIFICATION FAILED (ERROR) ===")
             return False
 
     def _request_spotube_dl(self, video_id: str) -> str | None:
@@ -1085,7 +1084,7 @@ class AppleMusicDownloader:
         # by fetching the YouTube video metadata and comparing
         if not self._verify_youtube_video(video_id, original_track, original_artist):
             # Try fallback strategies if verification fails
-            print(f"[DEBUG] Initial verification failed, trying alternative search strategies")
+            print("[DEBUG] Initial verification failed, trying alternative search strategies")
             fallback_success = False
 
             # Try searching with different artist combinations
@@ -1104,7 +1103,7 @@ class AppleMusicDownloader:
                 yt_url_fallback = self._get_youtube_url(original_track, variation, track_info.get("duration_ms", 0))
                 video_id_fallback = self._extract_video_id(yt_url_fallback)
                 if video_id_fallback and self._verify_youtube_video(video_id_fallback, original_track, variation):
-                    print(f"[DEBUG] Fallback verification successful")
+                    print("[DEBUG] Fallback verification successful")
                     video_id = video_id_fallback
                     fallback_success = True
                     break

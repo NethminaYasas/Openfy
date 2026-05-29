@@ -41,14 +41,15 @@ uvicorn app.main:app --reload
 - **Artist pages** - Dedicated artist pages with all tracks and albums
 - **Search** - Search by track title, artist name, or album title
 - **Spotify search** - Search Spotify directly from the UI
-- **Queue system** - Persistent per-user queue with shuffle and repeat modes
+- **Queue system** - Persistent per-user queue with drag-and-drop reorder, shuffle, and repeat
 - **Player state persistence** - Shuffle, repeat, and volume settings saved per user
 - **User avatars** - Upload profile pictures
 - **Audio streaming** - HTTP range-request support for seeking and partial content
 - **Admin dashboard** - User management, track management, system settings, and server stats
 - **Rate limiting** - Auth endpoints protected against brute force
 - **Stream tokens** - Time-limited tokens for secure audio streaming
-- **Docker deployment** - Containerized setup with automatic database initialization
+- **Docker deployment** - Containerized setup with automatic database initialization and healthcheck
+- **SpotiFLAC auto-update** - Docker build automatically installs latest SpotiFLAC from upstream
 
 ## Screenshots
 
@@ -84,6 +85,7 @@ Available environment variables (all prefixed with `OPENFY_`):
 | `ADMIN_USERNAME` | `` | Admin username (auto-created on startup) |
 | `ADMIN_HASH` | `` | Admin auth hash |
 | `MAX_UPLOAD_SIZE_MB` | `200` | Maximum upload file size in MB |
+| `SPOTIFLAC_PIN_VERSION` | `` | Pin SpotiFLAC to a specific version (e.g. `0.7.0`). Leave empty for latest. |
 
 ## Generating an Admin Hash
 
@@ -103,6 +105,8 @@ The `scripts/` directory contains developer/admin utilities.
 - **Audio streaming**: HTTP range requests with optional time-limited stream tokens
 - **SPA routing**: All non-API routes serve `index.html` for client-side routing
 - **Mobile**: Separate mobile UI auto-detected via User-Agent
+- **Queue Manager**: `client/modules/queue-manager.js` is the single source of truth for the playback queue
+- **SpotiFLAC**: Two-layer architecture — upstream provider-based downloader (auto-updated) + local Apple Music/Spotify YouTube Music downloader
 
 ## Tech Stack
 
@@ -110,7 +114,7 @@ The `scripts/` directory contains developer/admin utilities.
 - **Backend**: FastAPI (Python 3.12+)
 - **Database**: SQLite via SQLAlchemy
 - **Auth**: X-Auth-Hash header (token-based, no Bearer/JWT)
-- **Containerization**: Docker with multi-stage builds
+- **Containerization**: Docker with healthcheck and auto-restart
 
 ## License
 

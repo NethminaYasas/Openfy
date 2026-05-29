@@ -1706,7 +1706,6 @@ def _cache_artist_image(artist_id: str, image_url: str) -> bool:
 
 def _prefetch_artist_images():
     """Background task: prefetch and cache artist images for all artists missing them."""
-    import threading
     from .db import SessionLocal
 
     logger.info("Starting background artist image prefetch...")
