@@ -240,7 +240,6 @@ export async function togglePlay() {
 }
 
 export function playByIndex(index, fromRepeat) {
-      
   if (!state.currentQueue.length) return;
   if (index < 0 || index >= state.currentQueue.length) return;
   state.currentIndex = index;
@@ -250,8 +249,10 @@ export function playByIndex(index, fromRepeat) {
     document.getElementById("btn-repeat").classList.remove("active", "loop-twice");
   }
   playTrack(state.currentQueue[state.currentIndex]);
-  // Don't save queue on auto play - only save on user actions
-  // This prevents queue reordering when tracks change automatically
+  // Save the updated index to server so it persists across page reloads.
+  // queueSave captures the current state snapshot, so even if the queue
+  // changes again before the async save completes, the correct data is sent.
+  queueSave();
 }
 
 export function playTrack(track) {

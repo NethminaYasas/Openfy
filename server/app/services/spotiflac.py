@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 import threading
 import logging
 from pathlib import Path
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from mutagen import File as MutagenFile
 from sqlalchemy.orm import Session
@@ -16,6 +14,8 @@ from ..models import DownloadJob, Track
 from ..settings import settings
 from .storage import ensure_dirs, is_audio_file, store_upload
 from .library import scan_paths
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_apple_music_url(track_name: str, artist_name: str, duration_ms: int = 0) -> str | None:
@@ -81,7 +81,6 @@ def _download_via_apple_proxy(track_url: str, output_dir: str, codec: str = "aac
     if job_data.get("success") and job_data.get("stream_url"):
         stream_url = job_data["stream_url"]
     elif job_data.get("job_id"):
-        # Queued download - poll for completion
         job_id = job_data["job_id"]
         deadline = time.time() + 600
         while time.time() < deadline:
@@ -103,7 +102,6 @@ def _download_via_apple_proxy(track_url: str, output_dir: str, codec: str = "aac
     else:
         raise Exception(f"Apple Music proxy error: {job_data}")
 
-    # Download the stream
     os.makedirs(output_dir, exist_ok=True)
     from urllib.parse import urlparse
     parsed = urlparse(track_url)
@@ -113,7 +111,7 @@ def _download_via_apple_proxy(track_url: str, output_dir: str, codec: str = "aac
         filename += ".m4a"
     output_path = os.path.join(output_dir, filename)
 
-    with requests.get(stream_url, stream=True, timeout=30) as r:
+    with requests.get(stream_url, stream=True, timeout=(10, 300)) as r:
         r.raise_for_status()
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -125,12 +123,10 @@ def _download_via_apple_proxy(track_url: str, output_dir: str, codec: str = "aac
 
 def _extract_source_id(url: str) -> str | None:
     """Extract track ID from Spotify or Apple Music URL."""
-    # Spotify: https://open.spotify.com/track/xyz123?...
     spotify_match = re.search(r"spotify\.com/track/([a-zA-Z0-9]+)", url)
     if spotify_match:
         return f"spotify:{spotify_match.group(1)}"
 
-    # Apple Music: https://music.apple.com/us/track/name/id123456789
     apple_match = re.search(r"music\.apple\.com/[^/]+/track/[^/]+/(\d+)", url)
     if apple_match:
         return f"apple:{apple_match.group(1)}"
@@ -138,17 +134,11 @@ def _extract_source_id(url: str) -> str | None:
     return None
 
 
-logger = logging.getLogger(__name__)
-
 SPOTIFY_TRACK_SOURCE_OVERRIDES: dict[str, str] = {
     "6V9CHG6y1FmHiLv3REsCy8": "https://music.youtube.com/watch?v=iIm4gcybpsI",
     "2z1xxec9iMmanvQEYsuJUO": "https://music.youtube.com/watch?v=zKCij1se4lo",
     "17LHJ9PlRZEHcUruRd7mll": "https://music.youtube.com/watch?v=SSu75qEX3Kg",
 }
-
-# Local SpotiFLAC source
-SPOTIFLAC_SRC = Path(__file__).resolve().parents[2] / "SpotiFLAC"
-_spotiflac_added = False
 
 
 def _normalize_for_match(text: str) -> str:
@@ -247,22 +237,16 @@ def _validate_download_against_expected(
     duration_diff = abs(actual_duration_ms - expected_duration_ms)
     duration_tolerance_ms = 5000
     if duration_diff > duration_tolerance_ms:
-        print(
-            f"[WARNING] Downloaded duration mismatch (expected {expected_duration_ms}ms, got {actual_duration_ms}ms)"
+        logger.warning(
+            "Downloaded duration mismatch (expected %dms, got %dms)",
+            expected_duration_ms, actual_duration_ms,
         )
 
 
-def _ensure_spotiflac_import() -> None:
-    global _spotiflac_added
-    if _spotiflac_added:
-        return
-    src = SPOTIFLAC_SRC.resolve()
-    # Check for local SpotiFLAC directory (either as SpotiFLAC/ subdir or directly)
-    local_spotiflac = src / "SpotiFLAC" if src.name != "SpotiFLAC" else src
-    if src.is_dir() and (local_spotiflac.exists() or src.exists()):
-        if str(src) not in sys.path:
-            sys.path.insert(0, str(src))
-        _spotiflac_added = True
+def _get_apple_downloader():
+    """Get the AppleMusicDownloader from Openfy's local package."""
+    from ..spotiflac_local.appleDL import AppleMusicDownloader
+    return AppleMusicDownloader()
 
 
 def _append_log(db, job: DownloadJob, text: str) -> None:
@@ -273,12 +257,11 @@ def _append_log(db, job: DownloadJob, text: str) -> None:
 
 
 def _download_with_yt_music(
-    job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None, album_source_id: str | None = None
+    job_id: str, query: str, db_url: str, user_hash: str | None = None,
+    artist_url: str | None = None, album_source_id: str | None = None,
 ) -> None:
     """Download from Apple Music or Spotify URL using ytmusicapi (official audio tracks)."""
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"[DOWNLOAD] Starting download job {job_id}: query={query}, album_source_id={album_source_id}")
+    logger.info("[DOWNLOAD] Starting download job %s: query=%s, album_source_id=%s", job_id, query, album_source_id)
 
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -310,9 +293,7 @@ def _download_with_yt_music(
             if not is_spotify and not is_apple_music:
                 raise Exception("Only Spotify and Apple Music URLs are supported")
 
-            _ensure_spotiflac_import()
-            from SpotiFLAC.appleDL import AppleMusicDownloader
-            downloader = AppleMusicDownloader()
+            downloader = _get_apple_downloader()
 
             if is_apple_music:
                 downloaded_file = downloader.download_by_apple_music_url(
@@ -327,14 +308,12 @@ def _download_with_yt_music(
 
             downloaded_path = Path(downloaded_file)
 
-            # Move to library and scan
             if is_audio_file(downloaded_path):
                 moved = store_upload(
                     downloaded_path,
                     settings.music_dir,
                 )
                 source_id = _extract_source_id(query)
-                album_source_id = job.album_source_id if job else None
                 if moved:
                     scan_paths(
                         db,
@@ -356,8 +335,9 @@ def _download_with_yt_music(
                 job.status = "failed"
                 _append_log(db, job, "Downloaded file is not a recognized audio file")
 
-        except ImportError:
-            _append_log(db, job, f"Downloader not found at {SPOTIFLAC_SRC}")
+        except ImportError as e:
+            logger.error("Local SpotiFLAC package not found: %s", e)
+            _append_log(db, job, "Downloader module not available")
             job.status = "failed"
         except Exception as e:
             logger.exception("Download failed for job %s", job_id)
@@ -370,9 +350,10 @@ def _download_with_yt_music(
 
 
 def _run_download(
-    job_id: str, query: str, db_url: str, user_hash: str | None = None, artist_url: str | None = None
+    job_id: str, query: str, db_url: str, user_hash: str | None = None,
+    artist_url: str | None = None,
 ) -> None:
-    """Download from Spotify/other URLs using SpotiFLAC."""
+    """Download from Spotify/other URLs using the upstream SpotiFLAC package."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -393,11 +374,9 @@ def _run_download(
         job.status = "running"
         db.commit()
 
-        # Extract source_id for duplicate detection
         source_id = _extract_source_id(query)
 
         try:
-            _ensure_spotiflac_import()
             from SpotiFLAC import SpotiFLAC
 
             ensure_dirs()
@@ -433,14 +412,7 @@ def _run_download(
                     p for p in settings.downloads_dir.rglob("*") if p.is_file()
                 )
                 new_files = files_after - files_before
-                if new_files and attempt < 5:
-                    _append_log(
-                        db,
-                        job,
-                        f"Waiting for download to complete... (attempt {attempt + 1})",
-                    )
-                    continue
-                elif not new_files and attempt < 5:
+                if attempt < 5:
                     _append_log(
                         db,
                         job,
@@ -465,7 +437,6 @@ def _run_download(
                 db.commit()
                 return
 
-            # Get album_source_id from job
             album_source_id = job.album_source_id if job else None
 
             scan_paths(
@@ -483,8 +454,9 @@ def _run_download(
                 job.output_path = str(moved_files[0])
             job.source = "spotiflac"
 
-        except ImportError:
-            _append_log(db, job, f"SpotiFLAC source not found at {SPOTIFLAC_SRC}")
+        except ImportError as e:
+            logger.error("Upstream SpotiFLAC package not installed: %s", e)
+            _append_log(db, job, "SpotiFLAC package not available - install via pip")
             job.status = "failed"
         except Exception as e:
             logger.exception("Download failed for job %s", job_id)
@@ -497,8 +469,8 @@ def _run_download(
 
 
 def queue_download(
-    db: Session, query: str, source: str = "auto", user_hash: str | None = None, artist_url: str | None = None,
-    album_source_id: str | None = None,
+    db: Session, query: str, source: str = "auto", user_hash: str | None = None,
+    artist_url: str | None = None, album_source_id: str | None = None,
 ) -> DownloadJob:
     job = DownloadJob(
         source="spotiflac", query=query, status="queued", user_hash=user_hash,
@@ -514,15 +486,14 @@ def queue_download(
         db.commit()
         return job
 
-    # Check for duplicate track by source_id or title+artist (Spotify/Apple Music URLs)
     from sqlalchemy import select
 
     source_id = _extract_source_id(query)
     is_apple = "music.apple.com" in query
     is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
+    is_youtube_music = "music.youtube.com" in query or "youtube.com/watch" in query
 
     if source_id:
-        # Check by source_id first
         existing = db.execute(
             select(Track).where(Track.source_id == source_id)
         ).scalar_one_or_none()
@@ -532,15 +503,9 @@ def queue_download(
             db.commit()
             return job
 
-    # Fuzzy duplicate check by title + artist for any URL
-    is_apple = "music.apple.com" in query
-    is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
-    is_youtube_music = "music.youtube.com" in query or "youtube.com/watch" in query
     if is_apple or is_spotify or is_youtube_music:
         try:
-            _ensure_spotiflac_import()
-            from SpotiFLAC.appleDL import AppleMusicDownloader
-            downloader = AppleMusicDownloader()
+            downloader = _get_apple_downloader()
             url_type = downloader.parse_url_type(query)
             track_info = None
             if url_type == "spotify":
@@ -561,25 +526,21 @@ def queue_download(
                             db.commit()
                             return job
         except Exception:
-            pass  # Don't block download if metadata fetch fails
+            pass
 
-    # Route Apple Music, Spotify, and YouTube Music URLs to the ytmusicapi-based downloader
-    is_apple = "music.apple.com" in query
-    is_spotify = "open.spotify.com" in query or "play.spotify.com" in query
-    is_youtube_music = "music.youtube.com" in query or "youtube.com/watch" in query
     if is_apple or is_spotify or is_youtube_music:
         job.source = "spotify" if is_spotify else ("apple_music" if is_apple else "youtube_music")
         db.commit()
         thread = threading.Thread(
             target=lambda: _download_with_yt_music(
-                job.id, query, settings.database_url, user_hash, artist_url=artist_url, album_source_id=album_source_id
+                job.id, query, settings.database_url, user_hash,
+                artist_url=artist_url, album_source_id=album_source_id,
             ),
             daemon=True,
         )
         thread.start()
         return job
 
-    # All other URLs go through SpotiFLAC
     thread = threading.Thread(
         target=_run_download,
         args=(job.id, query, settings.database_url, user_hash, artist_url),

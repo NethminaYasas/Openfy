@@ -7,10 +7,10 @@ python-multipart==0.0.27
 mutagen==1.47.0
 git+https://github.com/ShuShuzinhuu/SpotiFLAC-Module-Version.git
 
-requests
+requests>=2.32.3
 
 # YouTube Music API for audio-only downloads
-ytmusicapi
-beautifulsoup4
-yt-dlp
+ytmusicapi>=1.4.2
+beautifulsoup4>=4.12.3
+yt-dlp>=2024.10.22
 Pillow==12.2.0

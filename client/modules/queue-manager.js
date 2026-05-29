@@ -8,9 +8,9 @@
  *      state.currentIndex directly.  All mutations go through the
  *      exported functions below.
  *   2. Every mutation is followed by a single renderNowPlayingQueue()
- *      call (via _commit) and a debounced server/localStorage save.
+ *      call (via _commit) and an immediate server/localStorage save.
  *   3. The server save captures a snapshot at call-time so that even
- *      if the queue changes again before the 400 ms debounce fires,
+ *      if the queue changes again before the async save completes,
  *      the correct (latest) data is sent.
  *   4. A monotonic version counter drops stale in-flight saves so a
  *      slow network response can never overwrite a newer queue state.
@@ -26,7 +26,7 @@ const INDEX_KEY   = 'openfy_queue_index';
 const MAX_CAP     = 20;
 
 let _version      = 0;   // monotonic; stale async saves are dropped
-let _saveTimer    = null; // debounce handle
+let _saveInFlight = null; // AbortController for in-flight server save
 
 /** Write queue + index into the module-owned state fields (plain arrays). */
 function _set(arr, index) {
@@ -37,7 +37,7 @@ function _set(arr, index) {
                           : -1;
 }
 
-/** Persist to localStorage immediately, then debounce server save. */
+/** Persist to localStorage immediately, then fire server save immediately. */
 function _save() {
   // ① localStorage — synchronous, instant
   try {
@@ -45,25 +45,34 @@ function _save() {
     localStorage.setItem(INDEX_KEY,  String(state.currentIndex));
   } catch (_) { /* storage full — ignore */ }
 
-  // ② Server — debounced 400 ms; snapshot taken NOW so the right data
-  //    is sent even if another mutation happens before the timer fires.
+  // ② Server — fire immediately (not debounced) so the server always has
+  //    the latest queue state. A version counter drops stale in-flight saves.
   _version++;
   const capturedVersion = _version;
   const capturedIds     = state._queue.map(t => t.id);
   const capturedIndex   = state.currentIndex;
 
-  if (_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(async () => {
-    _saveTimer = null;
-    // Drop if a newer mutation superseded us
-    if (capturedVersion !== _version) return;
-    if (!state.authHash) return;
-    try {
-      await saveQueueToServerWithData(capturedIds, capturedIndex);
-    } catch (err) {
+  // Cancel any previous in-flight save (it's stale now)
+  if (_saveInFlight) {
+    _saveInFlight.abort();
+    _saveInFlight = null;
+  }
+
+  if (!state.authHash) return;
+
+  const controller = new AbortController();
+  _saveInFlight = controller;
+
+  saveQueueToServerWithData(capturedIds, capturedIndex)
+    .then(() => {
+      if (controller.signal.aborted) return; // superseded by newer save
+      _saveInFlight = null;
+    })
+    .catch((err) => {
+      if (controller.signal.aborted) return;
+      _saveInFlight = null;
       console.error('[QueueManager] server save failed:', err);
-    }
-  }, 400);
+    });
 }
 
 /** Registered synchronously from audio-player to avoid circular async import. */
@@ -228,8 +237,7 @@ export function queueEnforceCap() {
 }
 
 /**
- * Advance currentIndex (does NOT re-render or save — the caller handles that
- * by calling playTrack which triggers renderNowPlayingQueue).
+ * Advance currentIndex and save to server + localStorage.
  * Returns the new index, or -1 if advance is not possible.
  *
  * @param {number} index  - Absolute queue index to jump to.
@@ -237,10 +245,8 @@ export function queueEnforceCap() {
 export function queueJumpTo(index) {
   if (index < 0 || index >= state._queue.length) return -1;
   state.currentIndex = index;
-  // Save index immediately (no debounce needed for just an index change)
-  try {
-    localStorage.setItem(INDEX_KEY, String(index));
-  } catch (_) { /* ignore */ }
+  // Save to localStorage + server so the server always knows the current position
+  _save();
   return index;
 }
 
