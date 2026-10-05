@@ -13,4 +13,4 @@ requests>=2.32.3
 ytmusicapi>=1.4.2
 beautifulsoup4>=4.12.3
 yt-dlp>=2024.10.22
-Pillow==12.2.0
+Pillow==12.3.0
