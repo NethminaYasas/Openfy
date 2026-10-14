@@ -11,6 +11,14 @@ services:
       - .env
     environment:
       - OPENFY_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+      # Pin absolute container paths so the relative ./data paths in host .env
+      # cannot redirect storage to ephemeral /app/data (compose `environment:`
+      # wins over `env_file`, which wins over Dockerfile ENV).
+      - OPENFY_DATA_DIR=/data
+      - OPENFY_MUSIC_DIR=/data/music
+      - OPENFY_DOWNLOADS_DIR=/data/downloads
+      - OPENFY_ARTWORK_DIR=/data/artwork
+      - OPENFY_DATABASE_URL=sqlite:////data/openfy.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
