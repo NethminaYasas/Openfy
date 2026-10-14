@@ -9,6 +9,7 @@ the credentials needed to access Spotify's data.
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -164,8 +165,12 @@ class Session:
                 "is_anonymous": self.is_anonymous,
             }
 
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(session_data, f, indent=2)
+            # Keep credentials private while writing and replace any old permissions.
+            # Use the destination filesystem so replacement is atomic.
+            with tempfile.TemporaryDirectory(dir=os.path.dirname(filepath) or ".") as temp_dir:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=temp_dir, delete=False) as f:
+                    json.dump(session_data, f, indent=2)
+                os.replace(f.name, filepath)
 
             logger.debug("Saved session to %s", filepath)
             return True
