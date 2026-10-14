@@ -33,8 +33,12 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from spotify_scraper.browsers.base import Browser
+from spotify_scraper.browsers.requests_browser import (
+    ALLOWED_SPOTIFY_PAGE_HOSTS,
+    _canonicalize_https_url,
+)
 from spotify_scraper.core.constants import MAX_GENERIC_DOWNLOAD_BYTES, STREAM_CHUNK_SIZE
-from spotify_scraper.core.exceptions import BrowserError, ParsingError
+from spotify_scraper.core.exceptions import BrowserError, NetworkError, ParsingError
 
 logger = logging.getLogger(__name__)
 
@@ -145,12 +149,23 @@ class SeleniumBrowser(Browser):
             Page content as string
         """
         try:
-            logger.debug("Navigating to %s", url)
-            self.driver.get(url)
+            # Canonicalize to HTTPS on an allowed Spotify host before
+            # navigating, so plaintext-HTTP URLs cannot expose the fetch
+            # to Location-header substitution (CWE-918).
+            canonical_url = _canonicalize_https_url(url, ALLOWED_SPOTIFY_PAGE_HOSTS)
+        except (NetworkError, BrowserError):
+            raise
+        except Exception as e:
+            raise NetworkError(f"Invalid Spotify URL: {e}", url=url) from e
+        try:
+            logger.debug("Navigating to %s", canonical_url)
+            self.driver.get(canonical_url)
             return self.driver.page_source
+        except (NetworkError, BrowserError):
+            raise
         except WebDriverException as e:
-            logger.error("Failed to navigate to %s: %s", url, e)
-            raise BrowserError(f"Failed to navigate to {url}: {e}") from e
+            logger.error("Failed to navigate to %s: %s", canonical_url, e)
+            raise BrowserError(f"Failed to navigate to {canonical_url}: {e}") from e
 
     def get_json(self, url: str) -> Dict[str, Any]:
         """
@@ -188,7 +203,9 @@ class SeleniumBrowser(Browser):
             if urlparse(url).scheme.lower() != "https":
                 raise BrowserError(f"Refusing to download over insecure scheme: {url!r}")
 
-            with requests.get(url, stream=True, timeout=30) as response:
+            with requests.get(url, stream=True, timeout=30, allow_redirects=False) as response:
+                if 300 <= response.status_code < 400:
+                    raise BrowserError(f"Refusing redirected file download from {url!r}")
                 response.raise_for_status()
 
                 try:
