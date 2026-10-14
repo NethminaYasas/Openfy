@@ -11,7 +11,6 @@ import logging
 import os
 import time
 from typing import Any, Dict, FrozenSet, Optional
-from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -31,93 +30,53 @@ from spotify_scraper.core.constants import (
     STREAM_CHUNK_SIZE,
 )
 from spotify_scraper.core.exceptions import AuthenticationError, BrowserError, NetworkError
+from spotify_scraper.utils.download import (
+    ALLOWED_MEDIA_HOSTS,
+    ALLOWED_SPOTIFY_API_HOSTS,
+    ALLOWED_SPOTIFY_PAGE_HOSTS,
+    MAX_MANUAL_REDIRECTS,
+    REDIRECT_STATUS_CODES,
+    canonicalize_https_url,
+    is_allowed_media_url,
+    resolve_redirect,
+)
 
 logger = logging.getLogger(__name__)
 
-# Hosts that page/API fetches may target. Redirects are only followed when
-# the destination stays on HTTPS and within this allowlist, so a
-# plaintext-HTTP response with an attacker-substituted Location header
-# cannot pivot the server to a private/internal endpoint (CWE-918).
-ALLOWED_SPOTIFY_PAGE_HOSTS: FrozenSet[str] = frozenset(
-    {
-        "open.spotify.com",
-        "play.spotify.com",
-        "embed.spotify.com",
-        "www.spotify.com",
-        "spotify.com",
-    }
-)
-ALLOWED_SPOTIFY_API_HOSTS: FrozenSet[str] = frozenset(
-    set(ALLOWED_SPOTIFY_PAGE_HOSTS) | {"api.spotify.com", "accounts.spotify.com"}
-)
-# Media (preview/cover) CDN suffixes accepted for download redirects.
-ALLOWED_MEDIA_HOST_SUFFIXES = (".scdn.co",)
-ALLOWED_MEDIA_HOSTS: FrozenSet[str] = frozenset(
-    set(ALLOWED_SPOTIFY_API_HOSTS) | {"i.scdn.co", "mos.scdn.co", "p.scdn.co", "scdn.co"}
-)
-MAX_MANUAL_REDIRECTS = 5
-_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+# Re-exported for backwards compatibility (also imported by selenium_browser).
+__all__ = [
+    "ALLOWED_MEDIA_HOSTS",
+    "ALLOWED_SPOTIFY_API_HOSTS",
+    "ALLOWED_SPOTIFY_PAGE_HOSTS",
+    "MAX_MANUAL_REDIRECTS",
+    "RequestsBrowser",
+]
+_REDIRECT_STATUS_CODES = REDIRECT_STATUS_CODES
 
 
 def _canonicalize_https_url(url: str, allowed_hosts: FrozenSet[str], *, url_name: str = "URL") -> str:
-    """Return the canonical HTTPS form of *url* after allowlist validation.
+    """Canonicalize *url* to HTTPS after allowlist validation (CWE-918).
 
-    Rejects non-HTTP(S) schemes, embedded credentials, and hosts outside
-    *allowed_hosts*. Plaintext ``http://`` Spotify URLs are upgraded to
-    ``https://`` so the initial request never traverses plaintext HTTP
-    where a Location header could be substituted (CWE-918).
+    Thin wrapper binding :exc:`NetworkError` as the error factory; see
+    :func:`spotify_scraper.utils.download.canonicalize_https_url`.
     """
-    if not isinstance(url, str) or not url:
-        raise NetworkError(
-            f"Invalid {url_name}: URL must be a non-empty string",
-            url=url if isinstance(url, str) else None,
-        )
-    parsed = urlparse(url)
-    scheme = (parsed.scheme or "").lower()
-    if scheme not in ("http", "https"):
-        raise NetworkError(f"Refusing to fetch {url_name} with non-HTTP(S) scheme: {url!r}", url=url)
-    host = (parsed.hostname or "").lower()
-    if not host or host not in allowed_hosts:
-        raise NetworkError(f"Refusing to fetch {url_name} with disallowed host: {url!r}", url=url)
-    if parsed.username or parsed.password:
-        raise NetworkError(f"Refusing to fetch {url_name} with embedded credentials: {url!r}", url=url)
-    # Force authenticated HTTPS transport; drop any explicit default port.
-    netloc = host
-    try:
-        port = parsed.port
-    except ValueError:
-        raise NetworkError(f"Refusing to fetch {url_name} with invalid port: {url!r}", url=url) from None
-    if port and not (scheme == "http" and port == 80 or port == 443):
-        netloc = f"{host}:{port}"
-    return urlunparse(parsed._replace(scheme="https", netloc=netloc))
+    return canonicalize_https_url(
+        url, allowed_hosts, error_factory=NetworkError, url_name=url_name
+    )
 
 
 def _resolve_redirect(current_url: str, location: str, allowed_hosts: FrozenSet[str]) -> str:
-    """Resolve *location* against *current_url* and validate the destination."""
-    if not location:
-        raise NetworkError("Redirect response missing Location header", url=current_url)
-    destination = urljoin(current_url, location)
-    return _canonicalize_https_url(destination, allowed_hosts, url_name="redirect destination")
+    """Resolve and validate a redirect destination (CWE-918).
+
+    Thin wrapper binding :exc:`NetworkError` as the error factory; see
+    :func:`spotify_scraper.utils.download.resolve_redirect`.
+    """
+    return resolve_redirect(current_url, location, allowed_hosts, error_factory=NetworkError)
 
 
 def _is_allowed_media_url(url: str) -> bool:
     """Check whether *url* is an HTTPS Spotify/media URL without raising."""
-    if not isinstance(url, str) or not url:
-        return False
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return False
-    if parsed.scheme.lower() != "https":
-        return False
-    if parsed.username or parsed.password:
-        return False
-    host = (parsed.hostname or "").lower()
-    if not host:
-        return False
-    if host in ALLOWED_MEDIA_HOSTS:
-        return True
-    return host.endswith(ALLOWED_MEDIA_HOST_SUFFIXES)
+    return is_allowed_media_url(url)
 
 
 class RequestsBrowser(Browser):

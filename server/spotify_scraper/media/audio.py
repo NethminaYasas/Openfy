@@ -36,7 +36,15 @@ from spotify_scraper.core.constants import (
 from spotify_scraper.core.exceptions import DownloadError
 from spotify_scraper.core.types import TrackData
 from spotify_scraper.media.image import ImageDownloader
-from spotify_scraper.utils.download import check_content_length, require_https_url
+from spotify_scraper.utils.download import (
+    ALLOWED_MEDIA_HOSTS,
+    MAX_MANUAL_REDIRECTS,
+    REDIRECT_STATUS_CODES,
+    canonicalize_https_url,
+    check_content_length,
+    require_https_url,
+    resolve_redirect,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,8 +208,42 @@ class AudioDownloader:
         # Download the audio
         try:
             logger.debug("Downloading preview audio from %s", preview_url)
+            # The preview URL comes from page metadata, which is untrusted
+            # input for this request (CWE-918). Require HTTPS, then validate
+            # the destination against the supported HTTPS media hosts
+            # (including a non-public-address check) before requesting it.
             require_https_url(preview_url, error_factory=DownloadError)
-            with requests.get(preview_url, stream=True, timeout=30) as response:
+            current_url = canonicalize_https_url(
+                preview_url,
+                ALLOWED_MEDIA_HOSTS,
+                error_factory=DownloadError,
+                url_name="preview URL",
+            )
+
+            # Resolve redirects manually so each destination is validated
+            # before the next request is issued.
+            response = None
+            for _ in range(MAX_MANUAL_REDIRECTS + 1):
+                candidate = requests.get(
+                    current_url, stream=True, timeout=30, allow_redirects=False
+                )
+                if candidate.status_code not in REDIRECT_STATUS_CODES:
+                    response = candidate
+                    break
+                location = candidate.headers.get("Location")
+                candidate.close()
+                current_url = resolve_redirect(
+                    current_url, location, ALLOWED_MEDIA_HOSTS, error_factory=DownloadError
+                )
+                logger.debug("Following validated media redirect to: %s", current_url)
+            if response is None:
+                raise DownloadError(
+                    message="Too many redirects downloading preview audio",
+                    url=preview_url,
+                    path=file_path,
+                )
+
+            with response as response:
                 response.raise_for_status()
                 check_content_length(response, MAX_AUDIO_DOWNLOAD_BYTES, error_factory=DownloadError)
 
@@ -221,7 +263,7 @@ class AudioDownloader:
                                         "Preview audio exceeds size limit of "
                                         f"{MAX_AUDIO_DOWNLOAD_BYTES} bytes"
                                     ),
-                                    url=preview_url,
+                                    url=current_url,
                                     path=file_path,
                                 )
                             f.write(chunk)
