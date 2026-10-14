@@ -78,3 +78,13 @@ MAX_SESSION_RETRIES = 3
 DEFAULT_BROWSER_TYPE = "requests"
 SELENIUM_TIMEOUT = 30
 SELENIUM_IMPLICIT_WAIT = 10
+
+# Media download safety limits (decoded bytes, CWE-409 decompression-bomb guard).
+# `requests.iter_content` yields transparently decompressed chunks, so a small
+# compressed response can expand ~1000x on disk. Every streaming download loop
+# must enforce the cumulative decoded-byte limit below *before* each write and
+# remove the partial file when the limit is exceeded.
+MAX_IMAGE_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MiB: covers are typically < 1 MiB
+MAX_AUDIO_DOWNLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB: 30s previews + 1-2 min episode clips
+MAX_GENERIC_DOWNLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB fallback for browser download_file
+STREAM_CHUNK_SIZE = 8192

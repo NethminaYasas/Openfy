@@ -8,8 +8,10 @@ still handles the essential tasks of getting web page content.
 """
 
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -21,7 +23,13 @@ except ImportError:
 
 from spotify_scraper.auth.session import Session
 from spotify_scraper.browsers.base import Browser
-from spotify_scraper.core.constants import DEFAULT_HEADERS, DEFAULT_RETRIES, DEFAULT_TIMEOUT
+from spotify_scraper.core.constants import (
+    DEFAULT_HEADERS,
+    DEFAULT_RETRIES,
+    DEFAULT_TIMEOUT,
+    MAX_GENERIC_DOWNLOAD_BYTES,
+    STREAM_CHUNK_SIZE,
+)
 from spotify_scraper.core.exceptions import AuthenticationError, BrowserError, NetworkError
 
 logger = logging.getLogger(__name__)
@@ -261,27 +269,62 @@ class RequestsBrowser(Browser):
         try:
             logger.debug("Downloading file from %s to %s", url, path)
 
+            # Require HTTPS so substituted metadata cannot downgrade the
+            # media fetch to plaintext HTTP (MITM substitution vector).
+            if urlparse(url).scheme.lower() != "https":
+                raise NetworkError(f"Refusing to download over insecure scheme: {url!r}", url=url)
+
             # Apply rate limiting
             self._apply_rate_limit()
 
             # Stream the download to handle large files efficiently
-            response = self.requests_session.get(
+            with self.requests_session.get(
                 url,
                 stream=True,
                 timeout=self.timeout,
-            )
+            ) as response:
+                response.raise_for_status()
 
-            response.raise_for_status()
+                try:
+                    declared = response.headers.get("Content-Length")
+                    if declared not in (None, "") and int(str(declared).strip()) > MAX_GENERIC_DOWNLOAD_BYTES:
+                        raise NetworkError(
+                            f"Download exceeds size limit of {MAX_GENERIC_DOWNLOAD_BYTES} bytes",
+                            url=url,
+                        )
+                except NetworkError:
+                    raise
+                except (TypeError, ValueError):
+                    pass
 
-            # Save the file in chunks
-            with open(path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:  # Filter out keep-alive chunks
-                        f.write(chunk)
+                # Save the file in chunks, enforcing the cumulative
+                # *decoded*-byte limit before each write (CWE-409:
+                # compressed responses expand ~1000x on disk).
+                total_bytes = 0
+                try:
+                    with open(path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
+                            if chunk:  # Filter out keep-alive chunks
+                                total_bytes += len(chunk)
+                                if total_bytes > MAX_GENERIC_DOWNLOAD_BYTES:
+                                    raise NetworkError(
+                                        f"Download exceeds size limit of {MAX_GENERIC_DOWNLOAD_BYTES} bytes",
+                                        url=url,
+                                    )
+                                f.write(chunk)
+                except Exception:
+                    try:
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except OSError:
+                        pass
+                    raise
 
             logger.debug("Successfully downloaded file to %s", path)
             return path
 
+        except (NetworkError, BrowserError):
+            raise
         except Exception as e:
             logger.error("Error downloading file from %s: %s", url, e)
             raise NetworkError(f"Download error: {e}", url=url) from e

@@ -28,9 +28,15 @@ from typing import Optional
 import requests
 
 from spotify_scraper.browsers.base import Browser
+from spotify_scraper.core.constants import (
+    MAX_AUDIO_DOWNLOAD_BYTES,
+    MAX_IMAGE_DOWNLOAD_BYTES,
+    STREAM_CHUNK_SIZE,
+)
 from spotify_scraper.core.exceptions import DownloadError
 from spotify_scraper.core.types import TrackData
 from spotify_scraper.media.image import ImageDownloader
+from spotify_scraper.utils.download import check_content_length, require_https_url
 
 logger = logging.getLogger(__name__)
 
@@ -194,12 +200,40 @@ class AudioDownloader:
         # Download the audio
         try:
             logger.debug("Downloading preview audio from %s", preview_url)
-            response = requests.get(preview_url, stream=True, timeout=30)
-            response.raise_for_status()
+            require_https_url(preview_url, error_factory=DownloadError)
+            with requests.get(preview_url, stream=True, timeout=30) as response:
+                response.raise_for_status()
+                check_content_length(response, MAX_AUDIO_DOWNLOAD_BYTES, error_factory=DownloadError)
 
-            with open(file_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                total_bytes = 0
+                try:
+                    with open(file_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
+                            if not chunk:  # Filter out keep-alive chunks
+                                continue
+                            # Enforce cumulative *decoded*-byte limit before each
+                            # write: iter_content transparently decompresses, so a
+                            # small compressed response can expand ~1000x (CWE-409).
+                            total_bytes += len(chunk)
+                            if total_bytes > MAX_AUDIO_DOWNLOAD_BYTES:
+                                raise DownloadError(
+                                    message=(
+                                        "Preview audio exceeds size limit of "
+                                        f"{MAX_AUDIO_DOWNLOAD_BYTES} bytes"
+                                    ),
+                                    url=preview_url,
+                                    path=file_path,
+                                )
+                            f.write(chunk)
+                except Exception:
+                    # Remove partial files so a limit breach (or any write
+                    # failure) cannot exhaust disk space with truncated output.
+                    try:
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                    except OSError:
+                        pass
+                    raise
 
             logger.debug("Preview audio saved to %s", file_path)
 
@@ -208,6 +242,8 @@ class AudioDownloader:
                 self._embed_cover(file_path, track_data)
 
             return file_path
+        except DownloadError:
+            raise
         except Exception as e:
             logger.error("Failed to download preview audio: %s", e)
             raise DownloadError(
@@ -267,9 +303,22 @@ class AudioDownloader:
                 if "album" in track_data:
                     audio_file.tag.album = track_data["album"].get("name", "")
 
-                # Embed cover image
+                # Embed cover image (bounded: never read an unbounded cover file into memory)
+                cover_size = os.path.getsize(temp_cover_path)
+                if cover_size > MAX_IMAGE_DOWNLOAD_BYTES:
+                    logger.warning(
+                        "Cover image %s exceeds size limit (%d > %d bytes), skipping embedding",
+                        temp_cover_path,
+                        cover_size,
+                        MAX_IMAGE_DOWNLOAD_BYTES,
+                    )
+                    return
                 with open(temp_cover_path, "rb") as f:
-                    audio_file.tag.images.set(3, f.read(), "image/jpeg")
+                    cover_data = f.read(MAX_IMAGE_DOWNLOAD_BYTES + 1)
+                if len(cover_data) > MAX_IMAGE_DOWNLOAD_BYTES:
+                    logger.warning("Cover image exceeds size limit, skipping embedding")
+                    return
+                audio_file.tag.images.set(3, cover_data, "image/jpeg")
 
                 # Save changes
                 audio_file.tag.save()
