@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, ConfigDict
 
+from .settings import ADMIN_TOKEN_PATTERN
+
 if TYPE_CHECKING:
     from .schemas import AlbumOut, TrackForArtist
 
@@ -149,7 +151,10 @@ class UserSignup(BaseModel):
 
 
 class UserSignin(BaseModel):
-    auth_hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    auth_hash: str = Field(
+        ..., min_length=64, max_length=64,
+        pattern=rf"^(?:[0-9a-f]{{64}}|{ADMIN_TOKEN_PATTERN})$",
+    )
 
 
 class UserUploadPreferenceUpdate(BaseModel):

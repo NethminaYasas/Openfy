@@ -83,17 +83,28 @@ Available environment variables (all prefixed with `OPENFY_`):
 | `ARTWORK_DIR` | `./data/artwork` | Album art cache directory |
 | `ALLOWED_ORIGINS` | `http://localhost` | CORS allowed origins |
 | `ADMIN_USERNAME` | `` | Admin username (auto-created on startup) |
-| `ADMIN_HASH` | `` | Admin auth hash |
+| `ADMIN_HASH` | `` | Random admin credential from `scripts/generate_hash.py` |
 | `MAX_UPLOAD_SIZE_MB` | `200` | Maximum upload file size in MB |
 | `SPOTIFLAC_PIN_VERSION` | `` | Pin SpotiFLAC to a specific version (e.g. `0.7.0`). Leave empty for latest. |
 
 ## Generating an Admin Hash
 
 ```bash
-python scripts/generate_hash.py yourpassword
+python scripts/generate_hash.py
 ```
 
-Copy the output hash into your `.env` as `OPENFY_ADMIN_HASH`.
+Copy the output into your `.env` as `OPENFY_ADMIN_HASH`, then restart the server.
+Use this credential in the Auth Hash sign-in field and keep it secret. The generator
+uses cryptographically secure randomness and does not accept a password.
+
+### Rotating existing administrator credentials
+
+Password-derived administrator hashes are no longer accepted, including credentials
+still stored in the database. Generate a fresh credential with the command above,
+replace `OPENFY_ADMIN_HASH`, and restart with the same `OPENFY_ADMIN_USERNAME`.
+Startup rotates the existing account's credential and its ownership references in
+one transaction, preserving its library and playlists. Sign in again with the new
+credential; the old credential no longer works. Repeat for each existing administrator.
 
 The `scripts/` directory contains developer/admin utilities.
 

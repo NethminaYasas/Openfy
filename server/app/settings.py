@@ -1,5 +1,9 @@
 from pathlib import Path
+import re
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ADMIN_TOKEN_PATTERN = r"of1_[A-Za-z0-9_-]{60}"
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -24,6 +28,17 @@ class Settings(BaseSettings):
 
     admin_username: str = ""
     admin_hash: str = ""
+
+    @field_validator("admin_hash")
+    @classmethod
+    def validate_admin_hash(cls, value: str) -> str:
+        if value and not re.fullmatch(ADMIN_TOKEN_PATTERN, value):
+            raise ValueError(
+                "Generate a new random administrator credential with "
+                "python scripts/generate_hash.py and set OPENFY_ADMIN_HASH; "
+                "legacy password-derived hashes are no longer supported"
+            )
+        return value
 
     spotiflac_cmd: str = "spotiflac"
     spotiflac_timeout_sec: int = 900
