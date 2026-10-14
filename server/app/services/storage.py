@@ -58,12 +58,14 @@ def find_existing_by_hash(file_path: Path, dest_dir: Path) -> Path | None:
             continue
         if hashed_bytes + new_size > _MAX_DEDUP_HASH_BYTES:
             break
+        # Count the attempt up front: a hash that reads partial content and
+        # then fails still consumed I/O, so failures count toward the budget.
+        hashed_bytes += new_size
         try:
             if compute_file_hash(existing) == new_hash:
                 return existing
         except OSError:
             continue  # file vanished/unreadable mid-scan; skip it
-        hashed_bytes += new_size
     return None
 
 
