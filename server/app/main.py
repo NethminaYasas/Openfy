@@ -37,7 +37,7 @@ from fastapi.responses import (
     JSONResponse,
 )
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, update
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
@@ -82,7 +82,7 @@ from .schemas import (
     SpotifyImportRequest,
     SearchResultOut,
 )
-from .settings import settings
+from .settings import ADMIN_TOKEN_PATTERN, settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
@@ -750,6 +750,20 @@ def _startup():
                 db.commit()
                 print(f"Admin user '{settings.admin_username}' created.")
             else:
+                if existing.auth_hash != settings.admin_hash:
+                    # Ownership references use the credential as their key.
+                    # Defer SQLite FK checks until the rotation commits atomically.
+                    if settings.database_url.startswith("sqlite"):
+                        db.execute(text("PRAGMA defer_foreign_keys = ON"))
+                    for model in (
+                        Track, Playlist, FollowedPlaylist, FollowedAlbum,
+                        FollowedArtist, DownloadJob, TrackPlay,
+                    ):
+                        db.execute(
+                            update(model)
+                            .where(model.user_hash == existing.auth_hash)
+                            .values(user_hash=settings.admin_hash)
+                        )
                 existing.auth_hash = settings.admin_hash
                 existing.is_admin = True
                 db.commit()
@@ -766,6 +780,10 @@ def _get_user(db: Session, auth_hash: str) -> "User | None":
     user = db.execute(
         select(User).where(User.auth_hash == auth_hash)
     ).scalar_one_or_none()
+    # Reject legacy administrator credentials on every authentication path,
+    # including when their configuration has been removed without rotation.
+    if user and user.is_admin and not re.fullmatch(ADMIN_TOKEN_PATTERN, user.auth_hash):
+        return None
     if user:
         # Use naive UTC to stay compatible with SQLite's offset-naive datetime storage
         now = datetime.now(timezone.utc).replace(tzinfo=None)
