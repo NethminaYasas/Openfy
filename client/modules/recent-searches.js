@@ -4,6 +4,20 @@ function getStorageKey(userId) {
 
 const MAX_RECENT = 5;
 
+export function clearLegacyRecentSearches() {
+  try {
+    // Legacy keys contain reusable auth hashes; current user IDs are UUIDs.
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (/^openfy_recent_searches_[0-9a-f]{64}$/i.test(key)) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to clear legacy recent searches:', e);
+  }
+}
+
 export function loadRecentSearches(userId) {
   try {
     const data = localStorage.getItem(getStorageKey(userId));

@@ -333,7 +333,7 @@ function initEventListeners() {
   searchInput.addEventListener("focus", function() {
     const query = this.value.trim();
     if (!query) {
-      const recentItems = loadRecentSearches(state.authHash || '');
+      const recentItems = loadRecentSearches(state.currentUser?.id || '');
       if (recentItems.length) {
         renderRecentSearchDropdown(recentItems);
       } else {
@@ -716,6 +716,8 @@ function initEventListeners() {
   });
 
   document.getElementById("logout-btn").addEventListener("click", function() {
+    document.getElementById("signin-hash").value = "";
+    document.getElementById("user-auth-hash").textContent = "";
     clearAuth();
     document.getElementById("dropdown-username").textContent = "";
     document.getElementById("np-like-btn").classList.add("hidden");
@@ -741,6 +743,7 @@ function initEventListeners() {
     try {
       var user = await signUp(name);
       setAuth(user.auth_hash, user);
+      document.getElementById("signin-hash").value = "";
       updateAdminButtonVisibility();
       localStorage.setItem("openfy_auth", user.auth_hash);
       showHashModal(user.auth_hash);
@@ -763,6 +766,7 @@ function initEventListeners() {
     try {
       var user = await signIn(hash);
       setAuth(user.auth_hash, user);
+      document.getElementById("signin-hash").value = "";
       updateAdminButtonVisibility();
       localStorage.setItem("openfy_auth", user.auth_hash);
       document.getElementById("auth-overlay").style.display = "none";
@@ -2941,7 +2945,7 @@ async function checkForTrackUpdates() {
 async function handleSearch() {
   var query = document.getElementById("search-input").value.trim();
   if (!query) {
-    const recentItems = loadRecentSearches(state.authHash || '');
+    const recentItems = loadRecentSearches(state.currentUser?.id || '');
     if (recentItems.length) {
       renderRecentSearchDropdown(recentItems);
     } else {

@@ -53,6 +53,10 @@ export async function handleAutoLogin() {
 }
 
 export function handleLogout(authOverlay, appMain, topBar, npLikeBtn, adminBtn, updateAdminButtonVisibility) {
+  const signinHash = document.getElementById('signin-hash');
+  if (signinHash) signinHash.value = '';
+  const userAuthHash = document.getElementById('user-auth-hash');
+  if (userAuthHash) userAuthHash.textContent = '';
   clearAuth();
   npLikeBtn.classList.add("hidden");
   if (updateAdminButtonVisibility) updateAdminButtonVisibility();

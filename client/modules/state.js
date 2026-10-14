@@ -1,3 +1,8 @@
+import { clearLegacyRecentSearches } from './recent-searches.js';
+
+// Remove credentials left by older clients, including already logged-out users.
+clearLegacyRecentSearches();
+
 export const state = {
   apiBase: localStorage.getItem("openfy_api") || "",
   authHash: localStorage.getItem("openfy_auth") || "",
@@ -94,6 +99,7 @@ export function clearAuth() {
   state.currentUser = null;
   state.isAdmin = false;
   localStorage.removeItem("openfy_auth");
+  clearLegacyRecentSearches();
 }
 
 export function updateUser(user) {
