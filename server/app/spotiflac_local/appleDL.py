@@ -22,6 +22,18 @@ def sanitize_filename(value: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "", value).strip()
 
 
+def escape_outtmpl_literal(value: str) -> str:
+    """Escape a literal path for use as a yt-dlp output template (CWE-400).
+
+    yt-dlp treats % as the start of a template directive (e.g. %(ext)s,
+    including width-expanding numeric formats), so a % surviving in
+    metadata-derived filename components must be doubled (%%) to stay
+    literal. Apply to the literal portion only, before the application's
+    own %(ext)s placeholder is appended.
+    """
+    return value.replace("%", "%%")
+
+
 def safe_int(value) -> int:
     try:
         return int(value)
@@ -970,7 +982,7 @@ class AppleMusicDownloader:
         # If external APIs failed, try yt-dlp as final fallback
         if not download_url:
             print("[DEBUG] External APIs failed, trying yt-dlp direct download...")
-            ytdlp_output = expected_path.replace('.mp3', '.%(ext)s')
+            ytdlp_output = escape_outtmpl_literal(expected_path).replace('.mp3', '.%(ext)s')
             if self._download_with_ytdlp(video_id, ytdlp_output):
                 base_path = expected_path.replace('.mp3', '')
                 for ext in ['.mp3', '.m4a', '.webm', '.flac']:
@@ -1208,7 +1220,7 @@ class AppleMusicDownloader:
         if not download_url:
             print("[DEBUG] External APIs failed, trying yt-dlp direct download...")
             # Remove .mp3 extension for yt-dlp output template
-            ytdlp_output = expected_path.replace('.mp3', '.%(ext)s')
+            ytdlp_output = escape_outtmpl_literal(expected_path).replace('.mp3', '.%(ext)s')
             if self._download_with_ytdlp(video_id, ytdlp_output):
                 # yt-dlp adds extension, check if file exists
                 base_path = expected_path.replace('.mp3', '')
