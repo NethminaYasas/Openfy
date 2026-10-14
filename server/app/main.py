@@ -13,8 +13,8 @@ from contextlib import asynccontextmanager
 import io
 import ipaddress
 import socket
-from urllib.parse import urlparse
-from urllib.request import Request as UrlRequest, urlopen
+from http.client import HTTPConnection, HTTPSConnection
+from urllib.parse import urlsplit
 from PIL import Image
 
 from fastapi import (
@@ -218,38 +218,70 @@ def _validate_stream_token(token: str, track_id: str) -> str | None:
         return user_hash
 
 
+def _resolve_public_http_image_url(raw_url: str):
+    try:
+        parsed = urlsplit(raw_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError
+        if parsed.hostname.lower() == "localhost":
+            raise ValueError
+        port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+        addrs = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+        if not addrs:
+            raise ValueError
+        for row in addrs:
+            ip = ipaddress.ip_address(row[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+                raise ValueError
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or unsafe image URL") from None
+    return parsed, addrs
+
+
 def _is_public_http_image_url(raw_url: str) -> bool:
     try:
-        parsed = urlparse(raw_url)
-    except Exception:
+        _resolve_public_http_image_url(raw_url)
+    except HTTPException:
         return False
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        return False
-    if parsed.hostname.lower() == "localhost":
-        return False
-    try:
-        addrs = {row[4][0] for row in socket.getaddrinfo(parsed.hostname, None)}
-    except Exception:
-        return False
-    for addr in addrs:
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            return False
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-            return False
     return True
 
 
 def _fetch_remote_image_bytes(remote_url: str, timeout_sec: int = 10) -> bytes:
-    if not _is_public_http_image_url(remote_url):
-        raise HTTPException(status_code=400, detail="Invalid or unsafe image URL")
-    req = UrlRequest(remote_url, headers={"User-Agent": "Openfy/1.0"})
-    with urlopen(req, timeout=timeout_sec) as resp:  # nosec B310 - URL is validated to public http(s) only
-        content_type = str(resp.headers.get("Content-Type", "")).lower()
-        if content_type and not content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Remote URL is not an image")
-        image_bytes = resp.read(_MAX_REMOTE_IMAGE_BYTES + 1)
+    parsed, addrs = _resolve_public_http_image_url(remote_url)
+
+    def connect(_address, timeout, _source_address):
+        # Connect to the validated sockaddr directly, without another DNS lookup.
+        last_error = OSError("Remote image connection failed")
+        for family, socktype, proto, _, sockaddr in addrs:
+            sock = socket.socket(family, socktype, proto)
+            try:
+                sock.settimeout(timeout)
+                sock.connect(sockaddr)
+                return sock
+            except OSError as exc:
+                sock.close()
+                last_error = exc
+        raise last_error
+
+    # http.client neither follows redirects nor uses environment proxies.
+    # Keep the original hostname for the Host header and HTTPS certificate checks.
+    connection_class = HTTPSConnection if parsed.scheme == "https" else HTTPConnection
+    connection = connection_class(parsed.hostname, port=parsed.port, timeout=timeout_sec)
+    connection._create_connection = connect
+    target = parsed.path or "/"
+    if parsed.query:
+        target += "?" + parsed.query
+    try:
+        connection.request("GET", target, headers={"User-Agent": "Openfy/1.0"})
+        with connection.getresponse() as resp:
+            if not 200 <= resp.status < 300:
+                raise HTTPException(status_code=400, detail="Remote image request did not succeed")
+            content_type = str(resp.headers.get("Content-Type", "")).lower()
+            if content_type and not content_type.startswith("image/"):
+                raise HTTPException(status_code=400, detail="Remote URL is not an image")
+            image_bytes = resp.read(_MAX_REMOTE_IMAGE_BYTES + 1)
+    finally:
+        connection.close()
     if len(image_bytes) > _MAX_REMOTE_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Remote image is too large")
     return image_bytes
