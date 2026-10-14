@@ -220,11 +220,10 @@ class SeleniumBrowser(Browser):
             # Wait for the selector to be available
             self.wait_for_element(selector)
 
-            # Get the JSON string from the page
-            script = f"""
-            return document.querySelector('{selector}').textContent;
-            """
-            json_str = self.driver.execute_script(script)
+            # Get the JSON string from the page. Selector is passed as a
+            # separate script argument to keep data separate from code.
+            script = "var el = document.querySelector(arguments[0]); return el ? el.textContent : null;"
+            json_str = self.driver.execute_script(script, selector)
 
             if not json_str:
                 logger.error("JSON data not found with selector: %s", selector)
