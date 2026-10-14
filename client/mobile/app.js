@@ -132,6 +132,7 @@ signinBtn.addEventListener('click', async () => {
     try {
         const user = await signIn(hash);
         setAuth(hash, user);
+        signinHash.value = '';
         await initApp();
         signinStatus.textContent = '';
     } catch (e) {
@@ -149,6 +150,7 @@ signupBtn.addEventListener('click', async () => {
     try {
         const user = await signUp(name);
         setAuth(user.auth_hash, user);
+        signinHash.value = '';
         await initApp();
         signupStatus.textContent = '';
     } catch (e) {
@@ -473,6 +475,7 @@ $('profile-dropdown-settings').addEventListener('click', () => {
 
 $('profile-dropdown-logout').addEventListener('click', async () => {
     $('profile-dropdown').classList.remove('active');
+    signinHash.value = '';
     clearAuth();
     location.reload();
 });
@@ -997,7 +1000,7 @@ function renderSearchResults(results) {
             </div>
         `;
         el.addEventListener('click', () => {
-            addRecentSearch(state.authHash || '', {
+            addRecentSearch(state.currentUser?.id || '', {
                 id: item.id,
                 title: title,
                 artist: 'Artist',
@@ -1026,7 +1029,7 @@ function renderSearchResults(results) {
             </div>
         `;
         el.addEventListener('click', () => {
-            addRecentSearch(state.authHash || '', {
+            addRecentSearch(state.currentUser?.id || '', {
                 id: item.id,
                 title: title,
                 artist: artist
@@ -2539,7 +2542,7 @@ let searchTimeout;
 function renderRecentSearches() {
     const container = $('recent-searches');
     container.innerHTML = '';
-    const items = loadRecentSearches(state.authHash || '');
+    const items = loadRecentSearches(state.currentUser?.id || '');
     if (!items.length) {
         container.innerHTML = '<div class="recent-search-empty">No recent searches.</div>';
         return;
@@ -2574,7 +2577,7 @@ function renderRecentSearches() {
         `;
         el.querySelector('.recent-search-remove').addEventListener('click', e => {
             e.stopPropagation();
-            removeRecentSearch(state.authHash || '', item.id);
+            removeRecentSearch(state.currentUser?.id || '', item.id);
             renderRecentSearches();
         });
         el.addEventListener('click', () => {
@@ -2584,7 +2587,7 @@ function renderRecentSearches() {
             }
             api("/tracks/" + item.id).then(track => {
                 if (!track) return;
-                addRecentSearch(state.authHash || '', {
+                addRecentSearch(state.currentUser?.id || '', {
                     id: item.id,
                     title: track.title || item.title,
                     artist: getArtistDisplay(track) || item.artist
@@ -2592,7 +2595,7 @@ function renderRecentSearches() {
                 renderRecentSearches();
                 playTrack(track);
             }).catch(() => {
-                removeRecentSearch(state.authHash || '', item.id);
+                removeRecentSearch(state.currentUser?.id || '', item.id);
                 renderRecentSearches();
                 openDetail({ id: item.id, type: 'artist', name: item.title }, 'artist');
             });

@@ -2003,7 +2003,7 @@ export function renderSearchDropdown(results) {
 
       btn.addEventListener("click", function(ev) {
         ev.preventDefault();
-        addRecentSearch(state.authHash || '', {
+        addRecentSearch(state.currentUser?.id || '', {
           id: artist.id,
           title: artist.name,
           artist: 'Artist',
@@ -2082,7 +2082,7 @@ export function renderSearchDropdown(results) {
         }
         setQueueFromList(allItems, index);
         if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
-        addRecentSearch(state.authHash || '', {
+        addRecentSearch(state.currentUser?.id || '', {
           id: track.id,
           title: track.title,
           artist: getArtistDisplay(track)
@@ -2269,8 +2269,8 @@ export function renderRecentSearchDropdown(recentItems) {
     removeBtn.addEventListener("click", function(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      removeRecentSearch(state.authHash || '', item.id);
-      const updatedRecent = loadRecentSearches(state.authHash || '');
+      removeRecentSearch(state.currentUser?.id || '', item.id);
+      const updatedRecent = loadRecentSearches(state.currentUser?.id || '');
       if (updatedRecent.length) {
         renderRecentSearchDropdown(updatedRecent);
       } else {
@@ -2296,7 +2296,7 @@ export function renderRecentSearchDropdown(recentItems) {
           if (state.currentQueue.length) playTrack(state.currentQueue[state.currentIndex]);
         } catch (err) {
           if (err.message && err.message.includes("404")) {
-            removeRecentSearch(state.authHash || '', item.id);
+            removeRecentSearch(state.currentUser?.id || '', item.id);
             if (window.navigateToArtist) {
               window.navigateToArtist(item.id);
             }
@@ -2308,7 +2308,7 @@ export function renderRecentSearchDropdown(recentItems) {
           }
         }
       }
-      addRecentSearch(state.authHash || '', {
+      addRecentSearch(state.currentUser?.id || '', {
         id: item.id,
         title: item.title,
         artist: item.artist,
