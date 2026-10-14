@@ -19,7 +19,8 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, is_dataclass
+from datetime import date as date_type
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -43,6 +44,98 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+
+# Bounds for configuration import/serialization (CWE-400, YAML alias expansion).
+# A compact YAML file can describe an exponentially-branching alias graph:
+# anchors stay shared (cheap) until something recursively copies them, such as
+# dataclasses.asdict in to_dict(). These bounds are enforced at the import
+# boundary (from_dict/update) and before serialization (to_dict), counting
+# shared containers once per occurrence to match the expansion cost.
+_MAX_CONFIG_TRAVERSAL_NODES = 10000
+_MAX_CONFIG_MAPPING_KEYS = 256
+_MAX_CONFIG_SEQUENCE_ITEMS = 1024
+_MAX_CONFIG_STRING_CHARS = 16384
+
+
+def _check_config_graph(node: Any, _active: Optional[set] = None, _budget: Optional[list] = None) -> None:
+    """Walk a config graph enforcing the expansion budget.
+
+    Containers reachable multiple times through shared references (YAML
+    aliases) are counted once per visit, matching what a recursive copy
+    would traverse. Cyclic graphs are rejected outright.
+
+    Raises:
+        ValueError: If the graph is cyclic, over budget, oversized, or misshapen.
+    """
+    if _active is None:
+        _active = set()
+        _budget = [_MAX_CONFIG_TRAVERSAL_NODES]
+    _budget[0] -= 1
+    if _budget[0] < 0:
+        raise ValueError(
+            f"Configuration exceeds traversal budget of {_MAX_CONFIG_TRAVERSAL_NODES} nodes;"
+            " possible alias-expansion attack"
+        )
+    if isinstance(node, str):
+        if len(node) > _MAX_CONFIG_STRING_CHARS:
+            raise ValueError(
+                f"Configuration string exceeds {_MAX_CONFIG_STRING_CHARS} characters"
+            )
+        return
+    if node is None or isinstance(node, (bool, int, float, Enum, date_type)):
+        return
+    if is_dataclass(node) and not isinstance(node, type):
+        if id(node) in _active:
+            raise ValueError("Configuration contains a cyclic reference")
+        _active.add(id(node))
+        try:
+            for f in dataclass_fields(node):
+                _check_config_graph(getattr(node, f.name), _active, _budget)
+        finally:
+            _active.discard(id(node))
+        return
+    if isinstance(node, dict):
+        if id(node) in _active:
+            raise ValueError("Configuration contains a cyclic reference")
+        if len(node) > _MAX_CONFIG_MAPPING_KEYS:
+            raise ValueError(
+                f"Configuration mapping exceeds {_MAX_CONFIG_MAPPING_KEYS} keys"
+            )
+        _active.add(id(node))
+        try:
+            for key, value in node.items():
+                _check_config_graph(key, _active, _budget)
+                _check_config_graph(value, _active, _budget)
+        finally:
+            _active.discard(id(node))
+        return
+    if isinstance(node, (list, tuple)):
+        if id(node) in _active:
+            raise ValueError("Configuration contains a cyclic reference")
+        if len(node) > _MAX_CONFIG_SEQUENCE_ITEMS:
+            raise ValueError(
+                f"Configuration sequence exceeds {_MAX_CONFIG_SEQUENCE_ITEMS} items"
+            )
+        _active.add(id(node))
+        try:
+            for item in node:
+                _check_config_graph(item, _active, _budget)
+        finally:
+            _active.discard(id(node))
+        return
+    raise ValueError(f"Unsupported configuration value type: {type(node).__name__}")
+
+
+def _check_string_mapping(value: Any, field_name: str) -> None:
+    """Enforce the declared string-valued schema for auth mappings."""
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"Configuration field '{field_name}' must be a mapping of strings")
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            raise ValueError(f"Configuration field '{field_name}' must map strings to strings")
 
 
 class BrowserType(Enum):
@@ -173,6 +266,9 @@ class SpotifyScraperConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
+        # Serialization budget: bound the recursive copy before asdict can
+        # expand shared (aliased) containers into separate copies.
+        _check_config_graph(self)
         result = asdict(self)
 
         # Convert enums to strings
@@ -187,6 +283,15 @@ class SpotifyScraperConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SpotifyScraperConfig":
         """Create configuration from dictionary."""
+        if not isinstance(data, dict):
+            raise ValueError("Configuration data must be a mapping")
+        # Import boundary: enforce schema and expansion budget before
+        # retaining caller-supplied data (e.g. nested YAML alias graphs).
+        _check_config_graph(data)
+        auth_data = data.get("auth")
+        if isinstance(auth_data, dict):
+            _check_string_mapping(auth_data.get("headers"), "auth.headers")
+            _check_string_mapping(auth_data.get("cookies"), "auth.cookies")
         # Convert string values to enums
         if "browser_type" in data and isinstance(data["browser_type"], str):
             data["browser_type"] = BrowserType(data["browser_type"])
@@ -560,6 +665,10 @@ class ConfigurationManager:
         Args:
             updates: Dictionary of configuration updates
         """
+        if not isinstance(updates, dict):
+            raise ValueError("Configuration updates must be a mapping")
+        # Bound caller-supplied data before the deep merge traverses it.
+        _check_config_graph(updates)
         current_dict = self.config.to_dict()
         updated_dict = self._deep_merge(current_dict, updates)
         self.config = SpotifyScraperConfig.from_dict(updated_dict)
