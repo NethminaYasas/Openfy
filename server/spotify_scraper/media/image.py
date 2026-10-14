@@ -29,8 +29,10 @@ from typing import Optional, Union
 import requests
 
 from spotify_scraper.browsers.base import Browser
+from spotify_scraper.core.constants import MAX_IMAGE_DOWNLOAD_BYTES, STREAM_CHUNK_SIZE
 from spotify_scraper.core.exceptions import DownloadError
 from spotify_scraper.core.types import AlbumData, ArtistData, PlaylistData, TrackData
+from spotify_scraper.utils.download import check_content_length, require_https_url
 
 logger = logging.getLogger(__name__)
 
@@ -182,15 +184,52 @@ class ImageDownloader:
         # Download the image
         try:
             logger.debug("Downloading cover image from %s", cover_url)
-            response = requests.get(cover_url, stream=True, timeout=30)
-            response.raise_for_status()
+            require_https_url(cover_url, error_factory=DownloadError)
+            with requests.get(
+                cover_url,
+                stream=True,
+                timeout=30,
+                allow_redirects=False,
+            ) as response:
+                if 300 <= response.status_code < 400:
+                    raise DownloadError("Refusing redirected cover image download")
+                response.raise_for_status()
+                check_content_length(response, MAX_IMAGE_DOWNLOAD_BYTES, error_factory=DownloadError)
 
-            with open(file_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                total_bytes = 0
+                try:
+                    with open(file_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
+                            if not chunk:  # Filter out keep-alive chunks
+                                continue
+                            # Enforce cumulative *decoded*-byte limit before each
+                            # write: iter_content transparently decompresses, so a
+                            # small compressed response can expand ~1000x (CWE-409).
+                            total_bytes += len(chunk)
+                            if total_bytes > MAX_IMAGE_DOWNLOAD_BYTES:
+                                raise DownloadError(
+                                    message=(
+                                        "Cover image exceeds size limit of "
+                                        f"{MAX_IMAGE_DOWNLOAD_BYTES} bytes"
+                                    ),
+                                    url=cover_url,
+                                    path=file_path,
+                                )
+                            f.write(chunk)
+                except Exception:
+                    # Remove partial files so a limit breach (or any write
+                    # failure) cannot exhaust disk space with truncated output.
+                    try:
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                    except OSError:
+                        pass
+                    raise
 
             logger.debug("Cover image saved to %s", file_path)
             return file_path
+        except DownloadError:
+            raise
         except Exception as e:
             logger.error("Failed to download cover image: %s", e)
             raise DownloadError(

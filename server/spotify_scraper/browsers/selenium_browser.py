@@ -28,9 +28,12 @@ except ImportError:
 
 import json
 import logging
+import os
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from spotify_scraper.browsers.base import Browser
+from spotify_scraper.core.constants import MAX_GENERIC_DOWNLOAD_BYTES, STREAM_CHUNK_SIZE
 from spotify_scraper.core.exceptions import BrowserError, ParsingError
 
 logger = logging.getLogger(__name__)
@@ -177,21 +180,57 @@ class SeleniumBrowser(Browser):
         Returns:
             Path where file was saved
         """
-        import os
-
         import requests
 
         try:
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
+            # Require HTTPS so substituted metadata cannot downgrade the
+            # media fetch to plaintext HTTP (MITM substitution vector).
+            if urlparse(url).scheme.lower() != "https":
+                raise BrowserError(f"Refusing to download over insecure scheme: {url!r}")
 
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with requests.get(url, stream=True, timeout=30) as response:
+                response.raise_for_status()
 
-            with open(path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                try:
+                    declared = response.headers.get("Content-Length")
+                    if declared not in (None, "") and int(str(declared).strip()) > MAX_GENERIC_DOWNLOAD_BYTES:
+                        raise BrowserError(
+                            f"Download exceeds size limit of {MAX_GENERIC_DOWNLOAD_BYTES} bytes"
+                        )
+                except BrowserError:
+                    raise
+                except (TypeError, ValueError):
+                    pass
+
+                parent = os.path.dirname(path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+
+                # Enforce the cumulative *decoded*-byte limit before each write
+                # (CWE-409: compressed responses expand ~1000x on disk).
+                total_bytes = 0
+                try:
+                    with open(path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
+                            if not chunk:  # Filter out keep-alive chunks
+                                continue
+                            total_bytes += len(chunk)
+                            if total_bytes > MAX_GENERIC_DOWNLOAD_BYTES:
+                                raise BrowserError(
+                                    f"Download exceeds size limit of {MAX_GENERIC_DOWNLOAD_BYTES} bytes"
+                                )
+                            f.write(chunk)
+                except Exception:
+                    try:
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except OSError:
+                        pass
+                    raise
 
             return path
+        except BrowserError:
+            raise
         except Exception as e:
             logger.error("Failed to download file: %s", e)
             raise BrowserError(f"Failed to download file: {e}") from e

@@ -11,6 +11,12 @@ from ..settings import settings
 
 SUPPORTED_EXTENSIONS = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
 
+# Bounds for upload deduplication scanning (CWE-400). find_existing_by_hash
+# runs once per upload, so its work must not scale with the whole library:
+# a tiny non-matching upload must not force a full-library rehash.
+_MAX_DEDUP_SCAN_FILES = 5000  # max directory entries inspected per upload
+_MAX_DEDUP_HASH_BYTES = 256 * 1024 * 1024  # max total bytes rehashed per upload
+
 
 def compute_file_hash(file_path: Path, chunk_size: int = 1024 * 1024) -> str:
     hasher = hashlib.sha256()
@@ -24,11 +30,42 @@ def compute_file_hash(file_path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 
 def find_existing_by_hash(file_path: Path, dest_dir: Path) -> Path | None:
+    """Return an existing file in dest_dir with identical content, if found cheaply.
+
+    Candidates are prefiltered by file size (stat only, no content reads) and
+    total rehashing is capped, so one upload cannot force a whole-library
+    rehash. If the budget is exhausted the upload is treated as new; the
+    later indexed universal_track_id lookup in _upsert_track still prevents
+    duplicate track rows.
+    """
+    try:
+        new_size = file_path.stat().st_size
+    except OSError:
+        return None
     new_hash = compute_file_hash(file_path)
+    examined = 0
+    hashed_bytes = 0
     for existing in dest_dir.iterdir():
-        if existing.is_file() and existing.suffix.lower() in SUPPORTED_EXTENSIONS:
+        examined += 1
+        if examined > _MAX_DEDUP_SCAN_FILES:
+            break
+        if not (existing.is_file() and existing.suffix.lower() in SUPPORTED_EXTENSIONS):
+            continue
+        try:
+            if existing.stat().st_size != new_size:
+                continue  # size prefilter: no content read
+        except OSError:
+            continue
+        if hashed_bytes + new_size > _MAX_DEDUP_HASH_BYTES:
+            break
+        # Count the attempt up front: a hash that reads partial content and
+        # then fails still consumed I/O, so failures count toward the budget.
+        hashed_bytes += new_size
+        try:
             if compute_file_hash(existing) == new_hash:
                 return existing
+        except OSError:
+            continue  # file vanished/unreadable mid-scan; skip it
     return None
 
 

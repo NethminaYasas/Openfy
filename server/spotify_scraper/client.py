@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from spotify_scraper.auth.session import Session
 from spotify_scraper.browsers import create_browser
+from spotify_scraper.core.constants import MAX_AUDIO_DOWNLOAD_BYTES, STREAM_CHUNK_SIZE
 from spotify_scraper.core.exceptions import AuthenticationError, MediaError, URLError
 from spotify_scraper.core.scraper import Scraper
 from spotify_scraper.extractors.album import AlbumExtractor
@@ -683,6 +684,7 @@ class SpotifyClient:
 
             # Download the preview
             from pathlib import Path
+            from urllib.parse import urlparse
 
             import requests
 
@@ -693,13 +695,46 @@ class SpotifyClient:
             # Full file path
             file_path = download_path / f"{filename}.mp3"
 
-            # Download the file
-            response = requests.get(preview_url, stream=True, timeout=30)
-            response.raise_for_status()
+            # Require HTTPS so substituted metadata cannot downgrade the
+            # media fetch to plaintext HTTP (MITM substitution vector).
+            if urlparse(preview_url).scheme.lower() != "https":
+                raise MediaError(f"Refusing to download over insecure scheme: {preview_url!r}")
 
-            with open(file_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            # Download the file (bounded decoded bytes, reliable close, partial cleanup)
+            with requests.get(preview_url, stream=True, timeout=30) as response:
+                response.raise_for_status()
+                try:
+                    declared = response.headers.get("Content-Length")
+                    if declared not in (None, "") and int(str(declared).strip()) > MAX_AUDIO_DOWNLOAD_BYTES:
+                        raise MediaError(
+                            f"Episode preview exceeds size limit of {MAX_AUDIO_DOWNLOAD_BYTES} bytes"
+                        )
+                except MediaError:
+                    raise
+                except (TypeError, ValueError):
+                    pass
+
+                total_bytes = 0
+                try:
+                    with open(file_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
+                            if not chunk:  # Filter out keep-alive chunks
+                                continue
+                            # Cumulative *decoded*-byte limit before each write
+                            # (CWE-409: compressed responses expand ~1000x).
+                            total_bytes += len(chunk)
+                            if total_bytes > MAX_AUDIO_DOWNLOAD_BYTES:
+                                raise MediaError(
+                                    f"Episode preview exceeds size limit of {MAX_AUDIO_DOWNLOAD_BYTES} bytes"
+                                )
+                            f.write(chunk)
+                except Exception:
+                    try:
+                        if file_path.exists():
+                            file_path.unlink()
+                    except OSError:
+                        pass
+                    raise
 
             logger.info(f"Episode preview downloaded to: {file_path}")
             return str(file_path)

@@ -38,6 +38,30 @@ def _normalize(value, fallback="Unknown"):
     return text or fallback
 
 
+# Maximum artist tag text processed by the delimiter splitter (CWE-1333).
+# Real artist names are well under 200 chars; longer tags are truncated
+# before matching so a pathological tag cannot cause disproportionate work.
+_MAX_ARTIST_TEXT_CHARS = 1000
+
+# Linear artist-delimiter pattern, applied to whitespace-normalized text only.
+# The previous `[,;/&]|\s+and\s+` pattern rescanned overlapping whitespace
+# runs quadratically when no delimiter followed. Normalizing whitespace first
+# (via str.split, which is linear and backtrack-free) lets this single-space
+# pattern match in linear time with the same split semantics.
+_ARTIST_DELIMITER_RE = re.compile(r"[,;/&]| and ", re.IGNORECASE)
+
+
+def _split_artist_text(text: str) -> list[str]:
+    """Split artist text on [,;/&] and 'and' in linear time.
+
+    Truncates overlong tags, collapses all whitespace runs to single spaces,
+    then splits. Tabs/newlines around 'and' keep working because
+    normalization turns them into spaces first.
+    """
+    normalized = " ".join(text[:_MAX_ARTIST_TEXT_CHARS].split())
+    return _ARTIST_DELIMITER_RE.split(normalized)
+
+
 def _get_or_create_artist(db: Session, name: str) -> Artist:
     stmt = select(Artist).where(Artist.name == name)
     artist = db.execute(stmt).scalar_one_or_none()
@@ -162,7 +186,7 @@ def _parse_artist_names(raw_artists) -> list[str]:
     artist_names = []
     if isinstance(raw_artists, str):
         # Split on common delimiters: comma, semicolon, slash, &, "and"
-        parts = re.split(r'[,;/&]|\s+and\s+', raw_artists, flags=re.IGNORECASE)
+        parts = _split_artist_text(raw_artists)
         for name in parts:
             name = name.strip()
             if name:
@@ -468,7 +492,7 @@ def _read_metadata(path: Path) -> dict:
 
     split_artists = []
     for entry in artist_entries:
-        parts = re.split(r'[,;/&]|\s+and\s+', entry, flags=re.IGNORECASE)
+        parts = _split_artist_text(entry)
         for p in parts:
             p = p.strip()
             if p:
