@@ -185,7 +185,14 @@ class ImageDownloader:
         try:
             logger.debug("Downloading cover image from %s", cover_url)
             require_https_url(cover_url, error_factory=DownloadError)
-            with requests.get(cover_url, stream=True, timeout=30) as response:
+            with requests.get(
+                cover_url,
+                stream=True,
+                timeout=30,
+                allow_redirects=False,
+            ) as response:
+                if 300 <= response.status_code < 400:
+                    raise DownloadError("Refusing redirected cover image download")
                 response.raise_for_status()
                 check_content_length(response, MAX_IMAGE_DOWNLOAD_BYTES, error_factory=DownloadError)
 
