@@ -29,12 +29,17 @@ except ImportError:
 import json
 import logging
 import os
+from threading import Lock
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from spotify_scraper.browsers.base import Browser
+from spotify_scraper.browsers.requests_browser import (
+    ALLOWED_SPOTIFY_PAGE_HOSTS,
+    _canonicalize_https_url,
+)
 from spotify_scraper.core.constants import MAX_GENERIC_DOWNLOAD_BYTES, STREAM_CHUNK_SIZE
-from spotify_scraper.core.exceptions import BrowserError, ParsingError
+from spotify_scraper.core.exceptions import BrowserError, NetworkError, ParsingError
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,8 @@ class SeleniumBrowser(Browser):
         Initialize the SeleniumBrowser.
 
         Args:
-            driver: Selenium WebDriver instance (optional)
+            driver: Selenium WebDriver instance with WebDriver BiDi enabled (optional).
+                Requires Selenium's BiDi network event and interception APIs.
             browser_name: Browser to use ("chrome" or "firefox")
             use_webdriver_manager: Whether to use webdriver-manager for automatic driver
                 downloads (default: True)
@@ -73,6 +79,7 @@ class SeleniumBrowser(Browser):
             if browser_name == "firefox":
                 # Create a new Firefox driver
                 options = webdriver.FirefoxOptions()
+                options.set_capability("webSocketUrl", True)
                 options.add_argument("--headless")
                 options.add_argument("--window-size=1920,1080")
                 # Firefox-specific preferences
@@ -100,6 +107,7 @@ class SeleniumBrowser(Browser):
             elif browser_name == "chrome":
                 # Create a new Chrome driver
                 options = webdriver.ChromeOptions()
+                options.set_capability("webSocketUrl", True)
                 options.add_argument("--headless")
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
@@ -129,10 +137,61 @@ class SeleniumBrowser(Browser):
         else:
             self.driver = driver
 
+        self._navigation_network = None
+        self._navigation_error = None
+        self._navigation_lock = Lock()
+
         logger.debug(
             "Initialized SeleniumBrowser with %s",
             browser_name if driver is None else "custom driver",
         )
+
+    def _enable_navigation_guard(self) -> None:
+        """Pause navigation requests, including each redirect, before network I/O."""
+        if self._navigation_network is not None:
+            return
+
+        try:
+            network = self.driver.network
+
+            def check_request(event):
+                if not event["isBlocked"]:
+                    return
+                request = event["request"]
+                # BiDi callbacks run on separate threads. Serialize protocol commands.
+                with self._navigation_lock:
+                    try:
+                        if event["navigation"] is not None:
+                            destination = _canonicalize_https_url(
+                                request["url"], ALLOWED_SPOTIFY_PAGE_HOSTS
+                            )
+                            network.continue_request(request=request["request"], url=destination)
+                        else:
+                            # Scripts, images and API calls are not page navigations.
+                            # data/blob resources have no interceptable network request.
+                            if urlparse(request["url"]).scheme.lower() in ("http", "https"):
+                                network.continue_request(request=request["request"])
+                    except Exception as e:
+                        self._navigation_error = (
+                            e if isinstance(e, (NetworkError, BrowserError))
+                            else BrowserError(f"Failed to intercept browser request: {e}")
+                        )
+                        network.fail_request(request=request["request"])
+
+            # Subscribe before adding the intercept so no paused request is missed.
+            callback_id = network.add_event_handler("before_request", check_request)
+            try:
+                network.add_intercept(phases=["beforeRequestSent"])
+            except Exception:
+                network.remove_event_handler("before_request", callback_id)
+                raise
+            # Keep interception installed for delayed script/meta-refresh navigations.
+            self._navigation_network = network
+        except Exception as e:
+            raise BrowserError(
+                "Safe navigation requires Selenium BiDi network interception and a driver "
+                "created with the webSocketUrl capability enabled"
+            ) from e
 
     def get_page_content(self, url: str) -> str:
         """
@@ -145,12 +204,33 @@ class SeleniumBrowser(Browser):
             Page content as string
         """
         try:
-            logger.debug("Navigating to %s", url)
-            self.driver.get(url)
+            # Canonicalize to HTTPS on an allowed Spotify host before
+            # navigating, so plaintext-HTTP URLs cannot expose the fetch
+            # to Location-header substitution (CWE-918).
+            canonical_url = _canonicalize_https_url(url, ALLOWED_SPOTIFY_PAGE_HOSTS)
+        except (NetworkError, BrowserError):
+            raise
+        except Exception as e:
+            raise NetworkError(f"Invalid Spotify URL: {e}", url=url) from e
+        try:
+            self._enable_navigation_guard()
+            self._navigation_error = None
+            logger.debug("Navigating to %s", canonical_url)
+            # Use BiDi navigation too: a blocking classic get() can prevent
+            # ChromeDriver from processing the interception's continue/fail commands.
+            self.driver.browsing_context.navigate(
+                context=self.driver.current_window_handle, url=canonical_url, wait="complete"
+            )
+            if self._navigation_error is not None:
+                raise self._navigation_error
             return self.driver.page_source
+        except (NetworkError, BrowserError):
+            raise
         except WebDriverException as e:
-            logger.error("Failed to navigate to %s: %s", url, e)
-            raise BrowserError(f"Failed to navigate to {url}: {e}") from e
+            if self._navigation_error is not None:
+                raise self._navigation_error from e
+            logger.error("Failed to navigate to %s: %s", canonical_url, e)
+            raise BrowserError(f"Failed to navigate to {canonical_url}: {e}") from e
 
     def get_json(self, url: str) -> Dict[str, Any]:
         """
@@ -188,7 +268,9 @@ class SeleniumBrowser(Browser):
             if urlparse(url).scheme.lower() != "https":
                 raise BrowserError(f"Refusing to download over insecure scheme: {url!r}")
 
-            with requests.get(url, stream=True, timeout=30) as response:
+            with requests.get(url, stream=True, timeout=30, allow_redirects=False) as response:
+                if 300 <= response.status_code < 400:
+                    raise BrowserError(f"Refusing redirected file download from {url!r}")
                 response.raise_for_status()
 
                 try:

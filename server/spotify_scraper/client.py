@@ -684,9 +684,17 @@ class SpotifyClient:
 
             # Download the preview
             from pathlib import Path
-            from urllib.parse import urlparse
 
             import requests
+
+            from spotify_scraper.utils.download import (
+                ALLOWED_MEDIA_HOSTS,
+                MAX_MANUAL_REDIRECTS,
+                REDIRECT_STATUS_CODES,
+                canonicalize_https_url,
+                require_https_url,
+                resolve_redirect,
+            )
 
             # Ensure path exists
             download_path = Path(path) if path else Path.cwd()
@@ -695,13 +703,41 @@ class SpotifyClient:
             # Full file path
             file_path = download_path / f"{filename}.mp3"
 
-            # Require HTTPS so substituted metadata cannot downgrade the
-            # media fetch to plaintext HTTP (MITM substitution vector).
-            if urlparse(preview_url).scheme.lower() != "https":
-                raise MediaError(f"Refusing to download over insecure scheme: {preview_url!r}")
+            # The preview URL comes from page metadata, which is untrusted
+            # input for this request: validating the episode URL does not
+            # protect a second URL extracted from the response (CWE-918).
+            # Require HTTPS, then validate the destination against the
+            # supported HTTPS media hosts (including a non-public-address
+            # check) before requesting it.
+            require_https_url(preview_url, error_factory=MediaError)
+            current_url = canonicalize_https_url(
+                preview_url,
+                ALLOWED_MEDIA_HOSTS,
+                error_factory=MediaError,
+                url_name="preview URL",
+            )
+
+            # Resolve redirects manually so each destination is validated
+            # before the next request is issued.
+            response = None
+            for _ in range(MAX_MANUAL_REDIRECTS + 1):
+                candidate = requests.get(
+                    current_url, stream=True, timeout=30, allow_redirects=False
+                )
+                if candidate.status_code not in REDIRECT_STATUS_CODES:
+                    response = candidate
+                    break
+                location = candidate.headers.get("Location")
+                candidate.close()
+                current_url = resolve_redirect(
+                    current_url, location, ALLOWED_MEDIA_HOSTS, error_factory=MediaError
+                )
+                logger.debug("Following validated media redirect to: %s", current_url)
+            if response is None:
+                raise MediaError("Too many redirects downloading episode preview")
 
             # Download the file (bounded decoded bytes, reliable close, partial cleanup)
-            with requests.get(preview_url, stream=True, timeout=30) as response:
+            with response as response:
                 response.raise_for_status()
                 try:
                     declared = response.headers.get("Content-Length")
