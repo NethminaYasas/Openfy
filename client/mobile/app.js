@@ -904,10 +904,6 @@ function renderLibraryItems(items) {
             const placeholderIcon = isArtist ? 'fa-solid fa-microphone-lines' : 'fa-solid fa-list';
             el.innerHTML = `
                 <div class="lib-item-art${isArtist ? ' lib-item-art-artist' : ''}">
-                    ${artUrl
-                        ? `<img src="${artUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
-                        : ''
-                    }
                     <div class="lib-item-art-placeholder"${artUrl ? ' style="display:none"' : ''}><i class="${placeholderIcon}"></i></div>
                 </div>
                 <div class="lib-item-meta">
@@ -915,6 +911,18 @@ function renderLibraryItems(items) {
                     <div class="lib-item-sub">${isArtist ? 'Artist' : (item.is_public ? 'Public' : 'Private') + ' ' + (isAlbum ? 'album' : 'playlist')}</div>
                 </div>
             `;
+            if (artUrl) {
+                const img = document.createElement('img');
+                img.alt = '';
+                img.setAttribute('loading', 'lazy');
+                const placeholder = el.querySelector('.lib-item-art-placeholder');
+                img.onerror = function() {
+                    img.style.display = 'none';
+                    placeholder.style.display = 'flex';
+                };
+                img.src = artUrl;
+                placeholder.before(img);
+            }
         }
         el.addEventListener('click', () => openDetail(item, isArtist ? 'artist' : (isAlbum ? 'album' : 'playlist')));
         container.appendChild(el);
