@@ -10,8 +10,11 @@ RUN apt-get update \
   && pip install --no-cache-dir -r requirements.txt \
   && bash /tmp/check_spotiflac_update.sh \
   && rm /tmp/check_spotiflac_update.sh \
+  && apt-get purge -y git curl perl git-man liberror-perl \
+  && apt-get autoremove -y \
   && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/* /root/.cache/* /tmp/* \
+  && find /usr/local/lib/python3.11/site-packages -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null; find /usr/local/lib/python3.11/site-packages -name '*.pyc' -delete
 
 COPY server/app /app/app
 COPY server/spotify_search.py /app/spotify_search.py
@@ -22,6 +25,7 @@ COPY server/.env.example /app/.env
 COPY server/spotify_scraper /usr/local/lib/python3.11/site-packages/spotify_scraper
 
 ENV OPENFY_ENV=prod
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV OPENFY_DATA_DIR=/data
 ENV OPENFY_MUSIC_DIR=/data/music
 ENV OPENFY_DOWNLOADS_DIR=/data/downloads
