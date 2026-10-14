@@ -1181,7 +1181,8 @@ export async function openPlaylist(playlistId, isAlbum = false) {
     if (isLiked) typeText = 'Playlist';
     document.getElementById('playlist-type').textContent = typeText;
 
-    let avatarHtml = '';
+    let ownerAvatarElement = document.createElement('div');
+    ownerAvatarElement.className = 'playlist-meta-avatar';
     if (pl.type === 'album') {
       let artist = tracks.length > 0 && tracks[0].track && tracks[0].track.artist;
       // Fallback to artists array if primary artist field is missing
@@ -1190,28 +1191,34 @@ export async function openPlaylist(playlistId, isAlbum = false) {
       }
 
       if (artist && artist.image_url) {
-        avatarHtml = `<img src="${withBase('/artists/' + artist.id + '/artwork')}" class="playlist-owner-avatar album-artist-avatar" alt="${ownerName}">`;
+        ownerAvatarElement = document.createElement('img');
+        ownerAvatarElement.src = withBase('/artists/' + artist.id + '/artwork');
+        ownerAvatarElement.className = 'playlist-owner-avatar album-artist-avatar';
+        ownerAvatarElement.alt = ownerName;
       } else {
-        avatarHtml = '<div class="playlist-meta-avatar"></div>';
         // Trigger background refresh if artist ID is known
         if (artist && artist.id) {
           api("/artists/" + artist.id + "/refresh-image").catch(() => {});
         }
       }
     } else if (ownerAvatar && ownerId) {
-      avatarHtml = `<img src="${withBase('/users/' + ownerId + '/avatar?t=' + Date.now())}" class="playlist-owner-avatar" alt="${ownerName}">`;
-    } else {
-      avatarHtml = '<div class="playlist-meta-avatar"></div>';
+      ownerAvatarElement = document.createElement('img');
+      ownerAvatarElement.src = withBase('/users/' + ownerId + '/avatar?t=' + Date.now());
+      ownerAvatarElement.className = 'playlist-owner-avatar';
+      ownerAvatarElement.alt = ownerName;
     }
 
-    const ownerNameHtml = (pl.type === 'album' && tracks.length > 0 && tracks[0].track && tracks[0].track.artist && tracks[0].track.artist.id)
-      ? `<span class="playlist-owner-name clickable-artist album-meta-artist" data-artist-id="${tracks[0].track.artist.id}">${ownerName}</span>`
-      : `<span class="playlist-owner-name">${ownerName}</span>`;
+    const ownerNameElement = document.createElement('span');
+    ownerNameElement.className = 'playlist-owner-name';
+    ownerNameElement.textContent = ownerName;
+    if (pl.type === 'album' && tracks.length > 0 && tracks[0].track && tracks[0].track.artist && tracks[0].track.artist.id) {
+      ownerNameElement.classList.add('clickable-artist', 'album-meta-artist');
+      ownerNameElement.dataset.artistId = tracks[0].track.artist.id;
+    }
 
     const totalDuration = formatTotalDuration(tracks);
-    document.getElementById('playlist-meta').innerHTML =
-      avatarHtml +
-      ownerNameHtml + (totalDuration ? ' • ' + totalDuration : '');
+    playlistMeta.replaceChildren(ownerAvatarElement, ownerNameElement);
+    if (totalDuration) playlistMeta.append(' • ' + totalDuration);
 
     buildPlaylistCover(tracks, pl);
 
