@@ -14,7 +14,7 @@ SUPPORTED_EXTENSIONS = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}
 # Bounds for upload deduplication scanning (CWE-400). find_existing_by_hash
 # runs once per upload, so its work must not scale with the whole library:
 # a tiny non-matching upload must not force a full-library rehash.
-_MAX_DEDUP_SCAN_FILES = 5000  # max eligible candidates examined per upload
+_MAX_DEDUP_SCAN_FILES = 5000  # max directory entries inspected per upload
 _MAX_DEDUP_HASH_BYTES = 256 * 1024 * 1024  # max total bytes rehashed per upload
 
 
@@ -46,11 +46,11 @@ def find_existing_by_hash(file_path: Path, dest_dir: Path) -> Path | None:
     examined = 0
     hashed_bytes = 0
     for existing in dest_dir.iterdir():
-        if not (existing.is_file() and existing.suffix.lower() in SUPPORTED_EXTENSIONS):
-            continue
         examined += 1
         if examined > _MAX_DEDUP_SCAN_FILES:
             break
+        if not (existing.is_file() and existing.suffix.lower() in SUPPORTED_EXTENSIONS):
+            continue
         try:
             if existing.stat().st_size != new_size:
                 continue  # size prefilter: no content read
