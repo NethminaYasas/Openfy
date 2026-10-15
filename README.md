@@ -17,10 +17,11 @@ A self-hosted music streaming platform.
 ## Quick Start (one-line installer, bare-metal Linux, no Docker)
 
 Install the latest stable release (interactive wizard — guides you through
-method, version, admin account, and dependencies):
+method, version, admin account, and dependencies; native installs need a
+root shell — sudo users use the download-first command below):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
 ```
 
 Install an exact version instead (installs **exactly** this version — check
@@ -29,7 +30,7 @@ published versions; `v1.4.2` below is an example of the `vMAJOR.MINOR.PATCH`
 tag convention):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
 ```
 
 Or download the script first, then run it as root (same behaviour):
@@ -73,8 +74,10 @@ cd openfy-vVERSION-linux-amd64
 sudo ./install.sh
 ```
 
-Visit http://localhost:8000 (or `http://<server-ip>:8000`) and sign in with
-your admin credential in the Auth Hash field.
+For local access, visit `http://localhost:8000`. For remote access, use a
+TLS-terminating reverse proxy and visit its `https://` URL — do not expose
+port 8000 directly to remote clients. Sign in with your admin credential in
+the Auth Hash field.
 
 Full guide — wizard options, non-interactive flags, configuration, systemd
 service commands, credential rotation, upgrades, repair, safe uninstall,
@@ -145,12 +148,15 @@ never print or change existing credentials.
 
 ### Repair, reinstall, and uninstall
 
-- Repair (verify files, fix permissions, reinstall service; data/config
+- Repair damaged application files from a verified bundle (data/config
   untouched): choose **Repair** in the installer wizard, or
-  `sudo bash install.sh --yes --action repair`, or on the machine itself
-  `sudo /opt/openfy/install.sh --repair --no-start`.
+  `sudo bash install.sh --yes --action repair`. In-place
+  `sudo /opt/openfy/install.sh --repair --no-start` only fixes
+  ownership/permissions, venv, and systemd unit (it does not restore
+  application files).
 - Reinstall application files (keeps data + config, asks first):
-  `sudo /opt/openfy/install.sh --force`, or via the wizard.
+  via the wizard (verified bundle). In-place
+  `sudo /opt/openfy/install.sh --force` does not restore files.
 - Uninstall (keeps data + config by default):
   `sudo /opt/openfy/uninstall.sh`; permanent data removal needs explicit
   `--purge` plus a second confirmation. Back up `/var/lib/openfy/openfy.db`

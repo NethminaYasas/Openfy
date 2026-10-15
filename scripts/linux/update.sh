@@ -28,6 +28,12 @@ ENV_FILE="${CONFIG_DIR}/openfy.env"
 SERVICE_NAME="${OPENFY_SERVICE_NAME:-openfy}"
 SYSTEMD_DIR="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}"
 BACKUP_ROOT="${OPENFY_BACKUP_DIR:-/var/backups/openfy}"
+if [[ -z "${OPENFY_PORT+x}" ]]; then
+    OPENFY_PORT="8000"
+    PORT_EXPLICIT="false"
+else
+    PORT_EXPLICIT="true"
+fi
 
 VERSION=""
 LATEST="false"
@@ -57,6 +63,22 @@ done
 
 [[ -z "${ARCH}" ]] && ARCH="$(host_arch)"
 case "${ARCH}" in linux-amd64|linux-arm64) ;; *) echo "ERROR: --arch must be linux-amd64 or linux-arm64." >&2; exit 1 ;; esac
+valid_port() {
+    [[ "${1:-}" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+if [[ "${PORT_EXPLICIT}" == "true" ]]; then
+    valid_port "${OPENFY_PORT}" \
+        || { echo "ERROR: invalid OPENFY_PORT '${OPENFY_PORT}' (must be 1-65535, no leading zeros)." >&2; exit 1; }
+else
+    # Preserve a custom port across upgrades when no port was explicitly given.
+    existing_unit="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+    if [[ -f "${existing_unit}" ]]; then
+        p="$(grep -oE -- '--port [0-9]+' "${existing_unit}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+        if valid_port "${p}"; then
+            OPENFY_PORT="${p}"
+        fi
+    fi
+fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "ERROR: run as root (e.g. sudo ./update.sh --latest)." >&2
@@ -107,7 +129,7 @@ else
     fi
 fi
 
-CURRENT="$(python3 -c "import json;print(json.load(open('${APP_DIR}/VERSION.json')).get('version','unknown'))" 2>/dev/null || echo unknown)"
+CURRENT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","unknown"))' "${APP_DIR}/VERSION.json" 2>/dev/null || echo unknown)"
 echo "[openfy-update] Installed: ${CURRENT}  Target: ${VERSION} (${ARCH})"
 if [[ "${CURRENT}" == "${VERSION}" ]]; then
     echo "[openfy-update] Already at version ${VERSION}; nothing to do."
@@ -203,7 +225,7 @@ EXTRACTED="$(find "${WORK}" -maxdepth 1 -name "openfy-v${VERSION}-${ARCH}" -type
 for required in app/main.py client/index.html requirements.txt openfy.service VERSION.json install.sh generate_hash.py; do
     [[ -e "${EXTRACTED}/${required}" ]] || { echo "[openfy-update] ERROR: new bundle missing ${required}." >&2; exit 1; }
 done
-NEW_VERSION="$(python3 -c "import json;print(json.load(open('${EXTRACTED}/VERSION.json'))['version'])")"
+NEW_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${EXTRACTED}/VERSION.json")"
 [[ "${NEW_VERSION}" == "${VERSION}" ]] || { echo "[openfy-update] ERROR: bundle version ${NEW_VERSION} != requested ${VERSION}." >&2; exit 1; }
 bash -n "${EXTRACTED}/install.sh"
 
@@ -211,7 +233,7 @@ wait_for_health() {
     # Returns 0 once the local service answers /health (up to ~60s).
     local attempt=0
     while [[ "${attempt}" -lt 30 ]]; do
-        if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/health', timeout=3)" 2>/dev/null; then
+        if "${APP_DIR}/venv/bin/python" -c "import sys,urllib.request; urllib.request.urlopen('http://localhost:' + sys.argv[1] + '/health', timeout=3)" "${OPENFY_PORT}" 2>/dev/null; then
             return 0
         fi
         attempt=$((attempt + 1))
@@ -320,6 +342,8 @@ chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}/app" "${APP_DIR}/client" 
 # Refresh the systemd unit if the bundle changed it, then restart.
 cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
     || { rollback || true; echo "[openfy-update] ERROR: failed to install systemd unit." >&2; exit 1; }
+sed -i -E "s|--port [0-9]+|--port ${OPENFY_PORT}|" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
+    || { rollback || true; echo "[openfy-update] ERROR: failed to configure service port." >&2; exit 1; }
 systemctl daemon-reload
 systemctl start "${SERVICE_NAME}" || { rollback || true; echo "[openfy-update] ERROR: service failed to start." >&2; exit 1; }
 

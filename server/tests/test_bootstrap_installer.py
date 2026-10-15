@@ -792,14 +792,15 @@ generate_credential() {{ echo of1_{'a' * 60}; }}
 check_os() {{ die 'unexpected install'; }}
 main --rotate-credential
 """)
-    assert "USER_CHECKED" in proc.stdout
     assert "unexpected install" not in proc.stderr
     assert not (tmp_path / "app").exists()
     if has_config:
+        assert "USER_CHECKED" in proc.stdout
         assert proc.returncode == 0, proc.stderr
         assert "OPENFY_ADMIN_HASH=of1_" + "a" * 60 in (cfg / "openfy.env").read_text()
         assert len(list(cfg.glob("openfy.env.bak-*"))) == 1
     else:
+        assert "USER_CHECKED" not in proc.stdout
         assert proc.returncode != 0
         assert "no config" in proc.stderr
         assert not cfg.exists()
@@ -995,7 +996,7 @@ def test_explicit_prerelease_needs_opt_in_noninteractive(tmp_path):
 def test_docs_document_one_line_installer():
     readme = (REPO_ROOT / "README.md").read_text()
     assert "raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh" in readme
-    assert "install.sh) v1.4.2" in readme
+    assert "bash install.sh v1.4.2" in readme
     assert "--yes --version 1.4.2" in readme
     linux_doc = (REPO_ROOT / "docs" / "LINUX_INSTALL.md").read_text()
     assert "--rotate-credential" in linux_doc

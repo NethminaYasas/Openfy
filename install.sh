@@ -5,10 +5,10 @@
 # repository or manually extracting release archives:
 #
 #   Latest stable release:
-#     bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
+#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
 #
 #   Exact version (installs EXACTLY this version, never silently "latest"):
-#     bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
+#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
 #
 #   Already downloaded (same behaviour, run as root for native installs):
 #     sudo bash install.sh v1.4.2
@@ -63,7 +63,12 @@ OPENFY_REPO="NethminaYasas/Openfy"
 OPENFY_GHCR_IMAGE="ghcr.io/nethminayasas/openfy"
 OPENFY_API_BASE="${OPENFY_API_BASE:-https://api.github.com}"
 OPENFY_DOWNLOAD_BASE="${OPENFY_DOWNLOAD_BASE:-https://github.com/NethminaYasas/Openfy/releases/download}"
-OPENFY_PORT="8000"
+if [[ -z "${OPENFY_PORT+x}" ]]; then
+    OPENFY_PORT="8000"
+    PORT_EXPLICIT="false"
+else
+    PORT_EXPLICIT="true"
+fi
 
 APP_DIR="${OPENFY_INSTALL_DIR:-/opt/openfy}"
 DATA_DIR="${OPENFY_DATA_DIR_OVERRIDE:-/var/lib/openfy}"
@@ -116,7 +121,7 @@ usage() {
     cat <<'EOF'
 
 Usage:
-  bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) [VERSION] [options]
+  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh [VERSION] [options]
   sudo bash install.sh [VERSION] [options]
 
 Options:
@@ -131,6 +136,8 @@ Options:
   --force                 reinstall same-version files without prompting
   --arch ARCH             override detection: linux-amd64 | linux-arm64
   --admin-user NAME       admin username for fresh installs (default: admin)
+  --port PORT             service port for native installs and Docker host
+                          mapping (default: 8000)
   --no-generate-credential
                           do not auto-generate the admin credential on a fresh
                           install (you must set OPENFY_ADMIN_HASH manually)
@@ -145,8 +152,8 @@ Options:
   -h, --help              show this help
 
 Examples:
-  bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
-  bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
+  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
+  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
   sudo bash install.sh --yes --version 1.4.2
   sudo bash install.sh --yes --method docker --version 1.4.2
 EOF
@@ -179,6 +186,9 @@ parse_args() {
             --admin-user)
                 [[ $# -ge 2 ]] || die "--admin-user requires a value."
                 ADMIN_USER="$2"; shift 2 ;;
+            --port)
+                [[ $# -ge 2 ]] || die "--port requires a value (e.g. --port 8000)."
+                OPENFY_PORT="$2"; PORT_EXPLICIT="true"; shift 2 ;;
             --no-generate-credential) NO_GENERATE_CREDENTIAL="true"; shift ;;
             --rotate-credential) ROTATE_CREDENTIAL="true"; shift ;;
             --no-install-deps) NO_INSTALL_DEPS="true"; shift ;;
@@ -200,9 +210,17 @@ parse_args() {
     else
         die "--admin-user must not be empty."
     fi
+    valid_port "${OPENFY_PORT}" \
+        || die "invalid --port '${OPENFY_PORT}' (must be 1-65535, no leading zeros)."
     if [[ -n "${REQUESTED_VERSION_RAW}" && "${WANT_LATEST}" == "true" ]]; then
         die "cannot combine --latest with an explicit version ('${REQUESTED_VERSION_RAW}')."
     fi
+}
+
+# valid_port <value> : decimal 1-65535 with no leading zeros (avoids
+# bash octal interpretation of values like 08080 in arithmetic checks).
+valid_port() {
+    [[ "${1:-}" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
 # ------------------------------------------------- version handling
@@ -359,16 +377,18 @@ fetch_release_metadata() {
         RESOLVED_PRERELEASE="false"
     fi
     local version="${tag#v}"
-    local arch
-    arch="$(detect_arch)"
-    local need="openfy-v${version}-${arch}.tar.gz"
-    local names
-    names="$(json_asset_names "${body}")"
-    if ! grep -qxF "${need}" <<<"${names}"; then
-        die "release ${tag} has no asset '${need}' for your architecture (${arch}). Available assets: $(tr '\n' ' ' <<<"${names}"). The release cannot be installed on this machine."
-    fi
-    if ! grep -qxF "SHA256SUMS" <<<"${names}"; then
-        die "release ${tag} has no SHA256SUMS asset; integrity cannot be verified. Refusing to install."
+    if [[ "${METHOD}" != "docker" ]]; then
+        local arch
+        arch="$(detect_arch)"
+        local need="openfy-v${version}-${arch}.tar.gz"
+        local names
+        names="$(json_asset_names "${body}")"
+        if ! grep -qxF "${need}" <<<"${names}"; then
+            die "release ${tag} has no asset '${need}' for your architecture (${arch}). Available assets: $(tr '\n' ' ' <<<"${names}"). The release cannot be installed on this machine."
+        fi
+        if ! grep -qxF "SHA256SUMS" <<<"${names}"; then
+            die "release ${tag} has no SHA256SUMS asset; integrity cannot be verified. Refusing to install."
+        fi
     fi
     RESOLVED_TAG="${tag}"
     RESOLVED_VERSION="${version}"
@@ -390,8 +410,6 @@ detect_os() {
     log "Detected OS: ${id} ${version} ($(uname -m))."
     case "${id}" in
         ubuntu|debian|linuxmint|pop|raspbian) log "Supported distribution." ;;
-        fedora|rhel|centos|rocky|alma|arch|opensuse*|sles)
-            warn "distribution '${id}' is not in the primary test matrix (Ubuntu/Debian). Continuing; use --allow-unsupported-os to silence this on unknown distros." ;;
         *)
             if [[ "${ALLOW_UNSUPPORTED_OS}" == "true" ]]; then
                 warn "unsupported distribution '${id}'; continuing due to --allow-unsupported-os."
@@ -424,7 +442,7 @@ detect_pkg_manager() {
 
 require_root_native() {
     if [[ "$(id -u)" -ne 0 ]]; then
-        die "native installation requires root. Re-run with sudo: sudo bash install.sh ${REQUESTED_VERSION_RAW:-} (or see --help for Docker installs)."
+        die "native installation requires root (sudo cannot use bash <(curl ...)). Download first: curl -fsSL -o install.sh https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh && sudo bash install.sh ${REQUESTED_VERSION_RAW:-} (or see --help for Docker installs)."
     fi
 }
 
@@ -471,21 +489,22 @@ install_system_deps() {
     step "Installing system dependencies via ${mgr}: ${pkgs}"
     case "${mgr}" in
         apt) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ${pkgs} ;;
-        dnf) dnf install -y ${pkgs} ;;
-        yum) yum install -y ${pkgs} ;;
+        dnf) dnf install -y ${pkgs/ ffmpeg/} && { dnf install -y ffmpeg || warn "ffmpeg unavailable (enable RPM Fusion)."; } ;;
+        yum) yum install -y ${pkgs/ ffmpeg/} && { yum install -y ffmpeg || warn "ffmpeg unavailable (enable RPM Fusion/EPEL)."; } ;;
         pacman) pacman -Sy --noconfirm ${pkgs} ;;
         zypper) zypper --non-interactive install ${pkgs} ;;
     esac || die "package installation via ${mgr} failed. Install dependencies manually and rerun (or use --no-install-deps to skip this step)."
     log "System dependencies installed."
 }
 
-# port_in_use <port> : true if something already listens on 127.0.0.1:port.
+# port_in_use <port> : true if something listens on <port> on any local
+# address (service binds 0.0.0.0; ss sees all, python fallback probes loopback).
 port_in_use() {
     local port="$1"
-    if have_cmd python3; then
-        python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "${port}" 2>/dev/null
-    elif have_cmd ss; then
+    if have_cmd ss; then
         ss -ltn 2>/dev/null | grep -q ":${port} "
+    elif have_cmd python3; then
+        python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "${port}" 2>/dev/null
     else
         return 1
     fi
@@ -615,7 +634,7 @@ detect_existing_install() {
     INSTALLED_VERSION=""
     if [[ -f "${APP_DIR}/VERSION.json" ]]; then
         if have_cmd python3; then
-            INSTALLED_VERSION="$(python3 -c 'import json; print(json.load(open("'"${APP_DIR}"'/VERSION.json")).get("version","unknown"))' 2>/dev/null || echo unknown)"
+            INSTALLED_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","unknown"))' "${APP_DIR}/VERSION.json" 2>/dev/null || echo unknown)"
         fi
         if [[ -z "${INSTALLED_VERSION}" || "${INSTALLED_VERSION}" == "unknown" ]]; then
             INSTALLED_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${APP_DIR}/VERSION.json" 2>/dev/null | head -n 1 || true)"
@@ -687,6 +706,9 @@ run_wizard() {
         if [[ "${c}" == "1" ]]; then METHOD="native"; else METHOD="docker"; fi
     fi
     log "Method: ${METHOD}."
+    if [[ "${METHOD}" == "native" && "${DRY_RUN}" != "true" ]]; then
+        require_root_native
+    fi
     # 2. Version.
     if [[ -z "${REQUESTED_VERSION_RAW}" && "${WANT_LATEST}" != "true" ]]; then
         local c
@@ -749,7 +771,27 @@ run_wizard() {
             fi
         fi
     fi
-    # 5. Dependencies.
+    # 5. Service port (native service port / Docker host mapping).
+    if [[ "${METHOD}" == "native" || "${METHOD}" == "docker" ]]; then
+        local default_port="${OPENFY_PORT}"
+        if [[ "${METHOD}" == "native" && "${PORT_EXPLICIT}" != "true" ]]; then
+            local unit_file="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}/openfy.service"
+            local unit_port
+            unit_port="$(grep -oE -- '--port [0-9]+' "${unit_file}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+            [[ -n "${unit_port}" ]] && default_port="${unit_port}"
+        fi
+        while true; do
+            local entered
+            entered="$(ask_value "Service port" "${default_port}")"
+            if valid_port "${entered}"; then
+                OPENFY_PORT="${entered}"
+                [[ "${entered}" != "${default_port}" || "${PORT_EXPLICIT}" == "true" ]] && PORT_EXPLICIT="true"
+                break
+            fi
+            echo "Invalid port '${entered}'. Enter 1-65535 (no leading zeros)." >&2
+        done
+    fi
+    # 6. Dependencies.
     if [[ "${METHOD}" == "native" && "${NO_INSTALL_DEPS}" != "true" ]]; then
         if ask_yes_no "Install required system packages automatically (python3, ffmpeg, ...)? [Y/n]" "y"; then
             NO_INSTALL_DEPS="false"
@@ -757,9 +799,9 @@ run_wizard() {
             NO_INSTALL_DEPS="true"
         fi
     fi
-    # 6. Summary + confirm.
+    # 7. Summary + confirm.
     echo "" >&2
-    echo "Plan: method=${METHOD} action=${ACTION:-install} version=${REQUESTED_VERSION_RAW:-latest-stable} arch=$(detect_arch)" >&2
+    echo "Plan: method=${METHOD} action=${ACTION:-install} version=${REQUESTED_VERSION_RAW:-latest-stable} arch=$(detect_arch) port=${OPENFY_PORT}" >&2
     if [[ "${DRY_RUN}" == "true" ]]; then
         return
     fi
@@ -783,6 +825,8 @@ run_native_delegate() {
             log "DRY RUN: would execute: ${staged_dir}/update.sh --archive <verified ${version} archive>"
             return
         fi
+        [[ "${NO_START}" != "true" ]] \
+            || die "--no-start is not supported for native upgrades; update.sh always restarts the service to apply the new version."
         bash "${staged_dir}/update.sh" --archive "${archive_path}" --arch "$(detect_arch)"
     else
         step "Installing application files (config + data preserved)"
@@ -790,6 +834,7 @@ run_native_delegate() {
             log "Repairing installation of version ${version}."
         fi
         args+=(--admin-user "${ADMIN_USER}")
+        [[ "${PORT_EXPLICIT}" == "true" ]] && args+=(--port "${OPENFY_PORT}")
         [[ "${NO_START}" == "true" ]] && args+=(--no-start)
         [[ "${ALLOW_UNSUPPORTED_OS}" == "true" ]] && args+=(--allow-unsupported-os)
         [[ "${FORCE}" == "true" || "${mode}" == "reinstall" || "${mode}" == "repair" ]] && args+=(--force)
@@ -800,7 +845,11 @@ run_native_delegate() {
             log "DRY RUN: would execute: ${staged_dir}/install.sh ${args[*]}"
             return
         fi
-        OPENFY_ADMIN_USERNAME="${ADMIN_USER}" bash "${staged_dir}/install.sh" "${args[@]}"
+        if [[ "${PORT_EXPLICIT}" == "true" ]]; then
+            OPENFY_ADMIN_USERNAME="${ADMIN_USER}" OPENFY_PORT="${OPENFY_PORT}" bash "${staged_dir}/install.sh" "${args[@]}"
+        else
+            OPENFY_ADMIN_USERNAME="${ADMIN_USER}" bash "${staged_dir}/install.sh" "${args[@]}"
+        fi
     fi
 }
 
@@ -865,30 +914,33 @@ run_docker_uninstall() {
 run_docker_install() {
     local version="$1"
     step "Installing Openfy v${version} via Docker"
-    have_cmd docker || die "docker not found. Install Docker first (https://docs.docker.com/engine/install/), then rerun with --method docker."
-    if [[ "${NO_GENERATE_CREDENTIAL}" != "true" ]]; then
-        have_cmd python3 || die "python3 is required to generate the admin credential (or rerun with --no-generate-credential and set OPENFY_ADMIN_HASH manually)."
-    fi
     local image="${OPENFY_GHCR_IMAGE}:${version}"
-    log "Pulling ${image}."
     if [[ "${DRY_RUN}" == "true" ]]; then
         log "DRY RUN: would pull ${image} and start a container (volume openfy_data, port ${OPENFY_PORT})."
         return
     fi
-    docker pull "${image}" || die "could not pull ${image} (check the version exists and the registry is reachable)."
+    have_cmd docker || die "docker not found. Install Docker first (https://docs.docker.com/engine/install/), then rerun with --method docker."
+    if [[ "${NO_GENERATE_CREDENTIAL}" != "true" ]]; then
+        have_cmd python3 || die "python3 is required to generate the admin credential (or rerun with --no-generate-credential and set OPENFY_ADMIN_HASH manually)."
+    fi
     local docker_dir="${OPENFY_DOCKER_DIR:-/opt/openfy-docker}"
-    mkdir -p "${docker_dir}"
+    if ! mkdir -p "${docker_dir}" 2>/dev/null || [[ ! -w "${docker_dir}" ]]; then
+        die "cannot write ${docker_dir}. Rerun with sudo, or set OPENFY_DOCKER_DIR to a writable directory."
+    fi
+    log "Pulling ${image}."
+    docker pull "${image}" || die "could not pull ${image} (check the version exists and the registry is reachable)."
     chmod 755 "${docker_dir}"
     local env_file="${docker_dir}/.env"
     local credential=""
     if [[ ! -f "${env_file}" ]]; then
+        ( umask 077; : > "${env_file}" )
         if [[ "${NO_GENERATE_CREDENTIAL}" == "true" ]]; then
             cat > "${env_file}" <<EOF
 OPENFY_ENV=prod
 OPENFY_ADMIN_USERNAME=${ADMIN_USER}
 # Generate with: python3 -c 'import secrets; print("of1_" + secrets.token_urlsafe(45))'
 OPENFY_ADMIN_HASH=
-OPENFY_ALLOWED_ORIGINS=http://localhost:8000
+OPENFY_ALLOWED_ORIGINS=http://localhost:${OPENFY_PORT}
 EOF
         else
             credential="$(generate_admin_credential)"
@@ -897,7 +949,7 @@ EOF
 OPENFY_ENV=prod
 OPENFY_ADMIN_USERNAME=${ADMIN_USER}
 OPENFY_ADMIN_HASH=${credential}
-OPENFY_ALLOWED_ORIGINS=http://localhost:8000
+OPENFY_ALLOWED_ORIGINS=http://localhost:${OPENFY_PORT}
 EOF
         fi
         chmod 600 "${env_file}"
@@ -981,7 +1033,7 @@ EOF
         echo "  Admin credential (generated NOW, shown ONCE — save it securely):"
         echo "    ${credential}"
         echo "  Sign in with this credential in the Auth Hash field. It cannot be recovered if lost;"
-        echo "  rotate it by editing ${env_file} (OPENFY_ADMIN_HASH) and restarting: docker restart ${cname}"
+        echo "  rotate it by editing ${env_file} (OPENFY_ADMIN_HASH), then recreate the container (rerun this installer with --method docker --version ${version}); 'docker restart' does NOT reload the env file."
     else
         echo "  Credentials preserved (existing ${env_file} untouched)."
     fi
@@ -1058,6 +1110,12 @@ main() {
             fi
             ACTION="install"
         fi
+    fi
+
+    # Fail fast for native installs before any network lookup (one-liner needs
+    # a root shell; DRY_RUN never needs root).
+    if [[ "${METHOD}" == "native" && "${DRY_RUN}" != "true" ]]; then
+        require_root_native
     fi
 
     # The wizard may have switched to uninstall; never download in that case.
@@ -1193,7 +1251,13 @@ main() {
     staged="$(extract_and_validate "${WORK_DIR}" "openfy-v${RESOLVED_VERSION}-${arch}.tar.gz" "${RESOLVED_VERSION}" "${arch}")"
 
     if [[ "${mode}" == "upgrade" ]]; then
-        run_native_delegate "${staged}" "upgrade" "${RESOLVED_VERSION}" "${WORK_DIR}/openfy-v${RESOLVED_VERSION}-${arch}.tar.gz"
+        if [[ "${PORT_EXPLICIT}" == "true" ]]; then
+            OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" OPENFY_PORT="${OPENFY_PORT}" \
+                run_native_delegate "${staged}" "upgrade" "${RESOLVED_VERSION}" "${WORK_DIR}/openfy-v${RESOLVED_VERSION}-${arch}.tar.gz"
+        else
+            OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
+                run_native_delegate "${staged}" "upgrade" "${RESOLVED_VERSION}" "${WORK_DIR}/openfy-v${RESOLVED_VERSION}-${arch}.tar.gz"
+        fi
     else
         OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
             run_native_delegate "${staged}" "${mode}" "${RESOLVED_VERSION}" ""

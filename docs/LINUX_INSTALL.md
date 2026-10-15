@@ -20,12 +20,12 @@ executing anything from the bundle**, then delegates to the verified
 bundle's installer:
 
 ```bash
-# Latest stable release (interactive wizard):
-bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
+# Latest stable release (interactive wizard; native installs need a root shell):
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
 
 # An exact version (installs EXACTLY this version; example uses the
 # vMAJOR.MINOR.PATCH tag convention — see the Releases page for real versions):
-bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
 
 # Already downloaded (same behaviour; native installs need root):
 sudo bash install.sh v1.4.2
@@ -160,7 +160,7 @@ save it in a password manager. The installer never prints existing
 credentials on upgrades, repairs, or status checks, and never overwrites an
 existing config.
 
-Rotate the credential explicitly (backups the config, prints the new secret
+Rotate the credential explicitly (backs up the config, prints the new secret
 once, keeps everything else):
 
 ```bash
@@ -195,20 +195,26 @@ sudo ./update.sh --archive /path/to/openfy-v1.5.0-linux-amd64.tar.gz
 
 ## Repair
 
-If application files, permissions, or the systemd unit break (config and
-data are intact), repair without reinstalling from scratch:
+If application files are damaged, repair from a freshly verified bundle
+(config and data are intact):
+
+```bash
+sudo bash install.sh --yes --action repair
+```
+
+If only permissions, the venv, or the systemd unit are broken, the installed
+copy can repair in place (it does not restore application files):
 
 ```bash
 sudo /opt/openfy/install.sh --repair
 ```
 
-Repair re-verifies the installed files, fixes ownership/permissions,
-rebuilds the virtualenv dependencies, reinstalls the systemd unit, and
-health-checks — `/etc/openfy/openfy.env` and `/var/lib/openfy/` are never
-modified. The one-line installer offers the same via its wizard
-(**Repair**) or `sudo bash install.sh --yes --action repair`. If the repair
-itself fails, the service logs (`journalctl -u openfy -n 100`) show why; your
-data and config are still untouched.
+Repair fixes ownership/permissions, rebuilds the virtualenv dependencies,
+reinstalls the systemd unit, and health-checks —
+`/etc/openfy/openfy.env` and `/var/lib/openfy/` are never modified. The
+one-line installer offers the same via its wizard (**Repair**). If the
+repair itself fails, the service logs (`journalctl -u openfy -n 100`) show
+why; your data and config are still untouched.
 
 ## Uninstall
 
@@ -244,7 +250,7 @@ in a safe place.
   another version — fix the version argument and rerun.
 - `CHECKSUM MISMATCH`: the download is corrupt or tampered with. Nothing was
   installed. Rerun; if it persists, download the archive + `SHA256SUMS`
-  manually and verify with `sha256sum -c SHA256SUMS`.
+  manually and verify with `sha256sum -c --ignore-missing SHA256SUMS`.
 - `unsupported distribution`: tested on Ubuntu/Debian; rerun with
   `--allow-unsupported-os` on other systemd distros (or use Docker).
 - `native installation requires root`: rerun the downloaded script with

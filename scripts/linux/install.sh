@@ -35,6 +35,7 @@
 #   --allow-unsupported-os proceed on non-Debian/Ubuntu distros
 #   --force               reinstall app files even if version already installed
 #   --yes                 non-interactive (accept defaults; no prompts)
+#   --port PORT           service port (default: 8000)
 #   --admin-user NAME     admin username for fresh installs (default: admin)
 #   --no-generate-credential
 #                         do not auto-generate the admin credential on a fresh
@@ -55,7 +56,12 @@ ENV_FILE="${CONFIG_DIR}/openfy.env"
 SERVICE_USER="${OPENFY_SERVICE_USER:-openfy}"
 SERVICE_NAME="${OPENFY_SERVICE_NAME:-openfy}"
 SYSTEMD_DIR="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}"
-OPENFY_PORT="${OPENFY_PORT:-8000}"
+if [[ -z "${OPENFY_PORT+x}" ]]; then
+    OPENFY_PORT="8000"
+    PORT_EXPLICIT="false"
+else
+    PORT_EXPLICIT="true"
+fi
 NO_START="false"
 ALLOW_UNSUPPORTED_OS="false"
 FORCE="false"
@@ -73,12 +79,13 @@ parse_args() {
             --allow-unsupported-os) ALLOW_UNSUPPORTED_OS="true"; shift ;;
             --force) FORCE="true"; shift ;;
             --yes|-y) ASSUME_YES="true"; shift ;;
+            --port) OPENFY_PORT="${2:?--port requires a value}"; PORT_EXPLICIT="true"; shift 2 ;;
             --admin-user) ADMIN_USER="${2:?--admin-user requires a value}"; shift 2 ;;
             --no-generate-credential) NO_GENERATE_CREDENTIAL="true"; shift ;;
             --rotate-credential) ROTATE_CREDENTIAL="true"; shift ;;
             --no-install-deps) NO_INSTALL_DEPS="true"; shift ;;
             --repair) REPAIR="true"; shift ;;
-            -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+            -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
             *) echo "ERROR: unknown option '$1'. Use --help." >&2; exit 1 ;;
         esac
     done
@@ -87,6 +94,10 @@ parse_args() {
         echo "[openfy-install] ERROR: invalid admin username '${ADMIN_USER}'." >&2
         exit 1
     fi
+    valid_port "${OPENFY_PORT}" || {
+        echo "[openfy-install] ERROR: invalid --port '${OPENFY_PORT}' (must be 1-65535, no leading zeros)." >&2
+        exit 1
+    }
 }
 
 SCRIPT_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -189,18 +200,21 @@ install_system_deps() {
     log "Installing system dependencies via ${mgr}."
     case "${mgr}" in
         apt) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ${pkgs} ;;
-        dnf) dnf install -y ${pkgs} ;;
-        yum) yum install -y ${pkgs} ;;
+        dnf) dnf install -y ${pkgs/ ffmpeg/} && { dnf install -y ffmpeg || log "WARNING: ffmpeg unavailable (enable RPM Fusion)."; } ;;
+        yum) yum install -y ${pkgs/ ffmpeg/} && { yum install -y ffmpeg || log "WARNING: ffmpeg unavailable (enable RPM Fusion/EPEL)."; } ;;
         pacman) pacman -Sy --noconfirm ${pkgs} ;;
         zypper) zypper --non-interactive install ${pkgs} ;;
     esac || die "package installation via ${mgr} failed; install dependencies manually and rerun (or use --no-install-deps)."
 }
 
 port_in_use() {
-    if command -v python3 >/dev/null 2>&1; then
-        python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "${OPENFY_PORT}" 2>/dev/null
-    elif command -v ss >/dev/null 2>&1; then
-        ss -ltn 2>/dev/null | grep -q ":${OPENFY_PORT} "
+    local port="${1:-${OPENFY_PORT}}"
+    # ss sees listeners on all local addresses (service binds 0.0.0.0);
+    # python fallback only probes loopback.
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -q ":${port} "
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "${port}" 2>/dev/null
     else
         return 1
     fi
@@ -208,13 +222,32 @@ port_in_use() {
 
 check_port() {
     if port_in_use "${OPENFY_PORT}"; then
-        if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+        local unit_port=""
+        unit_port="$(grep -oE -- '--port [0-9]+' "${SYSTEMD_DIR}/${SERVICE_NAME}.service" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+        if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null && [[ "${unit_port:-8000}" == "${OPENFY_PORT}" ]]; then
             log "Port ${OPENFY_PORT} is held by the running ${SERVICE_NAME} service (expected)."
         else
             die "port ${OPENFY_PORT} is already in use by another process. Stop it first, or stop the existing '${SERVICE_NAME}' service if it holds the port."
         fi
     else
         log "Port ${OPENFY_PORT} is free."
+    fi
+}
+
+resolve_port() {
+    # Preserve a custom port across repair/reinstall/upgrade when the operator
+    # did not pass --port (or OPENFY_PORT). Fresh installs keep default 8000.
+    if [[ "${PORT_EXPLICIT:-false}" == "true" ]]; then
+        return
+    fi
+    local unit="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+    if [[ -f "${unit}" ]]; then
+        local p
+        p="$(grep -oE -- '--port [0-9]+' "${unit}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+        if valid_port "${p}"; then
+            OPENFY_PORT="${p}"
+            log "Keeping existing service port ${OPENFY_PORT}."
+        fi
     fi
 }
 
@@ -228,6 +261,10 @@ generate_credential() {
 
 valid_credential() {
     [[ "$1" =~ ^of1_[A-Za-z0-9_-]{60}$ ]]
+}
+
+valid_port() {
+    [[ "${1:-}" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
 print_credential_once() {
@@ -274,19 +311,23 @@ create_user() {
 install_files() {
     log "Installing application files to ${APP_DIR}."
     mkdir -p "${APP_DIR}"
-    # App code only: data and config live elsewhere and are never touched here.
-    for entry in app client spotify_scraper spotify_search.py requirements.txt \
-                 openfy.service VERSION.json LICENSE THIRD_PARTY_NOTICES.md README_LINUX.md .env.example; do
-        if [[ -e "${SCRIPT_SRC_DIR}/${entry}" ]]; then
-            cp -a "${SCRIPT_SRC_DIR}/${entry}" "${APP_DIR}/${entry}"
-        else
-            log "WARNING: bundle entry missing (skipped): ${entry}"
-        fi
-    done
-    # Helper scripts live alongside the bundle for operators.
-    for entry in install.sh start.sh update.sh uninstall.sh generate_hash.py; do
-        [[ -e "${SCRIPT_SRC_DIR}/${entry}" ]] && cp -a "${SCRIPT_SRC_DIR}/${entry}" "${APP_DIR}/${entry}"
-    done
+    if [[ "${SCRIPT_SRC_DIR}" == "${APP_DIR}" ]]; then
+        log "Source and destination are both ${APP_DIR}; skipping self-copy."
+    else
+        # App code only: data and config live elsewhere and are never touched here.
+        for entry in app client spotify_scraper spotify_search.py requirements.txt \
+                     openfy.service VERSION.json LICENSE THIRD_PARTY_NOTICES.md README_LINUX.md .env.example; do
+            if [[ -e "${SCRIPT_SRC_DIR}/${entry}" ]]; then
+                cp -a "${SCRIPT_SRC_DIR}/${entry}" "${APP_DIR}/${entry}"
+            else
+                log "WARNING: bundle entry missing (skipped): ${entry}"
+            fi
+        done
+        # Helper scripts live alongside the bundle for operators.
+        for entry in install.sh start.sh update.sh uninstall.sh generate_hash.py; do
+            [[ -e "${SCRIPT_SRC_DIR}/${entry}" ]] && cp -a "${SCRIPT_SRC_DIR}/${entry}" "${APP_DIR}/${entry}"
+        done
+    fi
     chmod 755 "${APP_DIR}"/start.sh "${APP_DIR}"/update.sh "${APP_DIR}"/uninstall.sh 2>/dev/null || true
 }
 
@@ -329,7 +370,7 @@ install_config() {
 OPENFY_ENV=prod
 OPENFY_ADMIN_USERNAME=${ADMIN_USER}
 OPENFY_ADMIN_HASH=${admin_hash}
-OPENFY_ALLOWED_ORIGINS=http://localhost:8000
+OPENFY_ALLOWED_ORIGINS=http://localhost:${OPENFY_PORT}
 OPENFY_MAX_UPLOAD_SIZE_MB=200
 OPENFY_DATA_DIR=${DATA_DIR}
 OPENFY_MUSIC_DIR=${DATA_DIR}/music
@@ -369,16 +410,27 @@ rotate_credential() {
     local tmp
     tmp="$(mktemp "${CONFIG_DIR}/.openfy.env.XXXXXX")"
     chmod 640 "${tmp}"
+    chown root:"${SERVICE_USER}" "${tmp}" 2>/dev/null || true
     if grep -qE '^OPENFY_ADMIN_HASH=' "${ENV_FILE}"; then
-        sed "s|^OPENFY_ADMIN_HASH=.*|OPENFY_ADMIN_HASH=${fresh}|" "${ENV_FILE}" > "${tmp}"
+        sed "s|^OPENFY_ADMIN_HASH=.*|OPENFY_ADMIN_HASH=${fresh}|" "${ENV_FILE}" > "${tmp}" \
+            || { rm -f "${tmp}"; die "rotation failed while writing; original config untouched (backup at ${backup})."; }
     else
-        cat "${ENV_FILE}" > "${tmp}"
-        printf 'OPENFY_ADMIN_HASH=%s\n' "${fresh}" >> "${tmp}"
+        cat "${ENV_FILE}" > "${tmp}" \
+            || { rm -f "${tmp}"; die "rotation failed while writing; original config untouched (backup at ${backup})."; }
+        printf 'OPENFY_ADMIN_HASH=%s\n' "${fresh}" >> "${tmp}" \
+            || { rm -f "${tmp}"; die "rotation failed while writing; original config untouched (backup at ${backup})."; }
     fi
     local newval
     newval="$(grep -E '^OPENFY_ADMIN_HASH=' "${tmp}" | cut -d= -f2- || true)"
     valid_credential "${newval}" || { rm -f "${tmp}"; die "rotation failed validation; original config untouched (backup at ${backup})."; }
-    mv -f "${tmp}" "${ENV_FILE}"
+    if ! chown root:"${SERVICE_USER}" "${tmp}"; then
+        rm -f "${tmp}" || true
+        die "rotation failed while setting temporary config ownership (backup at ${backup})."
+    fi
+    if ! mv -f "${tmp}" "${ENV_FILE}"; then
+        rm -f "${tmp}" || true
+        die "rotation failed while replacing config (backup at ${backup})."
+    fi
     chown root:"${SERVICE_USER}" "${ENV_FILE}"
     chmod 640 "${ENV_FILE}"
     log "Previous config backed up at ${backup}."
@@ -428,7 +480,7 @@ install_service() {
         -e "s|^Group=.*|Group=${SERVICE_USER}|" \
         -e "s|^WorkingDirectory=.*|WorkingDirectory=${APP_DIR}|" \
         -e "s|^EnvironmentFile=.*|EnvironmentFile=${ENV_FILE}|" \
-        -e "s|^ExecStart=.*|ExecStart=${APP_DIR}/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000|" \
+        -e "s|^ExecStart=.*|ExecStart=${APP_DIR}/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${OPENFY_PORT}|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=${DATA_DIR}|" \
         "${APP_DIR}/openfy.service" > "${unit_tmp}"
     cp -a "${unit_tmp}" "${SYSTEMD_DIR}/${SERVICE_NAME}.service"
@@ -461,9 +513,9 @@ start_and_healthcheck() {
     systemctl restart "${SERVICE_NAME}"
     local attempt=0
     while [[ "${attempt}" -lt 30 ]]; do
-        if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/health', timeout=3)" 2>/dev/null; then
-            log "Openfy is healthy at http://localhost:8000/health"
-            log "Open the app at http://<server-ip>:8000 and sign in with your admin credential."
+        if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:${OPENFY_PORT}/health', timeout=3)" 2>/dev/null; then
+            log "Openfy is healthy at http://localhost:${OPENFY_PORT}/health"
+            log "Open the app at http://<server-ip>:${OPENFY_PORT} and sign in with your admin credential."
             return
         fi
         attempt=$((attempt + 1))
@@ -476,10 +528,18 @@ main() {
     parse_args "$@"
     require_root
     if [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
+        [[ -f "${ENV_FILE}" ]] || die "no config at ${ENV_FILE}; nothing to rotate (fresh installs generate a credential automatically)."
         create_user
         rotate_credential
         return
     fi
+    if [[ "${REPAIR}" == "true" ]]; then
+        # Fail fast before any system mutation (install_system_deps/create_user).
+        # repair_install() keeps its own identical guard as defense in depth.
+        [[ -f "${APP_DIR}/VERSION.json" ]] || die "no Openfy installation at ${APP_DIR} (missing VERSION.json); install first."
+        [[ -f "${ENV_FILE}" ]] || die "no config at ${ENV_FILE}; repair never creates configuration. Restore it before retrying."
+    fi
+    resolve_port
     check_os
     check_bundle_arch
     check_systemd
