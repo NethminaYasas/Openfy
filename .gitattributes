@@ -1,0 +1,4 @@
+# Enforce LF line endings for shell scripts and the systemd unit.
+# CRLF would break execution on Linux (bad interpreter, stray \r in values).
+*.sh text eol=lf
+*.service text eol=lf
