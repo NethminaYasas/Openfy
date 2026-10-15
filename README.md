@@ -3,19 +3,87 @@
 A self-hosted music streaming platform.
 
 ## Prerequisites
-- Docker and Docker Compose
+
+- For bare-metal install: current Ubuntu/Debian, Python 3.11+, `ffmpeg`, systemd
+- For Docker install: Docker and Docker Compose
 - For manual setup: Python 3.11+
 
-## Quick Start
+## Quick Start (bare-metal Linux, no Docker)
+
+Download the `openfy-vVERSION-linux-amd64.tar.gz` (x86-64) or
+`openfy-vVERSION-linux-arm64.tar.gz` (ARM64) archive from the
+[Releases page](https://github.com/NethminaYasas/Openfy/releases),
+plus `SHA256SUMS`, then:
 
 ```bash
-git clone https://github.com/NethminaYasas/Openfy.git
-cd Openfy
+sha256sum -c SHA256SUMS   # every line must report OK
+tar -xzf openfy-vVERSION-linux-amd64.tar.gz
+cd openfy-vVERSION-linux-amd64
+sudo ./install.sh
+```
+
+Then generate an admin credential, save it to the config, and restart:
+
+```bash
+sudo /opt/openfy/venv/bin/python /opt/openfy/generate_hash.py
+sudoedit /etc/openfy/openfy.env   # set OPENFY_ADMIN_HASH to the value above
+sudo systemctl restart openfy
+```
+
+Visit http://localhost:8000 (or `http://<server-ip>:8000`).
+
+Full guide — configuration, systemd service commands, upgrades via
+`update.sh`, safe uninstall, data locations, backups, troubleshooting:
+[`docs/LINUX_INSTALL.md`](docs/LINUX_INSTALL.md).
+
+## Installation
+
+### Option A — Bare-metal Linux without Docker (recommended)
+
+Same as Quick Start above. No Docker, no Node.js. App lives in
+`/opt/openfy`, config in `/etc/openfy/openfy.env`, data in
+`/var/lib/openfy/` (database, music, downloads, artwork) — config and data
+survive updates, reinstalls, and normal uninstalls.
+
+### Option B — Docker, published image
+
+No build needed. Pin a released version (see the
+[Releases page](https://github.com/NethminaYasas/Openfy/releases)):
+
+```bash
+cp .env.example .env   # fill in your values
+OPENFY_VERSION=1.4.2 docker compose -f docker-compose.prod.yml up -d
+```
+
+Images: `ghcr.io/nethminayasas/openfy:1.4.2` (also `:1.4`, `:1`, `:latest`).
+Prefer an explicit version in production; `latest` moves on every stable
+release and prereleases (e.g. `1.5.0-rc.1`) never touch the stable aliases.
+Multi-arch: `linux/amd64` and `linux/arm64`.
+
+### Option C — Docker from source (development)
+
+```bash
 cp .env.example .env   # fill in your values
 docker compose up --build -d
 ```
+### Configuration and admin credentials
 
-Visit http://localhost:8000
+Copy `.env.example` to `.env` and fill in your values before starting.
+
+```bash
+python scripts/generate_hash.py   # paste the of1_... value as OPENFY_ADMIN_HASH
+```
+
+Bare-metal installs keep their config at `/etc/openfy/openfy.env` and data
+at `/var/lib/openfy/` (database, music, downloads, artwork) — both survive
+updates, reinstalls, and normal uninstalls.
+
+### Upgrading
+
+- Docker (prod): set `OPENFY_VERSION` to the new release and
+  `docker compose -f docker-compose.prod.yml up -d`.
+- Bare-metal: `sudo /opt/openfy/update.sh --latest` (verifies checksums,
+  backs up config + database, rolls back on failure).
 
 ## Manual Setup
 

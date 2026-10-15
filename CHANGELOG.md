@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Automatic release pipeline (`.github/workflows/release.yml`): publishing a GitHub Release builds, tests, and publishes the multi-arch (`linux/amd64`, `linux/arm64`) Docker image to GHCR plus `linux-amd64`/`linux-arm64` bare-metal bundles, `SHA256SUMS`, and an SPDX SBOM as release assets. Stable tags publish `X.Y.Z`, `X.Y`, `X`, `latest`; prereleases (`-rc.N`/`-beta.N`/`-alpha.N`) publish only their exact version.
+- Bare-metal Linux distribution: `install.sh` / `start.sh` / `update.sh` / `uninstall.sh` + hardened `openfy.service` systemd unit (see `scripts/linux/`); app in `/opt/openfy`, config in `/etc/openfy/openfy.env`, data in `/var/lib/openfy` (preserved across updates and normal uninstalls).
+- CI packaging validation job, bundle packaging/validation scripts (`scripts/release/`), and `server/tests/test_release_packaging.py`.
+- `docker-compose.prod.yml` for running version-pinned published images without building.
+- `docs/RELEASING.md` (maintainer workflow) and `docs/LINUX_INSTALL.md` (bare-metal guide); `THIRD_PARTY_NOTICES.md`; OCI labels on the Docker image.
 - SpotiFLAC auto-update during Docker build (`scripts/check_spotiflac_update.sh`)
 - `SPOTIFLAC_PIN_VERSION` env var to pin SpotiFLAC to a specific version
 - Docker healthcheck on `/health` endpoint
