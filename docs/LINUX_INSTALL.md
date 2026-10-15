@@ -19,17 +19,31 @@ archive for your CPU plus `SHA256SUMS`, **verifies the checksum before
 executing anything from the bundle**, then delegates to the verified
 bundle's installer:
 
+Run in a **Bash root shell** (`sudo -i` first if you use sudo):
+
 ```bash
-# Latest stable release (interactive wizard; native installs need a root shell):
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
-
-# An exact version (installs EXACTLY this version; example uses the
-# vMAJOR.MINOR.PATCH tag convention — see the Releases page for real versions):
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
-
-# Already downloaded (same behaviour; native installs need root):
-sudo bash install.sh v1.4.2
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
 ```
+
+Follow the wizard prompts. To install an exact version, append the release tag
+(replace `v1.4.2` with a published version from the
+[Releases page](https://github.com/NethminaYasas/Openfy/releases)):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
+```
+
+### Download-first alternative
+
+To save the script locally and run it with sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh
+sudo bash install.sh
+```
+
+Append a version or options to `sudo bash install.sh` as needed. The automation
+examples below assume you downloaded the script this way.
 
 Version policy: with no version argument you get the latest **stable**
 release (prereleases and drafts are never selected). An explicit version

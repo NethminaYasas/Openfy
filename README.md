@@ -14,75 +14,32 @@ A self-hosted music streaming platform.
 - For Docker install: Docker and Docker Compose.
 - For manual setup: Python 3.11+.
 
-## Quick Start (one-line installer, bare-metal Linux, no Docker)
+## Quick Start
 
-Install the latest stable release (interactive wizard — guides you through
-method, version, admin account, and dependencies; native installs need a
-root shell — sudo users use the download-first command below):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
-```
-
-Install an exact version instead (installs **exactly** this version — check
-the [Releases page](https://github.com/NethminaYasas/Openfy/releases) for
-published versions; `v1.4.2` below is an example of the `vMAJOR.MINOR.PATCH`
-tag convention):
+On your Ubuntu or Debian server, run this command in a **Bash root shell**
+(if you use sudo, run `sudo -i` first):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
 ```
 
-Or download the script first, then run it as root (same behaviour):
+Follow the prompts to install the latest stable release. The installer handles
+system dependencies, verifies the release checksum, and starts Openfy.
+Save the admin credential shown at the end — it is printed **once**.
+
+For local access, open `http://localhost:8000` and sign in using the admin
+credential in the Auth Hash field. For remote access, use a TLS-terminating
+reverse proxy and its `https://` URL; do not expose port 8000 directly.
+
+To install a specific release, append its tag (replace `v1.4.2` with a version
+from the [Releases page](https://github.com/NethminaYasas/Openfy/releases)):
 
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh
-sudo bash install.sh v1.4.2
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
 ```
 
-Non-interactive (automation):
-
-```bash
-sudo bash install.sh --yes                                    # latest stable
-sudo bash install.sh --yes --version 1.4.2                    # pinned version
-sudo bash install.sh --yes --method docker --version 1.4.2    # Docker instead
-```
-
-The installer detects your OS/architecture, resolves the release from the
-official GitHub repository, downloads the archive for your CPU plus
-`SHA256SUMS`, **verifies the checksum before executing anything from the
-bundle**, installs the app to `/opt/openfy`, writes config to
-`/etc/openfy/openfy.env`, keeps data in `/var/lib/openfy/`, creates the
-`openfy` systemd service, generates the initial admin credential (shown
-**once** — save it), and health-checks the service. Rerunning is safe:
-existing config, credentials, and data are preserved. A requested version
-that is missing, a draft, or lacks assets is a fatal error — the installer
-never silently substitutes another version.
-
-See `install.sh --help` for all options (`--action upgrade|repair|reinstall|
-uninstall`, `--admin-user`, `--no-start`, `--purge`, `--dry-run`, ...).
-
-Manual alternative (no bootstrap): download
-`openfy-vVERSION-linux-amd64.tar.gz` (x86-64) or
-`openfy-vVERSION-linux-arm64.tar.gz` (ARM64) plus `SHA256SUMS` from the
-[Releases page](https://github.com/NethminaYasas/Openfy/releases), then:
-
-```bash
-sha256sum -c --ignore-missing SHA256SUMS   # every downloaded file must report OK
-tar -xzf openfy-vVERSION-linux-amd64.tar.gz
-cd openfy-vVERSION-linux-amd64
-sudo ./install.sh
-```
-
-For local access, visit `http://localhost:8000`. For remote access, use a
-TLS-terminating reverse proxy and visit its `https://` URL — do not expose
-port 8000 directly to remote clients. Sign in with your admin credential in
-the Auth Hash field.
-
-Full guide — wizard options, non-interactive flags, configuration, systemd
-service commands, credential rotation, upgrades, repair, safe uninstall,
-data locations, backups, troubleshooting:
-[`docs/LINUX_INSTALL.md`](docs/LINUX_INSTALL.md).
+For download-first installation, automation, upgrades, and troubleshooting,
+see the [full Linux installation guide](docs/LINUX_INSTALL.md).
 
 ## Installation
 

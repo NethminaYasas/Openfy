@@ -5,10 +5,10 @@
 # repository or manually extracting release archives:
 #
 #   Latest stable release:
-#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
+#     bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
 #
 #   Exact version (installs EXACTLY this version, never silently "latest"):
-#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
+#     bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
 #
 #   Already downloaded (same behaviour, run as root for native installs):
 #     sudo bash install.sh v1.4.2
@@ -117,11 +117,11 @@ trap cleanup EXIT
 trap 'echo "[openfy] ERROR: interrupted." >&2; exit 130' INT TERM
 
 usage() {
-    sed -n '2,/^# Structure note/p' "${BASH_SOURCE[0]}"
     cat <<'EOF'
+Openfy installer — run in a Bash root shell (sudo -i).
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh [VERSION] [options]
+  bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) [VERSION] [options]
   sudo bash install.sh [VERSION] [options]
 
 Options:
@@ -152,8 +152,8 @@ Options:
   -h, --help              show this help
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
-  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
+  bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
+  bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v1.4.2
   sudo bash install.sh --yes --version 1.4.2
   sudo bash install.sh --yes --method docker --version 1.4.2
 EOF
