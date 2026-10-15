@@ -839,7 +839,7 @@ def test_repair_reinstall_reject_version_change(tmp_path, action):
     arch = "linux-amd64"
     api, dl = _fake_github(
         tmp_path,
-        {f"v9.9.10": {"draft": False, "prerelease": False,
+        {"v9.9.10": {"draft": False, "prerelease": False,
                       "assets": [f"openfy-v9.9.10-{arch}.tar.gz", "SHA256SUMS"]}},
         {("9.9.10", arch): {}},
     )

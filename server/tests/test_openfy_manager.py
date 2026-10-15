@@ -1,7 +1,6 @@
 """Tests for scripts/linux/openfy manager (TUI + CLI)."""
 
 import os
-import shutil
 import stat
 import subprocess
 from pathlib import Path
