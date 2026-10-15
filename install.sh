@@ -496,12 +496,7 @@ check_port_conflict() {
         if have_cmd systemctl && systemctl is-active --quiet openfy 2>/dev/null; then
             log "Port ${OPENFY_PORT} is held by the running openfy service (expected during upgrades)."
         else
-            warn "port ${OPENFY_PORT} is already in use by another process. The installer will continue, but the service health check may fail. Free the port or stop the other process first."
-            if [[ "${ASSUME_YES}" != "true" ]] && is_interactive; then
-                local ans=""
-                read -r -p "Continue anyway? [y/N] " ans || true
-                [[ "${ans}" == "y" || "${ans}" == "Y" ]] || die "aborted (port ${OPENFY_PORT} in use)."
-            fi
+            die "port ${OPENFY_PORT} is already in use by another process. Free the port or stop the other process first (native install/reinstall/repair cannot proceed with a busy port)."
         fi
     else
         log "Port ${OPENFY_PORT} is free."
@@ -897,17 +892,40 @@ EOF
         log "Existing Docker env ${env_file} preserved (credentials untouched)."
     fi
     local cname="${OPENFY_CONTAINER_NAME:-openfy}"
+    local backup_cname="${cname}-openfy-prev"
+    local had_existing="false"
+    local was_running="false"
     if docker ps -a --format '{{.Names}}' | grep -qx "${cname}"; then
-        log "Recreating existing container '${cname}' with ${image}."
+        had_existing="true"
+        if docker ps --format '{{.Names}}' | grep -qx "${cname}"; then
+            was_running="true"
+        fi
+        log "Preserving existing container '${cname}' while replacing it with ${image}."
+        if docker ps -a --format '{{.Names}}' | grep -qx "${backup_cname}"; then
+            docker rm -f "${backup_cname}" >/dev/null 2>&1 || true
+        fi
         docker stop "${cname}" >/dev/null 2>&1 || true
-        docker rm "${cname}" >/dev/null 2>&1 || true
+        docker rename "${cname}" "${backup_cname}" \
+            || die "could not preserve existing container '${cname}' (rename failed); nothing changed."
     fi
-    docker run -d --name "${cname}" --restart unless-stopped \
+    if ! docker run -d --name "${cname}" --restart unless-stopped \
         -p "${OPENFY_PORT}:8000" -v openfy_data:/data --env-file "${env_file}" \
-        "${image}" \
-        || die "failed to start the container (see 'docker logs ${cname}')."
+        "${image}"; then
+        if [[ "${had_existing}" == "true" ]]; then
+            warn "replacement failed; restoring preserved container '${backup_cname}'."
+            docker rm "${cname}" >/dev/null 2>&1 || true
+            docker rename "${backup_cname}" "${cname}" >/dev/null 2>&1 || true
+            if [[ "${was_running}" == "true" ]]; then
+                docker start "${cname}" >/dev/null 2>&1 || true
+            fi
+        fi
+        die "failed to start the container (see 'docker logs ${cname}'). Original container restored where possible."
+    fi
     if [[ "${NO_START}" == "true" ]]; then
         docker stop "${cname}" >/dev/null
+        if [[ "${had_existing}" == "true" ]]; then
+            docker rm "${backup_cname}" >/dev/null 2>&1 || true
+        fi
         log "Container created but left stopped (--no-start)."
         return
     fi
@@ -920,9 +938,21 @@ EOF
         attempt=$((attempt + 1))
         sleep 2
         if [[ "${attempt}" -eq 30 ]]; then
+            if [[ "${had_existing}" == "true" ]]; then
+                warn "replacement failed its health check; restoring preserved container '${backup_cname}'."
+                docker stop "${cname}" >/dev/null 2>&1 || true
+                docker rm "${cname}" >/dev/null 2>&1 || true
+                docker rename "${backup_cname}" "${cname}" >/dev/null 2>&1 || true
+                if [[ "${was_running}" == "true" ]]; then
+                    docker start "${cname}" >/dev/null 2>&1 || true
+                fi
+            fi
             die "container did not become healthy. Inspect with: docker logs ${cname}"
         fi
     done
+    if [[ "${had_existing}" == "true" ]]; then
+        docker rm "${backup_cname}" >/dev/null 2>&1 || true
+    fi
     echo ""
     echo "Openfy v${version} is running (Docker image ${image})."
     echo "  URL:      http://<server-ip>:${OPENFY_PORT}"
@@ -1084,7 +1114,6 @@ main() {
     require_root_native
     detect_os
     check_requirements_native
-    check_port_conflict
 
     # Decide install vs upgrade vs repair now that versions are known.
     detect_existing_install
@@ -1113,6 +1142,13 @@ main() {
     fi
     if [[ "${ROTATE_CREDENTIAL}" == "true" && -z "${INSTALLED_VERSION}" ]]; then
         die "--rotate-credential needs an existing installation at ${APP_DIR}."
+    fi
+
+    # Port check runs only for modes that invoke the bundle installer
+    # (install/reinstall/repair). Upgrades keep the running service's port
+    # and Docker never uses this check.
+    if [[ "${mode}" == "install" || "${mode}" == "reinstall" || "${mode}" == "repair" ]]; then
+        check_port_conflict
     fi
 
     install_system_deps

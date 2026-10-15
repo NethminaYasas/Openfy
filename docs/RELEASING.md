@@ -118,6 +118,11 @@ contract; keep it stable across releases:
   builder stage would save nothing measurable while complicating the
   `spotiflac` install. Revisit only if build tooling grows.
 - `linux/arm64` Docker images are **built but not runtime smoke-tested** in
+  CI (native `amd64` runners); the workflow and release notes say so
+  explicitly. The Python-source Linux bundles are arch-independent and
+  resolve native wheels at install time.
+
+## Reproducibility notes
 
 - Bundle contents come from the tag commit; tar metadata is normalised
   (`--sort-name`, fixed owner, `SOURCE_DATE_EPOCH` mtime). `VERSION.json`
@@ -128,12 +133,6 @@ contract; keep it stable across releases:
   behaviour as existing Docker builds). Set `SPOTIFLAC_PIN_VERSION=x.y.z`
   (repo variable or build env) to pin a release; the resolved policy is
   recorded in `VERSION.json` (`spotiflac` field) and Docker labels.
-- `linux/arm64` Docker images are **built but not runtime smoke-tested** in
-  CI (native `amd64` runners); the workflow and release notes say so
-  explicitly. The Python-source Linux bundles are arch-independent and
-  resolve native wheels at install time.
 - No signatures are attached: integrity is via `SHA256SUMS`
   (`sha256sum -c SHA256SUMS`) plus GHCR digest pinning. Do not claim
   otherwise in release notes.
-
-## Reproducibility notes

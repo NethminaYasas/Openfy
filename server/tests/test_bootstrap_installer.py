@@ -552,7 +552,9 @@ sleep 1
 if port_in_use "${{HELD_PORT}}"; then echo HELD; else echo NOT_HELD; fi
 kill "${{LISTENER}}" 2>/dev/null || true""")
     assert "P1_FREE" in proc.stdout, proc.stderr
-    assert "HELD" in proc.stdout, proc.stdout
+    tokens = proc.stdout.split()
+    assert "HELD" in tokens, proc.stdout
+    assert "NOT_HELD" not in tokens, proc.stdout
 
 
 # ------------------------------------------------------- credentials
