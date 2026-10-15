@@ -11,8 +11,18 @@ name: Release
 # Every job checks out the EXACT tag commit (github.ref), never main.
 # Rerun-safe: concurrency group serialises runs per tag; `gh release upload
 # --clobber` makes asset publication idempotent; pushing an unchanged image
-# digest to GHCR is a no-op. Stable aliases only move after all required
-# checks pass (docker-publish needs docker-verify; attach needs everything).
+# digest to GHCR is a no-op.
+#
+# Two-phase image publication: docker-publish pushes ONLY the exact version
+# tag. The mutable stable aliases (minor, major, latest) are promoted by the
+# promote job, which runs only after docker-publish, linux, AND attach
+# (bundles + SBOM published and verified) all succeed — a late failure can
+# never leave stable aliases pointing at an incompletely published release.
+# Prereleases have no aliases to promote.
+#
+# Third-party actions are pinned to full commit SHAs (version in trailing
+# comment); SBOM release-asset upload is disabled so the attach job owns
+# publication filenames and checksums.
 #
 # Architecture note: linux/amd64 images are build- AND smoke-tested on native
 # runners. linux/arm64 is BUILT (Buildx + QEMU) but smoke-tested only to the
@@ -51,9 +61,10 @@ jobs:
       minor: ${{ steps.parse.outputs.minor }}
       sha: ${{ steps.parse.outputs.sha }}
       docker_tags: ${{ steps.parse.outputs.docker_tags }}
+      alias_tags: ${{ steps.parse.outputs.alias_tags }}
     steps:
       - name: Check out the exact release tag commit
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
@@ -88,7 +99,12 @@ jobs:
           fi
 
           TAGS="$(docker_tags_for_release | tr '\n' ' ' | xargs)"
-          echo "Release ${OPENFY_TAG}: version=${OPENFY_VERSION} prerelease=${OPENFY_IS_PRERELEASE} sha=${SHA} docker_tags='${TAGS}'"
+          if [[ "${OPENFY_IS_PRERELEASE}" == "true" ]]; then
+            ALIASES=""
+          else
+            ALIASES="${OPENFY_MAJOR}.${OPENFY_MINOR} ${OPENFY_MAJOR} latest"
+          fi
+          echo "Release ${OPENFY_TAG}: version=${OPENFY_VERSION} prerelease=${OPENFY_IS_PRERELEASE} sha=${SHA} docker_tags='${TAGS}' aliases='${ALIASES}'"
           {
             echo "tag=${OPENFY_TAG}"
             echo "version=${OPENFY_VERSION}"
@@ -97,6 +113,7 @@ jobs:
             echo "minor=${OPENFY_MINOR}"
             echo "sha=${SHA}"
             echo "docker_tags=${TAGS}"
+            echo "alias_tags=${ALIASES}"
           } >> "${GITHUB_OUTPUT}"
 
   # -------------------------------------------------------------------- test
@@ -108,11 +125,11 @@ jobs:
       contents: read
     steps:
       - name: Check out the exact release tag commit
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
 
-      - uses: actions/setup-python@v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
           cache: pip
@@ -193,7 +210,7 @@ jobs:
       contents: read
     steps:
       - name: Check out the exact release tag commit
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
 
@@ -257,41 +274,38 @@ jobs:
       id-token: write
     steps:
       - name: Check out the exact release tag commit
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
 
       - name: Set up QEMU (arm64 emulation for build)
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute push tags
+      - name: Compute push tag (exact version only)
         id: tags
         shell: bash
         run: |
           set -euo pipefail
-          OUT=""
-          for t in ${{ needs.resolve.outputs.docker_tags }}; do
-            OUT="${OUT}ghcr.io/nethminayasas/openfy:${t}"$'\n'
-          done
-          echo "Pushing tags:"; echo "${OUT}"
-          echo "list<<EOF" >> "${GITHUB_OUTPUT}"
-          echo "${OUT}" >> "${GITHUB_OUTPUT}"
-          echo "EOF" >> "${GITHUB_OUTPUT}"
+          # Phase 1 publishes ONLY the immutable version tag. Stable aliases
+          # are promoted by the promote job after linux + attach succeed.
+          OUT="ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}"
+          echo "Pushing tag: ${OUT}"
+          echo "list=${OUT}" >> "${GITHUB_OUTPUT}"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
 
       - name: Build + push (linux/amd64, linux/arm64)
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: server/Dockerfile
@@ -308,14 +322,18 @@ jobs:
           sbom: true
 
       - name: Generate SBOM (SPDX) for release assets
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}
           format: spdx-json
           output-file: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
+          # The action defaults upload-release-assets to true on release
+          # events; keep publication in the attach job so filenames and
+          # checksums stay under our control.
+          upload-release-assets: false
 
       - name: Upload SBOM as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
           path: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
@@ -330,7 +348,7 @@ jobs:
       contents: read
     steps:
       - name: Check out the exact release tag commit
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
 
@@ -363,12 +381,12 @@ jobs:
       contents: write
       packages: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: linux-bundles
           path: stage
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sbom
           path: stage
@@ -411,12 +429,55 @@ jobs:
             echo "PASS: asset present: ${asset}"
           done
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for t in ${{ needs.resolve.outputs.docker_tags }}; do
-            docker buildx imagetools inspect "ghcr.io/nethminayasas/openfy:${t}" >/dev/null \
-              || { echo "::error::GHCR tag missing: ${t}"; exit 1; }
-            echo "PASS: GHCR tag present: ${t}"
-          done
+          # Phase 1 verification: only the exact version tag exists at this
+          # point. Stable aliases are verified by the promote job.
+          docker buildx imagetools inspect "ghcr.io/nethminayasas/openfy:${VERSION}" >/dev/null \
+            || { echo "::error::GHCR tag missing: ${VERSION}"; exit 1; }
+          echo "PASS: GHCR tag present: ${VERSION}"
           if [[ "${{ needs.resolve.outputs.is_prerelease }}" == "true" ]]; then
-            echo "Prerelease confirmed: stable aliases (latest, major, minor) were not touched by this run."
+            echo "Prerelease confirmed: no stable aliases exist for this run."
+          else
+            echo "Stable aliases promote next, only after this verification passed."
           fi
-          echo "Release ${TAG} fully published and verified."
+          echo "Release ${TAG} assets published and verified."
+
+  # ------------------------------------------------------------------ promote
+  promote:
+    name: Promote stable aliases
+    runs-on: ubuntu-latest
+    needs: [resolve, docker-publish, attach]
+    # Stable aliases move only after the versioned image, Linux bundles, and
+    # SBOM are all published and verified. Prereleases have no aliases.
+    if: needs.resolve.outputs.is_prerelease == 'false'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point stable aliases at the released version (no rebuild)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}"
+          ARGS=""
+          for t in ${{ needs.resolve.outputs.alias_tags }}; do
+            ARGS="${ARGS} -t ghcr.io/nethminayasas/openfy:${t}"
+          done
+          # Intentional word splitting: ARGS is a list of -t flags.
+          # shellcheck disable=SC2086
+          docker buildx imagetools create ${ARGS} "${SRC}"
+          for t in ${{ needs.resolve.outputs.alias_tags }}; do
+            docker buildx imagetools inspect "ghcr.io/nethminayasas/openfy:${t}" >/dev/null \
+              || { echo "::error::GHCR alias missing after promotion: ${t}"; exit 1; }
+            echo "PASS: GHCR alias live: ${t}"
+          done
+          echo "Stable aliases promoted for ${SRC}."
