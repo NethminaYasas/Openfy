@@ -23,7 +23,7 @@ Example:
 
 import logging
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 import requests
 
@@ -45,6 +45,7 @@ from spotify_scraper.utils.download import (
     require_https_url,
     resolve_redirect,
 )
+from spotify_scraper.utils.proxy import normalize_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class AudioDownloader:
         due to licensing restrictions or regional availability.
     """
 
-    def __init__(self, browser: Browser):
+    def __init__(self, browser: Browser, proxy: Optional[Dict[str, str]] = None):
         """Initialize the AudioDownloader.
 
         Args:
@@ -94,6 +95,7 @@ class AudioDownloader:
                 is not directly used for downloading audio (uses requests),
                 it's maintained for consistency with other components and
                 potential future use.
+            proxy: Explicit HTTP/HTTPS proxy policy, which must cover HTTPS.
 
         Example:
             >>> from spotify_scraper.browsers import create_browser
@@ -101,6 +103,7 @@ class AudioDownloader:
             >>> downloader = AudioDownloader(browser)
         """
         self.browser = browser
+        self.proxy = normalize_proxy(proxy)
         self._image_downloader = None
         logger.debug("Initialized AudioDownloader")
 
@@ -114,7 +117,7 @@ class AudioDownloader:
             ImageDownloader: Cached instance for downloading cover art
         """
         if not self._image_downloader:
-            self._image_downloader = ImageDownloader(browser=self.browser)
+            self._image_downloader = ImageDownloader(browser=self.browser, proxy=self.proxy)
         return self._image_downloader
 
     def download_preview(
@@ -225,7 +228,8 @@ class AudioDownloader:
             response = None
             for _ in range(MAX_MANUAL_REDIRECTS + 1):
                 candidate = requests.get(
-                    current_url, stream=True, timeout=30, allow_redirects=False
+                    current_url, stream=True, timeout=30, allow_redirects=False,
+                    proxies=self.proxy.copy() if self.proxy else None,
                 )
                 if candidate.status_code not in REDIRECT_STATUS_CODES:
                     response = candidate
