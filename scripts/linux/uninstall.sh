@@ -36,6 +36,38 @@ done
 
 [[ "$(id -u)" -ne 0 ]] && { echo "ERROR: run as root (e.g. sudo ./uninstall.sh)." >&2; exit 1; }
 
+# Resolve directories lexically so symlinks or ".." cannot hide nesting.
+canonical() {
+    if command -v realpath >/dev/null 2>&1; then
+        realpath -m "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+APP_REAL="$(canonical "${APP_DIR}")"
+DATA_REAL="$(canonical "${DATA_DIR}")"
+CONFIG_REAL="$(canonical "${CONFIG_DIR}")"
+
+if [[ "${APP_REAL}" == "/" ]]; then
+    echo "[openfy-uninstall] ERROR: refusing to operate on the filesystem root. Check OPENFY_INSTALL_DIR." >&2
+    exit 1
+fi
+
+# Data/config nested inside the application directory would be deleted with
+# it, contradicting the preservation promise. Refuse rather than risk loss.
+nested=""
+if [[ "${DATA_REAL}" == "${APP_REAL}" || "${DATA_REAL}" == "${APP_REAL}"/* ]] && [[ "${REMOVE_DATA}" != "true" ]]; then
+    nested="${nested} data (${DATA_DIR})"
+fi
+if [[ "${CONFIG_REAL}" == "${APP_REAL}" || "${CONFIG_REAL}" == "${APP_REAL}"/* ]] && [[ "${REMOVE_CONFIG}" != "true" ]]; then
+    nested="${nested} config (${CONFIG_DIR})"
+fi
+if [[ -n "${nested}" ]]; then
+    echo "[openfy-uninstall] ERROR: refusing to remove ${APP_DIR} because it contains preserved${nested}." >&2
+    echo "[openfy-uninstall] Move it elsewhere first, point the override at a non-nested path, or rerun with --remove-data/--remove-config to condemn it explicitly." >&2
+    exit 1
+fi
+
 confirm() {
     local prompt="$1"
     if [[ "${ASSUME_YES}" == "true" ]]; then

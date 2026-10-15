@@ -177,7 +177,23 @@ else
     echo "[openfy-update] No database file found yet (fresh install); skipping DB backup."
 fi
 # Snapshot current application files for rollback (code only, never data).
-tar -czf "${BACKUP_DIR}/app-files-backup.tar.gz" -C "${APP_DIR}" app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh 2>/dev/null || true
+# Back up what is actually present (warning loudly about anything missing),
+# then require tar itself to succeed: a failed snapshot aborts before
+# anything changes, instead of leaving a partial backup behind.
+members=()
+for m in app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
+    if [[ -e "${APP_DIR}/${m}" ]]; then
+        members+=("${m}")
+    else
+        echo "[openfy-update] WARNING: ${APP_DIR}/${m} not present; excluding it from the rollback backup." >&2
+    fi
+done
+if [[ "${#members[@]}" -eq 0 ]]; then
+    echo "[openfy-update] ERROR: nothing to back up in ${APP_DIR}; aborting before any change." >&2
+    exit 1
+fi
+tar -czf "${BACKUP_DIR}/app-files-backup.tar.gz" -C "${APP_DIR}" "${members[@]}" 2>/dev/null \
+    || { echo "[openfy-update] ERROR: application backup failed; aborting before any change." >&2; exit 1; }
 
 # --- Extract + validate the new bundle before touching the live install ---
 tar -xzf "${ARCHIVE_PATH}" -C "${WORK}"
@@ -190,14 +206,73 @@ NEW_VERSION="$(python3 -c "import json;print(json.load(open('${EXTRACTED}/VERSIO
 [[ "${NEW_VERSION}" == "${VERSION}" ]] || { echo "[openfy-update] ERROR: bundle version ${NEW_VERSION} != requested ${VERSION}." >&2; exit 1; }
 bash -n "${EXTRACTED}/install.sh"
 
+wait_for_health() {
+    # Returns 0 once the local service answers /health (up to ~60s).
+    local attempt=0
+    while [[ "${attempt}" -lt 30 ]]; do
+        if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/health', timeout=3)" 2>/dev/null; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+    return 1
+}
+
 rollback() {
     echo "[openfy-update] Update failed; rolling back to previous application files." >&2
-    if [[ -f "${BACKUP_DIR}/app-files-backup.tar.gz" ]]; then
-        tar -xzf "${BACKUP_DIR}/app-files-backup.tar.gz" -C "${APP_DIR}"
-        systemctl restart "${SERVICE_NAME}" || true
-        echo "[openfy-update] Rollback applied from ${BACKUP_DIR}. Config and data were never modified." >&2
-        echo "[openfy-update] To restore the database manually: sqlite3 <db> <.restore ${BACKUP_DIR}/openfy.db>" >&2
+    if [[ ! -f "${BACKUP_DIR}/app-files-backup.tar.gz" ]]; then
+        echo "[openfy-update] ERROR: no application backup available; cannot roll back." >&2
+        return 1
     fi
+    local restore_tmp svc_user
+    restore_tmp="$(mktemp -d)" \
+        || { echo "[openfy-update] ERROR: cannot create restore workspace." >&2; return 1; }
+    tar -xzf "${BACKUP_DIR}/app-files-backup.tar.gz" -C "${restore_tmp}" \
+        || { echo "[openfy-update] ERROR: backup archive is unreadable." >&2; rm -rf "${restore_tmp}"; return 1; }
+    # Swap the backed-up trees back wholesale, removing the failed update's
+    # files first so nothing the new version introduced can linger.
+    for entry in app client spotify_scraper; do
+        if [[ ! -e "${restore_tmp}/${entry}" ]]; then
+            echo "[openfy-update] ERROR: backup is missing ${entry}; aborting rollback to avoid a mixed install." >&2
+            rm -rf "${restore_tmp}"
+            return 1
+        fi
+        rm -rf "${APP_DIR}/${entry}" "${APP_DIR}/${entry}.old" "${APP_DIR}/${entry}.new"
+        mv "${restore_tmp}/${entry}" "${APP_DIR}/${entry}"
+    done
+    for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
+        if [[ ! -e "${restore_tmp}/${entry}" ]]; then
+            echo "[openfy-update] ERROR: backup is missing ${entry}; aborting rollback to avoid a mixed install." >&2
+            rm -rf "${restore_tmp}"
+            return 1
+        fi
+        # Atomic rename: the running update.sh keeps its original inode.
+        cp "${restore_tmp}/${entry}" "${APP_DIR}/${entry}.new"
+        mv -f "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
+    done
+    rm -rf "${restore_tmp}"
+    rm -f "${APP_DIR}"/*.new
+    # The venv is shared: reinstall the restored requirements so the old code
+    # runs against compatible packages.
+    svc_user="$(stat -c %U "${DATA_DIR}" 2>/dev/null || echo openfy)"
+    "${APP_DIR}/venv/bin/python" -m pip install -r "${APP_DIR}/requirements.txt" \
+        || echo "[openfy-update] WARNING: dependency reinstall during rollback failed." >&2
+    chown -R "${svc_user}:${svc_user}" "${APP_DIR}/app" "${APP_DIR}/client" "${APP_DIR}/venv" 2>/dev/null || true
+    # Restore the previous unit before restarting.
+    cp -a "${APP_DIR}/openfy.service" "/etc/systemd/system/${SERVICE_NAME}.service" \
+        || echo "[openfy-update] WARNING: could not restore the systemd unit file." >&2
+    systemctl daemon-reload || true
+    systemctl restart "${SERVICE_NAME}" || true
+    if wait_for_health; then
+        echo "[openfy-update] Rollback complete: previous version is healthy again. Backup retained at ${BACKUP_DIR}." >&2
+        echo "[openfy-update] Config and data were never modified; to restore the database manually: sqlite3 <db> '.restore ${BACKUP_DIR}/openfy.db'" >&2
+        return 0
+    fi
+    echo "[openfy-update] ERROR: ROLLBACK FAILED — the previous version is not healthy either." >&2
+    echo "[openfy-update] Inspect with: journalctl -u ${SERVICE_NAME} -n 100" >&2
+    echo "[openfy-update] Manual recovery: application backup at ${BACKUP_DIR}/app-files-backup.tar.gz, database backup at ${BACKUP_DIR}/openfy.db." >&2
+    return 1
 }
 
 # --- Apply: stop, swap code, reinstall deps, restart, verify ---
@@ -220,7 +295,7 @@ cp "${EXTRACTED}/uninstall.sh" "${APP_DIR}/uninstall.sh.new"
 SWAP_OK=$?
 set -e
 if [[ "${SWAP_OK}" -ne 0 ]]; then
-    rollback
+    rollback || true
     echo "[openfy-update] ERROR: failed to stage new files." >&2
     exit 1
 fi
@@ -238,27 +313,17 @@ done
 
 SERVICE_USER="$(stat -c %U "${DATA_DIR}" 2>/dev/null || echo openfy)"
 "${APP_DIR}/venv/bin/python" -m pip install -r "${APP_DIR}/requirements.txt" \
-    || { rollback; echo "[openfy-update] ERROR: dependency install failed." >&2; exit 1; }
+    || { rollback || true; echo "[openfy-update] ERROR: dependency install failed." >&2; exit 1; }
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}/app" "${APP_DIR}/client" "${APP_DIR}/venv" 2>/dev/null || true
 
 # Refresh the systemd unit if the bundle changed it, then restart.
 cp -a "${APP_DIR}/openfy.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
-systemctl start "${SERVICE_NAME}" || { rollback; echo "[openfy-update] ERROR: service failed to start." >&2; exit 1; }
+systemctl start "${SERVICE_NAME}" || { rollback || true; echo "[openfy-update] ERROR: service failed to start." >&2; exit 1; }
 
-attempt=0
-healthy="false"
-while [[ "${attempt}" -lt 30 ]]; do
-    if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/health', timeout=3)" 2>/dev/null; then
-        healthy="true"
-        break
-    fi
-    attempt=$((attempt + 1))
-    sleep 2
-done
-if [[ "${healthy}" != "true" ]]; then
-    rollback
-    echo "[openfy-update] ERROR: new version unhealthy; rolled back. See: journalctl -u ${SERVICE_NAME} -n 100" >&2
+if ! wait_for_health; then
+    echo "[openfy-update] ERROR: new version unhealthy; attempting rollback. See: journalctl -u ${SERVICE_NAME} -n 100" >&2
+    rollback || true
     exit 1
 fi
 

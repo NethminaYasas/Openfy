@@ -143,6 +143,36 @@ def test_no_real_env_in_repo_root():
 LINUX_SCRIPTS = ["install.sh", "start.sh", "update.sh", "uninstall.sh"]
 
 
+def test_rollback_restores_deps_unit_and_reports_health():
+    updater = (REPO_ROOT / "scripts" / "linux" / "update.sh").read_text()
+    body = updater[updater.index("rollback()"):]
+    # The shared venv must match the restored code, and the previous unit
+    # must be back before the service restarts.
+    assert "pip install -r" in body
+    assert "daemon-reload" in body
+    assert "openfy.service" in body
+    # The old version's health decides the reported outcome.
+    assert "wait_for_health" in body
+    assert "ROLLBACK FAILED" in body
+    # Stale trees are removed before restore so new-only files cannot linger.
+    assert 'rm -rf "${APP_DIR}/${entry}"' in body
+
+
+def test_uninstaller_refuses_nested_data_loss():
+    content = (REPO_ROOT / "scripts" / "linux" / "uninstall.sh").read_text()
+    # Nested data/config would be deleted with APP_DIR: refuse instead.
+    assert "realpath" in content
+    assert '== "/"' in content
+    assert "refusing to remove" in content
+
+
+def test_backup_warns_on_missing_members_but_fails_on_tar_errors():
+    content = (REPO_ROOT / "scripts" / "linux" / "update.sh").read_text()
+    assert "excluding it from the rollback backup" in content
+    assert "members+=(" in content
+    assert "nothing to back up" in content
+
+
 def test_credential_generator_ships_in_bundle_and_survives_updates():
     packager = (REPO_ROOT / "scripts" / "release" / "package-linux.sh").read_text()
     assert "generate_hash.py" in packager
@@ -287,6 +317,16 @@ def test_stable_aliases_promote_only_after_attach():
     )
     assert "needs.resolve.outputs.version" in publish["run"]
     assert "alias_tags" not in publish["run"]
+
+
+def test_release_tag_passed_via_env_not_script_text():
+    doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
+    parse = next(s for s in doc["jobs"]["resolve"]["steps"] if s.get("id") == "parse")
+    env = parse.get("env", {})
+    assert "tag_name" in str(env.get("RELEASE_TAG", ""))
+    assert "prerelease" in str(env.get("RELEASE_PRERELEASE", ""))
+    # The unvalidated value must never be expanded into the script itself.
+    assert "github.event.release" not in parse.get("run", "")
 
 
 def test_sbom_release_upload_owned_by_attach():
