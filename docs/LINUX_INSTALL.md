@@ -73,7 +73,7 @@ linux-amd64|linux-arm64`, `--no-install-deps`, `--no-generate-credential`,
 Full list: `bash install.sh --help`.
 
 On a fresh install the wizard asks for the admin username (default `admin`)
-and generates the initial admin credential automatically (printed **once** —
+and generates the initial admin credential automatically (printed **once** at the end of a successful install —
 save it in a password manager). Existing installs are detected and offered
 **Upgrade / Repair / Reinstall / Uninstall**; upgrades use the bundle's
 `update.sh` (config + database backup, rollback on failure), repairs
@@ -292,8 +292,11 @@ in a safe place.
   already in use is not.
 - `pydantic-core` / PyO3 build fails on Python 3.14, or SQLAlchemy fails
   while importing `typing.Union`: older releases pin dependencies that do
-  not support Python 3.14. For an installation that failed during dependency
-  setup, update its local pins and repair in place (keeps config and data):
+  not support Python 3.14. The bootstrap downloads a published release archive
+  even when run from a repository checkout; changing the checkout does not
+  change an already published archive. For an installation that failed during
+  dependency setup, update its local pins and repair in place (keeps config and
+  data):
 
   ```bash
   sudo sed -i -e 's/^pydantic==2\.9\.2$/pydantic==2.12.5/' -e 's/^SQLAlchemy==2\.0\.36$/SQLAlchemy==2.0.54/' /opt/openfy/requirements.txt

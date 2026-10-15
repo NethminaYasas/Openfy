@@ -22,7 +22,7 @@
 # Credential handling (see docs/LINUX_INSTALL.md):
 #   - Fresh installs auto-generate a cryptographically secure admin credential
 #     (of1_..., same format as ../../scripts/generate_hash.py) and store it as
-#     OPENFY_ADMIN_HASH. It is printed ONCE; save it, it cannot be recovered.
+#     OPENFY_ADMIN_HASH. It is printed ONCE after successful setup; save it.
 #   - Automation may supply OPENFY_ADMIN_HASH_VALUE in the environment (never
 #     as a CLI argument, which would leak via process listings). It is
 #     validated against the application's credential format and never printed.
@@ -71,6 +71,7 @@ NO_GENERATE_CREDENTIAL="false"
 ROTATE_CREDENTIAL="false"
 NO_INSTALL_DEPS="false"
 REPAIR="false"
+PENDING_ADMIN_CREDENTIAL=""
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -297,6 +298,17 @@ print_credential_once() {
     echo ""
 }
 
+# The bootstrap supplies a private handoff file so its final summary can precede
+# the secret. Standalone bundle installs print directly after successful setup.
+publish_credential() {
+    local credential="$1" username="${2:-${ADMIN_USER}}"
+    if [[ -n "${OPENFY_CREDENTIAL_OUTPUT_FILE:-}" ]]; then
+        ( umask 077; printf '%s\n%s\n' "${username}" "${credential}" > "${OPENFY_CREDENTIAL_OUTPUT_FILE}" )
+    else
+        print_credential_once "${credential}" "${username}"
+    fi
+}
+
 check_existing() {
     if [[ -e "${APP_DIR}" && -n "$(ls -A "${APP_DIR}" 2>/dev/null || true)" ]]; then
         if [[ -f "${APP_DIR}/VERSION.json" ]]; then
@@ -377,6 +389,7 @@ create_dirs() {
 }
 
 install_config() {
+    PENDING_ADMIN_CREDENTIAL=""
     if [[ -f "${ENV_FILE}" ]]; then
         log "Existing config ${ENV_FILE} preserved (not overwritten; credentials untouched and never printed)."
         chown root:"${SERVICE_USER}" "${ENV_FILE}"
@@ -417,7 +430,7 @@ EOF
     chown root:"${SERVICE_USER}" "${ENV_FILE}"
     chmod 640 "${ENV_FILE}"
     if [[ "${generated}" == "true" ]]; then
-        print_credential_once "${admin_hash}"
+        PENDING_ADMIN_CREDENTIAL="${admin_hash}"
     elif [[ -z "${admin_hash}" ]]; then
         log "You MUST set OPENFY_ADMIN_HASH before first login:"
         log "  sudo ${APP_DIR}/venv/bin/python ${APP_DIR}/generate_hash.py   (paste the of1_... value into ${ENV_FILE})"
@@ -472,7 +485,7 @@ rotate_credential() {
     log "Restart the service to apply: sudo systemctl restart ${SERVICE_NAME} (the OLD credential stops working then)."
     local username
     username="$(grep -E '^OPENFY_ADMIN_USERNAME=' "${ENV_FILE}" | cut -d= -f2- || true)"
-    print_credential_once "${fresh}" "${username}"
+    publish_credential "${fresh}" "${username}"
 }
 
 repair_install() {
@@ -598,6 +611,10 @@ main() {
     start_and_healthcheck
     log "Install complete. Config: ${ENV_FILE}  Data: ${DATA_DIR}  App: ${APP_DIR}"
     log "Manage the server anytime with: sudo openfy (status, logs, update, port, credentials, uninstall)"
+    if [[ -n "${PENDING_ADMIN_CREDENTIAL}" ]]; then
+        publish_credential "${PENDING_ADMIN_CREDENTIAL}"
+        PENDING_ADMIN_CREDENTIAL=""
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
