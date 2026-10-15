@@ -1,0 +1,300 @@
+#!/bin/bash
+# openfy — manage the bare-metal Openfy installation from one place.
+#
+# Interactive TUI (text menu, no extra dependencies):
+#   sudo openfy
+#
+# Non-interactive (automation):
+#   sudo openfy status
+#   sudo openfy logs [--follow] [-n N]
+#   sudo openfy start|stop|restart
+#   sudo openfy update --latest
+#   sudo openfy update --version 1.5.0   (older versions downgrade)
+#   sudo openfy port 9000
+#   sudo openfy rotate-credential
+#   sudo openfy set-username NAME
+#   sudo openfy repair
+#   sudo openfy uninstall [--purge]
+#   openfy --help
+#
+# Status/logs work without root; everything else needs root.
+# Config (/etc/openfy/openfy.env) and data (/var/lib/openfy) are never
+# touched except by the action the user explicitly chose.
+
+set -euo pipefail
+
+APP_DIR="${OPENFY_INSTALL_DIR:-/opt/openfy}"
+DATA_DIR="${OPENFY_DATA_DIR_OVERRIDE:-/var/lib/openfy}"
+CONFIG_DIR="${OPENFY_CONFIG_DIR:-/etc/openfy}"
+ENV_FILE="${CONFIG_DIR}/openfy.env"
+SERVICE_NAME="${OPENFY_SERVICE_NAME:-openfy}"
+SYSTEMD_DIR="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}"
+UNIT_FILE="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+
+log() { echo "[openfy] $*"; }
+die() { echo "[openfy] ERROR: $*" >&2; exit 1; }
+
+valid_port() {
+    [[ "${1:-}" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
+valid_username() {
+    [[ "${1:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]
+}
+
+require_root() {
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "run as root (e.g. sudo openfy)."
+    fi
+}
+
+installed_version() {
+    if [[ -f "${APP_DIR}/VERSION.json" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","unknown"))' \
+            "${APP_DIR}/VERSION.json" 2>/dev/null || echo unknown
+    else
+        echo unknown
+    fi
+}
+
+current_port() {
+    local p=""
+    if [[ -f "${UNIT_FILE}" ]]; then
+        p="$(grep -oE -- '--port [0-9]+' "${UNIT_FILE}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+    fi
+    if valid_port "${p}"; then
+        printf '%s' "${p}"
+    else
+        printf '8000'
+    fi
+}
+
+cmd_status() {
+    local ver port
+    ver="$(installed_version)"
+    port="$(current_port)"
+    echo "Openfy ${ver} — service '${SERVICE_NAME}', port ${port}"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl status "${SERVICE_NAME}" --no-pager 2>/dev/null || true
+    else
+        echo "systemctl not available."
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            echo "Health: OK at http://localhost:${port}/health"
+        else
+            echo "Health: NOT RESPONDING at http://localhost:${port}/health"
+        fi
+    fi
+}
+
+cmd_logs() {
+    local follow="false" lines="100"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --follow|-f) follow="true"; shift ;;
+            -n) lines="${2:? -n requires a value}"; shift 2 ;;
+            *) die "unknown logs option '$1'. Use: openfy logs [--follow] [-n N]" ;;
+        esac
+    done
+    [[ "${lines}" =~ ^[0-9]+$ ]] || die "invalid -n '${lines}'."
+    if [[ "${follow}" == "true" ]]; then
+        journalctl -u "${SERVICE_NAME}" -f
+    else
+        journalctl -u "${SERVICE_NAME}" -n "${lines}" --no-pager 2>/dev/null \
+            || systemctl status "${SERVICE_NAME}" --no-pager 2>/dev/null || true
+    fi
+}
+
+cmd_service() {
+    require_root
+    local action="$1"
+    systemctl "${action}" "${SERVICE_NAME}"
+    if [[ "${action}" != "stop" ]]; then
+        sleep 2
+        cmd_status | head -n 12 || true
+    fi
+}
+
+cmd_update() {
+    require_root
+    local mode="latest" version=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --latest) mode="latest"; shift ;;
+            --version) version="${2:?--version requires a value}"; mode="version"; shift 2 ;;
+            *) die "unknown update option '$1'. Use: openfy update --latest | --version X.Y.Z" ;;
+        esac
+    done
+    if [[ ! -x "${APP_DIR}/update.sh" ]]; then
+        die "no updater at ${APP_DIR}/update.sh; repair the installation first."
+    fi
+    if [[ "${mode}" == "latest" ]]; then
+        bash "${APP_DIR}/update.sh" --latest
+    else
+        [[ "${version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha)\.[0-9]+)?$ ]] \
+            || die "invalid version '${version}' (expected e.g. 1.4.2)."
+        bash "${APP_DIR}/update.sh" --version "${version#v}"
+    fi
+}
+
+cmd_port() {
+    require_root
+    local port="${1:?Usage: openfy port PORT}"
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    if [[ ! -x "${APP_DIR}/install.sh" ]]; then
+        die "no installer at ${APP_DIR}/install.sh; repair the installation first."
+    fi
+    log "Changing service port to ${port} (config and data untouched)."
+    bash "${APP_DIR}/install.sh" --port "${port}" --force --no-start
+    # Keep the default localhost origin in sync; custom domains are left alone.
+    if [[ -f "${ENV_FILE}" ]]; then
+        local origin
+        origin="$(grep -E '^OPENFY_ALLOWED_ORIGINS=' "${ENV_FILE}" | cut -d= -f2- || true)"
+        if [[ "${origin}" =~ ^http://localhost:[0-9]+$ ]]; then
+            local tmp
+            tmp="$(mktemp "${CONFIG_DIR}/.openfy.env.XXXXXX")"
+            chmod 640 "${tmp}"
+            sed "s|^OPENFY_ALLOWED_ORIGINS=.*|OPENFY_ALLOWED_ORIGINS=http://localhost:${port}|" "${ENV_FILE}" > "${tmp}" \
+                && chown root:"${OPENFY_SERVICE_USER:-openfy}" "${tmp}" 2>/dev/null \
+                && mv -f "${tmp}" "${ENV_FILE}" \
+                && chown root:"${OPENFY_SERVICE_USER:-openfy}" "${ENV_FILE}" 2>/dev/null \
+                && chmod 640 "${ENV_FILE}" \
+                || { rm -f "${tmp}"; log "WARNING: could not update OPENFY_ALLOWED_ORIGINS; set it manually."; }
+        else
+            log "Leaving custom OPENFY_ALLOWED_ORIGINS untouched (${origin:-unset}); ensure it includes your new port."
+        fi
+    fi
+    systemctl restart "${SERVICE_NAME}"
+    log "Port is now ${port}."
+}
+
+cmd_rotate() {
+    require_root
+    if [[ ! -x "${APP_DIR}/install.sh" ]]; then
+        die "no installer at ${APP_DIR}/install.sh; repair the installation first."
+    fi
+    bash "${APP_DIR}/install.sh" --rotate-credential
+    log "Restart the service to apply: sudo systemctl restart ${SERVICE_NAME}"
+}
+
+cmd_username() {
+    require_root
+    local name="${1:?Usage: openfy set-username NAME}"
+    valid_username "${name}" || die "invalid username '${name}' (letters, digits, . _ -; max 64 chars)."
+    [[ -f "${ENV_FILE}" ]] || die "no config at ${ENV_FILE}."
+    local tmp
+    tmp="$(mktemp "${CONFIG_DIR}/.openfy.env.XXXXXX")"
+    chmod 640 "${tmp}"
+    if grep -qE '^OPENFY_ADMIN_USERNAME=' "${ENV_FILE}"; then
+        sed "s|^OPENFY_ADMIN_USERNAME=.*|OPENFY_ADMIN_USERNAME=${name}|" "${ENV_FILE}" > "${tmp}" \
+            || { rm -f "${tmp}"; die "failed to update username."; }
+    else
+        cat "${ENV_FILE}" > "${tmp}" || { rm -f "${tmp}"; die "failed to update username."; }
+        printf 'OPENFY_ADMIN_USERNAME=%s\n' "${name}" >> "${tmp}" \
+            || { rm -f "${tmp}"; die "failed to update username."; }
+    fi
+    local svc_user="${OPENFY_SERVICE_USER:-openfy}"
+    chown root:"${svc_user}" "${tmp}" || { rm -f "${tmp}"; die "failed to secure temp config."; }
+    mv -f "${tmp}" "${ENV_FILE}" || { rm -f "${tmp}"; die "failed to replace config."; }
+    chown root:"${svc_user}" "${ENV_FILE}"
+    chmod 640 "${ENV_FILE}"
+    log "Admin username is now '${name}'. Restart to apply: sudo systemctl restart ${SERVICE_NAME}"
+}
+
+cmd_repair() {
+    require_root
+    if [[ ! -x "${APP_DIR}/install.sh" ]]; then
+        die "no installer at ${APP_DIR}/install.sh."
+    fi
+    log "In-place repair fixes ownership/permissions, venv, and systemd unit."
+    log "It does NOT restore damaged application files — for those, use the verified bundle instead."
+    bash "${APP_DIR}/install.sh" --repair
+}
+
+cmd_uninstall() {
+    require_root
+    if [[ ! -x "${APP_DIR}/uninstall.sh" ]]; then
+        die "no uninstaller at ${APP_DIR}/uninstall.sh."
+    fi
+    bash "${APP_DIR}/uninstall.sh" "$@"
+}
+
+usage() {
+    sed -n '2,30p' "${BASH_SOURCE[0]}"
+}
+
+menu() {
+    while true; do
+        echo ""
+        echo "== Openfy manager ($(installed_version), port $(current_port)) =="
+        echo "  1) Status"
+        echo "  2) Logs (last 100)"
+        echo "  3) Follow logs"
+        echo "  4) Restart service"
+        echo "  5) Update to latest stable"
+        echo "  6) Install a specific version (upgrade or downgrade)"
+        echo "  7) Change port"
+        echo "  8) Rotate admin credential (prints once)"
+        echo "  9) Change admin username"
+        echo " 10) Repair (perms/venv/unit; not app files)"
+        echo " 11) Uninstall"
+        echo "  0) Exit"
+        local choice=""
+        read -r -p "Choose [0-11]: " choice || return 0
+        case "${choice}" in
+            1) cmd_status ;;
+            2) cmd_logs ;;
+            3) cmd_logs --follow ;;
+            4) cmd_service restart ;;
+            5) cmd_update --latest ;;
+            6)
+                local v=""
+                read -r -p "Version (e.g. 1.4.2, older versions downgrade): " v || return 0
+                [[ -n "${v}" ]] || { echo "Enter a version."; continue; }
+                cmd_update --version "${v}"
+                ;;
+            7)
+                local p=""
+                read -r -p "New port [$(current_port)]: " p || return 0
+                [[ -n "${p}" ]] || { echo "Enter a port."; continue; }
+                cmd_port "${p}"
+                ;;
+            8) cmd_rotate ;;
+            9)
+                local u=""
+                read -r -p "New admin username: " u || return 0
+                [[ -n "${u}" ]] || { echo "Enter a username."; continue; }
+                cmd_username "${u}"
+                ;;
+            10) cmd_repair ;;
+            11) cmd_uninstall ;;
+            0) echo "Bye."; return 0 ;;
+            *) echo "Invalid choice." ;;
+        esac
+    done
+}
+
+main() {
+    if [[ $# -eq 0 ]]; then
+        menu
+        return 0
+    fi
+    case "$1" in
+        status) shift; cmd_status "$@" ;;
+        logs) shift; cmd_logs "$@" ;;
+        start|stop|restart) cmd_service "$@" ;;
+        update) shift; cmd_update "$@" ;;
+        port) shift; cmd_port "$@" ;;
+        rotate-credential) shift; cmd_rotate "$@" ;;
+        set-username) shift; cmd_username "$@" ;;
+        repair) shift; cmd_repair "$@" ;;
+        uninstall) shift; cmd_uninstall "$@" ;;
+        -h|--help|help) usage ;;
+        *) echo "ERROR: unknown command '$1'. Use: openfy --help" >&2; return 1 ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+    main "$@"
+fi

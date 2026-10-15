@@ -4,16 +4,68 @@ A self-hosted music streaming platform.
 
 ## Prerequisites
 
-- For bare-metal install: current Ubuntu/Debian, Python 3.11+, `ffmpeg`, systemd
-- For Docker install: Docker and Docker Compose
-- For manual setup: Python 3.11+
+- For the one-line / bare-metal install: a fresh supported Linux server —
+  current **Ubuntu or Debian** (other systemd distros with
+  `--allow-unsupported-os`), CPU **x86-64 (`linux-amd64`)** or
+  **ARM64 (`linux-arm64`)**, **Python 3.11+**, `ffmpeg`, systemd, root access,
+  and internet access during installation. System packages are installed
+  automatically via apt/dnf/yum/pacman/zypper unless `--no-install-deps` is
+  given.
+- For Docker install: Docker and Docker Compose.
+- For manual setup: Python 3.11+.
 
-## Quick Start (bare-metal Linux, no Docker)
+## Quick Start (one-line installer, bare-metal Linux, no Docker)
 
-Download the `openfy-vVERSION-linux-amd64.tar.gz` (x86-64) or
-`openfy-vVERSION-linux-arm64.tar.gz` (ARM64) archive from the
-[Releases page](https://github.com/NethminaYasas/Openfy/releases),
-plus `SHA256SUMS`, then:
+Install the latest stable release (interactive wizard — guides you through
+method, version, admin account, and dependencies; native installs need a
+root shell — sudo users use the download-first command below):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
+```
+
+Install an exact version instead (installs **exactly** this version — check
+the [Releases page](https://github.com/NethminaYasas/Openfy/releases) for
+published versions; `v1.4.2` below is an example of the `vMAJOR.MINOR.PATCH`
+tag convention):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
+```
+
+Or download the script first, then run it as root (same behaviour):
+
+```bash
+curl -fsSL -o install.sh https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh
+sudo bash install.sh v1.4.2
+```
+
+Non-interactive (automation):
+
+```bash
+sudo bash install.sh --yes                                    # latest stable
+sudo bash install.sh --yes --version 1.4.2                    # pinned version
+sudo bash install.sh --yes --method docker --version 1.4.2    # Docker instead
+```
+
+The installer detects your OS/architecture, resolves the release from the
+official GitHub repository, downloads the archive for your CPU plus
+`SHA256SUMS`, **verifies the checksum before executing anything from the
+bundle**, installs the app to `/opt/openfy`, writes config to
+`/etc/openfy/openfy.env`, keeps data in `/var/lib/openfy/`, creates the
+`openfy` systemd service, generates the initial admin credential (shown
+**once** — save it), and health-checks the service. Rerunning is safe:
+existing config, credentials, and data are preserved. A requested version
+that is missing, a draft, or lacks assets is a fatal error — the installer
+never silently substitutes another version.
+
+See `install.sh --help` for all options (`--action upgrade|repair|reinstall|
+uninstall`, `--admin-user`, `--no-start`, `--purge`, `--dry-run`, ...).
+
+Manual alternative (no bootstrap): download
+`openfy-vVERSION-linux-amd64.tar.gz` (x86-64) or
+`openfy-vVERSION-linux-arm64.tar.gz` (ARM64) plus `SHA256SUMS` from the
+[Releases page](https://github.com/NethminaYasas/Openfy/releases), then:
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS   # every downloaded file must report OK
@@ -22,28 +74,24 @@ cd openfy-vVERSION-linux-amd64
 sudo ./install.sh
 ```
 
-Then generate an admin credential, save it to the config, and restart:
+For local access, visit `http://localhost:8000`. For remote access, use a
+TLS-terminating reverse proxy and visit its `https://` URL — do not expose
+port 8000 directly to remote clients. Sign in with your admin credential in
+the Auth Hash field.
 
-```bash
-sudo /opt/openfy/venv/bin/python /opt/openfy/generate_hash.py
-sudoedit /etc/openfy/openfy.env   # set OPENFY_ADMIN_HASH to the value above
-sudo systemctl restart openfy
-```
-
-Visit http://localhost:8000 (or `http://<server-ip>:8000`).
-
-Full guide — configuration, systemd service commands, upgrades via
-`update.sh`, safe uninstall, data locations, backups, troubleshooting:
+Full guide — wizard options, non-interactive flags, configuration, systemd
+service commands, credential rotation, upgrades, repair, safe uninstall,
+data locations, backups, troubleshooting:
 [`docs/LINUX_INSTALL.md`](docs/LINUX_INSTALL.md).
 
 ## Installation
 
 ### Option A — Bare-metal Linux without Docker (recommended)
 
-Same as Quick Start above. No Docker, no Node.js. App lives in
+Use the one-line installer above. No Docker, no Node.js. App lives in
 `/opt/openfy`, config in `/etc/openfy/openfy.env`, data in
 `/var/lib/openfy/` (database, music, downloads, artwork) — config and data
-survive updates, reinstalls, and normal uninstalls.
+survive updates, repairs, reinstalls, and normal uninstalls.
 
 ### Option B — Docker, published image
 
@@ -68,22 +116,54 @@ docker compose up --build -d
 ```
 ### Configuration and admin credentials
 
-Copy `.env.example` to `.env` and fill in your values before starting.
+Copy `.env.example` to `.env` and fill in your values before starting
+(Docker/manual setups).
 
 ```bash
 python scripts/generate_hash.py   # paste the of1_... value as OPENFY_ADMIN_HASH
 ```
 
-Bare-metal installs keep their config at `/etc/openfy/openfy.env` and data
-at `/var/lib/openfy/` (database, music, downloads, artwork) — both survive
-updates, reinstalls, and normal uninstalls.
+Native installs generate the initial admin credential automatically and print
+it **once** — save it in a password manager; it cannot be recovered, only
+rotated:
+
+```bash
+sudo /opt/openfy/install.sh --rotate-credential   # explicit; prints the new secret once
+sudo systemctl restart openfy
+```
+
+Bare-metal installs keep their config at `/etc/openfy/openfy.env` (mode
+`640`) and data at `/var/lib/openfy/` (database, music, downloads, artwork)
+— both survive updates, repairs, reinstalls, and normal uninstalls. Upgrades
+never print or change existing credentials.
 
 ### Upgrading
 
-- Docker (prod): set `OPENFY_VERSION` to the new release and
-  `docker compose -f docker-compose.prod.yml up -d`.
+- One-line installer: rerun it and choose **Upgrade**, or non-interactively:
+  `sudo bash install.sh --yes --action upgrade --version 1.5.0`.
 - Bare-metal: `sudo /opt/openfy/update.sh --latest` (verifies checksums,
   backs up config + database, rolls back on failure).
+- Docker (prod): set `OPENFY_VERSION` to the new release and
+  `docker compose -f docker-compose.prod.yml up -d`.
+
+### Repair, reinstall, and uninstall
+
+- Repair damaged application files from a verified bundle (data/config
+  untouched): choose **Repair** in the installer wizard, or
+  `sudo bash install.sh --yes --action repair`. In-place
+  `sudo /opt/openfy/install.sh --repair --no-start` only fixes
+  ownership/permissions, venv, and systemd unit (it does not restore
+  application files).
+- Reinstall application files (keeps data + config, asks first):
+  via the wizard (verified bundle). In-place
+  `sudo /opt/openfy/install.sh --force` does not restore files.
+- Uninstall (keeps data + config by default):
+  `sudo /opt/openfy/uninstall.sh`; permanent data removal needs explicit
+  `--purge` plus a second confirmation. Back up `/var/lib/openfy/openfy.db`
+  and `/var/lib/openfy/music/` before destructive operations. Rollback after
+  a failed upgrade is automatic (previous files restored, backup retained
+  under `/var/backups/openfy/`); database formats only move forward, so keep
+  the pre-upgrade backup.
 
 ## Manual Setup
 
@@ -166,6 +246,7 @@ python scripts/generate_hash.py
 Copy the output into your `.env` as `OPENFY_ADMIN_HASH`, then restart the server.
 Use this credential in the Auth Hash sign-in field and keep it secret. The generator
 uses cryptographically secure randomness and does not accept a password.
+(Native one-line installs generate and store this for you automatically.)
 
 ### Rotating existing administrator credentials
 

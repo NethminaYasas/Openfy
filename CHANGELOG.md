@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Root-level one-line installer (`install.sh`): `bash <(curl -fsSL .../main/install.sh)` installs the latest stable release; appending `v1.4.2` (or `1.4.2`) installs exactly that version. Interactive wizard (method, version, admin account, dependencies, upgrade/repair/reinstall/uninstall) plus non-interactive flags (`--yes`, `--method`, `--action`, `--version`, `--admin-user`, `--dry-run`, ...). Resolves releases via the GitHub API, verifies `SHA256SUMS` before executing anything from the bundle, refuses drafts/missing/incomplete releases without fallback, and delegates to the verified bundle's `install.sh`/`update.sh` (backups + rollback preserved).
+- Bare-metal `install.sh`: automatic system-package installation (apt/dnf/yum/pacman/zypper, `--no-install-deps` to skip), port-conflict detection, automatic initial admin credential generation (printed once, `640` config), `--repair` mode, `--rotate-credential`, `--admin-user`, `--yes`.
+- `server/tests/test_bootstrap_installer.py`: installer/version/checksum/credential/lifecycle tests against a mocked GitHub API (no network, no root).
+- CI pins all third-party actions to commit SHAs and syntax-checks the root `install.sh`.
 - Automatic release pipeline (`.github/workflows/release.yml`): publishing a GitHub Release builds, tests, and publishes the multi-arch (`linux/amd64`, `linux/arm64`) Docker image to GHCR plus `linux-amd64`/`linux-arm64` bare-metal bundles, `SHA256SUMS`, and an SPDX SBOM as release assets. Stable tags publish `X.Y.Z`, `X.Y`, `X`, `latest`; prereleases (`-rc.N`/`-beta.N`/`-alpha.N`) publish only their exact version.
 - Bare-metal Linux distribution: `install.sh` / `start.sh` / `update.sh` / `uninstall.sh` + hardened `openfy.service` systemd unit (see `scripts/linux/`); app in `/opt/openfy`, config in `/etc/openfy/openfy.env`, data in `/var/lib/openfy` (preserved across updates and normal uninstalls).
 - CI packaging validation job, bundle packaging/validation scripts (`scripts/release/`), and `server/tests/test_release_packaging.py`.

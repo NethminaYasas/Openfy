@@ -28,6 +28,12 @@ ENV_FILE="${CONFIG_DIR}/openfy.env"
 SERVICE_NAME="${OPENFY_SERVICE_NAME:-openfy}"
 SYSTEMD_DIR="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}"
 BACKUP_ROOT="${OPENFY_BACKUP_DIR:-/var/backups/openfy}"
+if [[ -z "${OPENFY_PORT+x}" ]]; then
+    OPENFY_PORT="8000"
+    PORT_EXPLICIT="false"
+else
+    PORT_EXPLICIT="true"
+fi
 
 VERSION=""
 LATEST="false"
@@ -57,6 +63,22 @@ done
 
 [[ -z "${ARCH}" ]] && ARCH="$(host_arch)"
 case "${ARCH}" in linux-amd64|linux-arm64) ;; *) echo "ERROR: --arch must be linux-amd64 or linux-arm64." >&2; exit 1 ;; esac
+valid_port() {
+    [[ "${1:-}" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+if [[ "${PORT_EXPLICIT}" == "true" ]]; then
+    valid_port "${OPENFY_PORT}" \
+        || { echo "ERROR: invalid OPENFY_PORT '${OPENFY_PORT}' (must be 1-65535, no leading zeros)." >&2; exit 1; }
+else
+    # Preserve a custom port across upgrades when no port was explicitly given.
+    existing_unit="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+    if [[ -f "${existing_unit}" ]]; then
+        p="$(grep -oE -- '--port [0-9]+' "${existing_unit}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+        if valid_port "${p}"; then
+            OPENFY_PORT="${p}"
+        fi
+    fi
+fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "ERROR: run as root (e.g. sudo ./update.sh --latest)." >&2
@@ -107,7 +129,7 @@ else
     fi
 fi
 
-CURRENT="$(python3 -c "import json;print(json.load(open('${APP_DIR}/VERSION.json')).get('version','unknown'))" 2>/dev/null || echo unknown)"
+CURRENT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","unknown"))' "${APP_DIR}/VERSION.json" 2>/dev/null || echo unknown)"
 echo "[openfy-update] Installed: ${CURRENT}  Target: ${VERSION} (${ARCH})"
 if [[ "${CURRENT}" == "${VERSION}" ]]; then
     echo "[openfy-update] Already at version ${VERSION}; nothing to do."
@@ -182,7 +204,7 @@ fi
 # then require tar itself to succeed: a failed snapshot aborts before
 # anything changes, instead of leaving a partial backup behind.
 members=()
-for m in app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
+for m in app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh openfy; do
     if [[ -e "${APP_DIR}/${m}" ]]; then
         members+=("${m}")
     else
@@ -203,7 +225,7 @@ EXTRACTED="$(find "${WORK}" -maxdepth 1 -name "openfy-v${VERSION}-${ARCH}" -type
 for required in app/main.py client/index.html requirements.txt openfy.service VERSION.json install.sh generate_hash.py; do
     [[ -e "${EXTRACTED}/${required}" ]] || { echo "[openfy-update] ERROR: new bundle missing ${required}." >&2; exit 1; }
 done
-NEW_VERSION="$(python3 -c "import json;print(json.load(open('${EXTRACTED}/VERSION.json'))['version'])")"
+NEW_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${EXTRACTED}/VERSION.json")"
 [[ "${NEW_VERSION}" == "${VERSION}" ]] || { echo "[openfy-update] ERROR: bundle version ${NEW_VERSION} != requested ${VERSION}." >&2; exit 1; }
 bash -n "${EXTRACTED}/install.sh"
 
@@ -211,7 +233,7 @@ wait_for_health() {
     # Returns 0 once the local service answers /health (up to ~60s).
     local attempt=0
     while [[ "${attempt}" -lt 30 ]]; do
-        if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/health', timeout=3)" 2>/dev/null; then
+        if "${APP_DIR}/venv/bin/python" -c "import sys,urllib.request; urllib.request.urlopen('http://localhost:' + sys.argv[1] + '/health', timeout=3)" "${OPENFY_PORT}" 2>/dev/null; then
             return 0
         fi
         attempt=$((attempt + 1))
@@ -252,6 +274,15 @@ rollback() {
         cp "${restore_tmp}/${entry}" "${APP_DIR}/${entry}.new"
         mv -f "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
     done
+    # The manager is new: older installs have no backup copy; restore it only
+    # when present so rollback still succeeds for them.
+    if [[ -e "${restore_tmp}/openfy" ]]; then
+        cp "${restore_tmp}/openfy" "${APP_DIR}/openfy.new"
+        mv -f "${APP_DIR}/openfy.new" "${APP_DIR}/openfy"
+        chmod 755 "${APP_DIR}/openfy" 2>/dev/null || true
+    else
+        rm -f "${APP_DIR}/openfy.new"
+    fi
     rm -rf "${restore_tmp}"
     rm -f "${APP_DIR}"/*.new
     # The venv is shared: reinstall the restored requirements so the old code
@@ -263,6 +294,7 @@ rollback() {
     # Restore the previous unit before restarting.
     cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
         || echo "[openfy-update] WARNING: could not restore the systemd unit file." >&2
+    sed -i -E "s|--port [0-9]+|--port ${OPENFY_PORT}|" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" || true
     systemctl daemon-reload || true
     systemctl restart "${SERVICE_NAME}" || true
     if wait_for_health; then
@@ -292,7 +324,8 @@ cp "${EXTRACTED}/VERSION.json" "${APP_DIR}/VERSION.json.new" && \
 cp "${EXTRACTED}/install.sh" "${APP_DIR}/install.sh.new" && \
 cp "${EXTRACTED}/start.sh" "${APP_DIR}/start.sh.new" && \
 cp "${EXTRACTED}/update.sh" "${APP_DIR}/update.sh.new" && \
-cp "${EXTRACTED}/uninstall.sh" "${APP_DIR}/uninstall.sh.new"
+cp "${EXTRACTED}/uninstall.sh" "${APP_DIR}/uninstall.sh.new" && \
+cp "${EXTRACTED}/openfy" "${APP_DIR}/openfy.new"
 SWAP_OK=$?
 set -e
 if [[ "${SWAP_OK}" -ne 0 ]]; then
@@ -306,9 +339,21 @@ for entry in app client spotify_scraper; do
     [[ -e "${APP_DIR}/${entry}" ]] && mv "${APP_DIR}/${entry}" "${APP_DIR}/${entry}.old"
     mv "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
-for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
+for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh openfy; do
     mv -f "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
+chmod 755 "${APP_DIR}/openfy" 2>/dev/null || true
+bin_dir="${OPENFY_BIN_DIR:-/usr/local/bin}"
+mkdir -p "${bin_dir}" 2>/dev/null || true
+if {
+    printf '%s\n' '#!/bin/bash'
+    printf 'export OPENFY_INSTALL_DIR=%q\n' "${APP_DIR}"
+    printf 'exec bash %q "$@"\n' "${APP_DIR}/openfy"
+} > "${bin_dir}/openfy" 2>/dev/null; then
+    chmod 755 "${bin_dir}/openfy" 2>/dev/null || true
+else
+    echo "[openfy-update] WARNING: could not install openfy to ${bin_dir}." >&2
+fi
 # Renames are atomic: the running update.sh keeps reading its original inode
 # while the directory entry switches to the new file.
 
@@ -320,6 +365,8 @@ chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}/app" "${APP_DIR}/client" 
 # Refresh the systemd unit if the bundle changed it, then restart.
 cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
     || { rollback || true; echo "[openfy-update] ERROR: failed to install systemd unit." >&2; exit 1; }
+sed -i -E "s|--port [0-9]+|--port ${OPENFY_PORT}|" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
+    || { rollback || true; echo "[openfy-update] ERROR: failed to configure service port." >&2; exit 1; }
 systemctl daemon-reload
 systemctl start "${SERVICE_NAME}" || { rollback || true; echo "[openfy-update] ERROR: service failed to start." >&2; exit 1; }
 

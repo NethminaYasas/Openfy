@@ -174,7 +174,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in scripts/release/*.sh scripts/linux/*.sh scripts/check_spotiflac_update.sh; do
+          for f in install.sh scripts/release/*.sh scripts/linux/*.sh scripts/check_spotiflac_update.sh; do
             if bash -n "$f"; then
               echo "OK: $f"
             else
