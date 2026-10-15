@@ -1,0 +1,422 @@
+name: Release
+
+# Fully automatic release pipeline. Trigger: publishing a GitHub Release in the
+# web UI (no local commands, no manual dispatch, no second commit needed).
+#
+# Tag policy (authoritative version source = the Git tag):
+#   stable:     v1.4.2            -> GHCR tags 1.4.2, 1.4, 1, latest
+#   prerelease: v1.5.0-rc.1       -> GHCR tag  1.5.0-rc.1 only (stable aliases untouched)
+# Supported prerelease suffixes: -rc.N, -beta.N, -alpha.N
+#
+# Every job checks out the EXACT tag commit (github.ref), never main.
+# Rerun-safe: concurrency group serialises runs per tag; `gh release upload
+# --clobber` makes asset publication idempotent; pushing an unchanged image
+# digest to GHCR is a no-op. Stable aliases only move after all required
+# checks pass (docker-publish needs docker-verify; attach needs everything).
+#
+# Architecture note: linux/amd64 images are build- AND smoke-tested on native
+# runners. linux/arm64 is BUILT (Buildx + QEMU) but smoke-tested only to the
+# extent CI emulation permits; it is never claimed as runtime-tested beyond
+# the build. The Python-source Linux bundles are arch-independent (native
+# wheels resolve at install time) and labelled per arch.
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/nethminayasas/openfy
+  REPO_SLUG: NethminaYasas/Openfy
+
+jobs:
+  # ---------------------------------------------------------------- resolve
+  resolve:
+    name: Resolve + validate tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.parse.outputs.tag }}
+      version: ${{ steps.parse.outputs.version }}
+      is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
+      major: ${{ steps.parse.outputs.major }}
+      minor: ${{ steps.parse.outputs.minor }}
+      sha: ${{ steps.parse.outputs.sha }}
+      docker_tags: ${{ steps.parse.outputs.docker_tags }}
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag and derive version
+        id: parse
+        shell: bash
+        run: |
+          set -euo pipefail
+          source scripts/release/common.sh
+          TAG="${{ github.event.release.tag_name }}"
+          [[ -n "${TAG}" ]] || { echo "::error::Release event has no tag_name."; exit 1; }
+          parse_release_tag "${TAG}" || exit 1
+
+          # The checked-out commit must be the tag itself, not drifting main.
+          SHA="$(git rev-parse HEAD)"
+          TAG_SHA="$(git rev-list -n 1 "${OPENFY_TAG}")"
+          if [[ "${SHA}" != "${TAG_SHA}" ]]; then
+            echo "::error::Checked-out ${SHA} != tag ${OPENFY_TAG} (${TAG_SHA}). Refusing to build the wrong commit."
+            exit 1
+          fi
+
+          # The GitHub "prerelease" checkbox must agree with the tag suffix.
+          FLAG="${{ github.event.release.prerelease }}"
+          if [[ "${OPENFY_IS_PRERELEASE}" == "true" && "${FLAG}" != "true" ]]; then
+            echo "::error::Tag ${OPENFY_TAG} looks like a prerelease but the release is not marked as prerelease. Tick 'Set as a pre-release' or use a stable tag."
+            exit 1
+          fi
+          if [[ "${OPENFY_IS_PRERELEASE}" == "false" && "${FLAG}" == "true" ]]; then
+            echo "::error::Tag ${OPENFY_TAG} is stable but the release is marked as prerelease. Untick 'Set as a pre-release' or use a -rc.N/-beta.N/-alpha.N tag."
+            exit 1
+          fi
+
+          TAGS="$(docker_tags_for_release | tr '\n' ' ' | xargs)"
+          echo "Release ${OPENFY_TAG}: version=${OPENFY_VERSION} prerelease=${OPENFY_IS_PRERELEASE} sha=${SHA} docker_tags='${TAGS}'"
+          {
+            echo "tag=${OPENFY_TAG}"
+            echo "version=${OPENFY_VERSION}"
+            echo "is_prerelease=${OPENFY_IS_PRERELEASE}"
+            echo "major=${OPENFY_MAJOR}"
+            echo "minor=${OPENFY_MINOR}"
+            echo "sha=${SHA}"
+            echo "docker_tags=${TAGS}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # -------------------------------------------------------------------- test
+  test:
+    name: Gate checks
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-python@v5.4.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          pip install -r requirements.txt
+          pip install pytest ruff pyyaml
+
+      - name: Ruff check
+        shell: bash
+        run: ruff check server/
+
+      - name: Python syntax + import check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q server/app
+          cd server
+          python -c "import app.settings; print('settings import OK')"
+
+      - name: Existing + packaging tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          pytest --tb=short -q
+
+      - name: Shell script syntax (bash -n)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in scripts/release/*.sh scripts/linux/*.sh scripts/check_spotiflac_update.sh; do
+            bash -n "$f" && echo "OK: $f"
+          done
+
+      - name: YAML validation (workflows + compose)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c "
+          import yaml, glob, sys
+          files = glob.glob('.github/workflows/*.yml') + ['docker-compose.yml', 'docker-compose.prod.yml']
+          assert files, 'no workflow/compose files found'
+          for f in files:
+              yaml.safe_load(open(f))
+              print('OK:', f)
+          "
+
+      - name: Build Linux bundles (exact tag commit)
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/*.sh scripts/linux/*.sh
+          rm -rf dist && mkdir -p dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-amd64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-arm64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          (cd dist && sha256sum openfy-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Validate release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/release/validate-release.sh --tag '${{ needs.resolve.outputs.tag }}' --dir dist --expect-commit '${{ needs.resolve.outputs.sha }}'
+
+  # ------------------------------------------------------------ docker-verify
+  docker-verify:
+    name: Docker build + smoke test (amd64)
+    runs-on: ubuntu-latest
+    needs: [resolve, test]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Build image (local, linux/amd64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f server/Dockerfile \
+            --build-arg OPENFY_VERSION='${{ needs.resolve.outputs.version }}' \
+            --build-arg OPENFY_REVISION='${{ needs.resolve.outputs.sha }}' \
+            --build-arg OPENFY_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t openfy:verify .
+
+      - name: Smoke test (start, health, frontend, files, writability, no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(python3 scripts/generate_hash.py)"
+          docker run -d --name openfy-verify -p 8000:8000 \
+            -e "OPENFY_ADMIN_USERNAME=admin" \
+            -e "OPENFY_ADMIN_HASH=${TOKEN}" \
+            -e "OPENFY_ALLOWED_ORIGINS=http://localhost:8000" \
+            openfy:verify
+          trap 'docker logs openfy-verify || true; docker rm -f openfy-verify >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 3 http://localhost:8000/health >/dev/null 2>&1; then
+              echo "Healthy after ~$((i * 2))s"
+              break
+            fi
+            sleep 2
+            if [[ "$i" -eq 30 ]]; then echo "::error::Container never became healthy."; docker logs openfy-verify; exit 1; fi
+          done
+          curl -fsS http://localhost:8000/health | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'
+          echo "PASS: /health returns status ok"
+          curl -fsS http://localhost:8000/ | grep -qi 'openfy'
+          echo "PASS: frontend serves Openfy UI"
+          docker exec openfy-verify test -f /app/app/main.py
+          docker exec openfy-verify test -f /app/client/index.html
+          docker exec openfy-verify python -c "import fastapi, sqlalchemy, mutagen, PIL; print('deps OK')"
+          echo "PASS: required files + dependencies present"
+          docker exec openfy-verify touch /data/.write-test && docker exec openfy-verify rm /data/.write-test
+          echo "PASS: /data is writable"
+          # The baked-in /app/.env is the safe example: no real admin credential.
+          # [^[:space:]] (not .) so CRLF line endings cannot false-positive.
+          if docker exec openfy-verify grep -qE '^OPENFY_ADMIN_HASH=[^[:space:]]' /app/.env 2>/dev/null; then
+            echo "::error::Image embeds a real OPENFY_ADMIN_HASH."; exit 1
+          fi
+          echo "PASS: no admin credential embedded in image"
+          docker inspect openfy:verify --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' | grep -q '${{ needs.resolve.outputs.version }}'
+          echo "PASS: OCI version label matches release"
+
+  # ----------------------------------------------------------- docker-publish
+  docker-publish:
+    name: Publish multi-arch image to GHCR
+    runs-on: ubuntu-latest
+    needs: [resolve, test, docker-verify]
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up QEMU (arm64 emulation for build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute push tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=""
+          for t in ${{ needs.resolve.outputs.docker_tags }}; do
+            OUT="${OUT}ghcr.io/nethminayasas/openfy:${t}"$'\n'
+          done
+          echo "Pushing tags:"; echo "${OUT}"
+          echo "list<<EOF" >> "${GITHUB_OUTPUT}"
+          echo "${OUT}" >> "${GITHUB_OUTPUT}"
+          echo "EOF" >> "${GITHUB_OUTPUT}"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build + push (linux/amd64, linux/arm64)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          build-args: |
+            OPENFY_VERSION=${{ needs.resolve.outputs.version }}
+            OPENFY_REVISION=${{ needs.resolve.outputs.sha }}
+            OPENFY_CREATED=${{ steps.tags.outputs.created }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SBOM (SPDX) for release assets
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}
+          format: spdx-json
+          output-file: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
+
+      - name: Upload SBOM as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------- linux
+  linux:
+    name: Build Linux bundles
+    runs-on: ubuntu-latest
+    needs: [resolve, test]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Package linux-amd64 + linux-arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/*.sh scripts/linux/*.sh
+          rm -rf dist && mkdir -p dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-amd64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-arm64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          (cd dist && sha256sum openfy-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          scripts/release/validate-release.sh --tag '${{ needs.resolve.outputs.tag }}' --dir dist --expect-commit '${{ needs.resolve.outputs.sha }}'
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-bundles
+          path: |
+            dist/openfy-*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------- attach
+  attach:
+    name: Attach assets + verify publication
+    runs-on: ubuntu-latest
+    needs: [resolve, docker-publish, linux]
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-bundles
+          path: stage
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: stage
+
+      - name: Finalise checksum manifest + upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd stage
+          ls -la
+          # Flatten: artifact downloads may nest files one level deep.
+          find . -mindepth 2 \( -name 'openfy-*.tar.gz' -o -name 'openfy-*-sbom.spdx.json' \) -exec mv -t . {} + 2>/dev/null || true
+          ls -la
+          # SHA256SUMS must be generated from the FINAL files being uploaded.
+          rm -f SHA256SUMS
+          sha256sum openfy-*.tar.gz openfy-*-sbom.spdx.json > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+          # Idempotent publication: --clobber overwrites same-name assets so a
+          # rerun after partial failure converges instead of duplicating.
+          gh release upload "${TAG}" openfy-*.tar.gz SHA256SUMS openfy-*-sbom.spdx.json --clobber --repo "${{ env.REPO_SLUG }}"
+          echo "Assets uploaded. Current release assets:"
+          gh release view "${TAG}" --repo "${{ env.REPO_SLUG }}" --json assets --jq '.assets[].name'
+
+      - name: Verify release assets + GHCR tags
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          for asset in "openfy-v${VERSION}-linux-amd64.tar.gz" "openfy-v${VERSION}-linux-arm64.tar.gz" SHA256SUMS "openfy-v${VERSION}-sbom.spdx.json"; do
+            gh release view "${TAG}" --repo "${{ env.REPO_SLUG }}" --json assets --jq '.assets[].name' | grep -qx "${asset}" \
+              || { echo "::error::Release asset missing: ${asset}"; exit 1; }
+            echo "PASS: asset present: ${asset}"
+          done
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for t in ${{ needs.resolve.outputs.docker_tags }}; do
+            docker buildx imagetools inspect "ghcr.io/nethminayasas/openfy:${t}" >/dev/null \
+              || { echo "::error::GHCR tag missing: ${t}"; exit 1; }
+            echo "PASS: GHCR tag present: ${t}"
+          done
+          if [[ "${{ needs.resolve.outputs.is_prerelease }}" == "true" ]]; then
+            echo "Prerelease confirmed: stable aliases (latest, major, minor) were not touched by this run."
+          fi
+          echo "Release ${TAG} fully published and verified."
