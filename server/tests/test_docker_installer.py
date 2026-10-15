@@ -58,6 +58,10 @@ def test_fresh_install_and_repeat_preserve_state(tmp_path, docker_stub):
     assert (target / "data").is_dir()
     assert (target / ".env").stat().st_mode & 0o777 == 0o600
     config = yaml.safe_load((target / "docker-compose.yml").read_text())
+    assert config == yaml.safe_load((REPO_ROOT / "docker-compose.quick.yml").read_text())
+    assert (target / ".env").read_text() == (REPO_ROOT / "docker.env.example").read_text().replace(
+        "OPENFY_ADMIN_HASH=\n", f"OPENFY_ADMIN_HASH={CREDENTIAL}\n",
+    )
     service = config["services"]["openfy"]
     assert service["image"] == "ghcr.io/nethminayasas/openfy:${OPENFY_VERSION:-latest}"
     assert service["volumes"] == ["./data:/data"]

@@ -290,6 +290,18 @@ in a safe place.
   `sudo journalctl -u openfy -n 100`. Common causes: unset `OPENFY_ADMIN_HASH`
   is fine (server still starts), but a bad `OPENFY_DATABASE_URL` or a port
   already in use is not.
+- `pydantic-core` / PyO3 build fails on Python 3.14, or SQLAlchemy fails
+  while importing `typing.Union`: older releases pin dependencies that do
+  not support Python 3.14. For an installation that failed during dependency
+  setup, update its local pins and repair in place (keeps config and data):
+
+  ```bash
+  sudo sed -i -e 's/^pydantic==2\.9\.2$/pydantic==2.12.5/' -e 's/^SQLAlchemy==2\.0\.36$/SQLAlchemy==2.0.54/' /opt/openfy/requirements.txt
+  sudo /opt/openfy/install.sh --repair
+  ```
+
+  Future installs and upgrades need a release containing these updated
+  requirements; reinstalling an older release restores its old pins.
 - `Python 3.x is too old`: install Python 3.11+ and rerun `install.sh`
   (it repairs the install without touching data/config).
 - `bundle arch ... does not match host`: you downloaded the wrong archive.

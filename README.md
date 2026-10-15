@@ -38,9 +38,43 @@ versions, automation, configuration, backups, and uninstall instructions.
 
 ### Docker
 
-Requires **Docker Engine with the Compose plugin** (`docker compose`).
-No Python installation or repository clone needed. Choose either method
-below; both use `ghcr.io/nethminayasas/openfy:latest` and create the same layout:
+Install Docker with the Compose plugin, then run this in Bash:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh)
+```
+
+Open **http://localhost:8000** and sign in as `admin` with the **Auth Hash**
+printed by the installer. It creates `openfy/` with your config and data;
+no host Python is needed.
+
+<details>
+<summary>Manual Docker setup (alternative)</summary>
+
+For a fresh installation, copy and run this block. It generates and saves
+your admin credential automatically:
+
+```bash
+umask 077
+mkdir -p openfy/data && cd openfy
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/docker-compose.quick.yml -o docker-compose.yml
+docker pull ghcr.io/nethminayasas/openfy:latest
+docker run --rm --network none --entrypoint python ghcr.io/nethminayasas/openfy:latest \
+  -c 'import secrets; print("OPENFY_ADMIN_USERNAME=admin\nOPENFY_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000\nOPENFY_ADMIN_HASH=of1_" + secrets.token_urlsafe(45))' > .env
+docker compose up -d --wait --wait-timeout 120
+cat .env
+```
+
+Save the `OPENFY_ADMIN_HASH` shown at the end and use it to sign in as `admin`.
+Use the update commands below for an existing installation.
+
+</details>
+
+<details>
+<summary>Docker files, updates, and settings</summary>
+
+Both methods use the published image `ghcr.io/nethminayasas/openfy:latest`
+and create the same layout:
 
 ```text
 openfy/
@@ -49,101 +83,23 @@ openfy/
 └── data/               # database, music, downloads, artwork
 ```
 
-#### Option 1 — Quick setup script
-
-Run in a Bash shell with permission to use Docker:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh)
-```
-
-The script creates the directory and configuration, pulls the image, starts
-Openfy, and prints your admin credential. **Save it** and sign in as `admin`
-using the **Auth Hash** field.
-
-Rerunning preserves your configuration, credentials, and data. To choose a
-different directory, add its path after the command (for example, `/opt/openfy`).
-
-#### Option 2 — Manual Docker setup
-
-**1. Create the directory and pull the image:**
-
-```bash
-umask 077
-mkdir -p openfy/data
-cd openfy
-docker pull ghcr.io/nethminayasas/openfy:latest
-```
-
-**2. Generate your admin credential** (Python runs inside the container):
-
-```bash
-docker run --rm --network none --entrypoint python ghcr.io/nethminayasas/openfy:latest \
-  -c 'import secrets; print("of1_" + secrets.token_urlsafe(45))'
-```
-
-**3. Save your settings** in `openfy/.env`. Replace
-`PASTE_YOUR_CREDENTIAL_HERE` with the output above. These file creation
-commands are for a fresh installation; keep existing files when updating.
-
-```bash
-cat > .env <<'EOF'
-OPENFY_VERSION=latest
-OPENFY_BIND_IP=127.0.0.1
-OPENFY_PORT=8000
-OPENFY_ADMIN_USERNAME=admin
-OPENFY_ADMIN_HASH=PASTE_YOUR_CREDENTIAL_HERE
-OPENFY_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
-EOF
-```
-
-**4. Create `openfy/docker-compose.yml`:**
-
-```bash
-cat > docker-compose.yml <<'EOF'
-services:
-  openfy:
-    image: ghcr.io/nethminayasas/openfy:${OPENFY_VERSION:-latest}
-    restart: unless-stopped
-    ports:
-      - "${OPENFY_BIND_IP:-127.0.0.1}:${OPENFY_PORT:-8000}:8000"
-    volumes:
-      - ./data:/data
-    env_file:
-      - .env
-    environment:
-      OPENFY_ENV: prod
-      OPENFY_DATA_DIR: /data
-      OPENFY_MUSIC_DIR: /data/music
-      OPENFY_DOWNLOADS_DIR: /data/downloads
-      OPENFY_ARTWORK_DIR: /data/artwork
-      OPENFY_DATABASE_URL: sqlite:////data/openfy.db
-EOF
-```
-
-**5. Start Openfy:**
-
-```bash
-docker compose pull
-docker compose up -d --wait --wait-timeout 120
-```
-
-Sign in as `admin` using your saved credential in the **Auth Hash** field.
-Your database and library stay in `openfy/data/`.
-
-#### Manage either Docker installation
-
 From your `openfy` directory:
 
 ```bash
-docker compose logs -f             # logs (Ctrl+C to exit)
+docker compose logs -f                              # logs
 docker compose pull && docker compose up -d --wait   # update
-docker compose down                # stop; keeps ./data and .env
+docker compose down                                 # stop; keeps data
 ```
 
-Edit `.env` to change the port, allowed origins, or pin `OPENFY_VERSION` to a
-[release version](https://github.com/NethminaYasas/Openfy/releases), then run
-`docker compose up -d`. Back up `data/` and `.env` before updating.
+The setup script can also update an installation when rerun from the same
+parent directory. It preserves existing config, credentials, and data.
+Pass an installation path after the script command to choose its directory.
+
+Edit `.env` to change allowed origins or add `OPENFY_PORT=9000` or
+`OPENFY_VERSION=0.1.0`, then run `docker compose up -d`.
+Back up `data/` and `.env` before updating.
+
+</details>
 
 ### Open Openfy
 
