@@ -1081,8 +1081,10 @@ def test_explicit_prerelease_needs_opt_in_noninteractive(tmp_path):
 def test_docs_document_one_line_installer():
     readme = (REPO_ROOT / "README.md").read_text()
     assert "raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh" in readme
-    assert "bash install.sh v1.4.2" in readme
-    assert "--yes --version 1.4.2" in readme
+    assert "bash <(curl -fsSL " in readme
+    assert "docker pull ghcr.io/nethminayasas/openfy:latest" in readme
     linux_doc = (REPO_ROOT / "docs" / "LINUX_INSTALL.md").read_text()
+    assert "bash install.sh v1.4.2" in linux_doc
+    assert "--yes --version 1.4.2" in linux_doc
     assert "--rotate-credential" in linux_doc
     assert "--action" in linux_doc and "repair" in linux_doc

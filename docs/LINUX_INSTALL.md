@@ -19,6 +19,14 @@ archive for your CPU plus `SHA256SUMS`, **verifies the checksum before
 executing anything from the bundle**, then delegates to the verified
 bundle's installer:
 
+Run in a **root Bash shell** (`sudo -i` if needed), with `curl` installed:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
+```
+
+For a downloaded copy or a specific version:
+
 ```bash
 # Latest stable release (interactive wizard; native installs need a root shell):
 curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
