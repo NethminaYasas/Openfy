@@ -23,6 +23,7 @@ Example:
 
 import logging
 import os
+import tempfile
 from typing import Optional
 
 import requests
@@ -40,10 +41,12 @@ from spotify_scraper.utils.download import (
     ALLOWED_MEDIA_HOSTS,
     MAX_MANUAL_REDIRECTS,
     REDIRECT_STATUS_CODES,
+    OverwritePolicy,
     canonicalize_https_url,
     check_content_length,
     require_https_url,
     resolve_redirect,
+    select_download_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,6 +126,7 @@ class AudioDownloader:
         filename: Optional[str] = None,
         path: str = "",
         with_cover: bool = True,
+        overwrite: OverwritePolicy = True,
     ) -> str:
         """Download preview MP3 for a track.
 
@@ -142,10 +146,14 @@ class AudioDownloader:
             with_cover: Whether to embed album cover art in the MP3 metadata.
                 Requires eyeD3 library. If eyeD3 is not installed, this option
                 is silently ignored with a warning logged.
+            overwrite: True replaces existing files; False uses exclusive
+                creation. A callback receives the sanitized destination and
+                decides whether to replace an existing file before downloading.
 
         Returns:
             str: Full path to the downloaded MP3 file.
                 Example: "/downloads/Bohemian_Rhapsody_by_Queen.mp3"
+                Empty string if the overwrite callback declines replacement.
 
         Raises:
             DownloadError: If no preview URL is available or download fails.
@@ -205,6 +213,10 @@ class AudioDownloader:
         else:
             file_path = filename
 
+        mode = select_download_mode(file_path, overwrite)
+        if mode is None:
+            return ""
+
         # Download the audio
         try:
             logger.debug("Downloading preview audio from %s", preview_url)
@@ -248,8 +260,10 @@ class AudioDownloader:
                 check_content_length(response, MAX_AUDIO_DOWNLOAD_BYTES, error_factory=DownloadError)
 
                 total_bytes = 0
+                opened = False
                 try:
-                    with open(file_path, "wb") as f:
+                    with open(file_path, mode) as f:
+                        opened = True
                         for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
                             if not chunk:  # Filter out keep-alive chunks
                                 continue
@@ -271,7 +285,7 @@ class AudioDownloader:
                     # Remove partial files so a limit breach (or any write
                     # failure) cannot exhaust disk space with truncated output.
                     try:
-                        if os.path.exists(file_path):
+                        if opened and os.path.exists(file_path):
                             os.remove(file_path)
                     except OSError:
                         pass
@@ -323,14 +337,15 @@ class AudioDownloader:
 
             # Get or download cover image
             image_downloader = self._get_image_downloader()
-            temp_cover_path = os.path.join(os.path.dirname(file_path), "_temp_cover.jpg")
 
-            try:
+            with tempfile.TemporaryDirectory() as cover_dir:
+                temp_cover_path = os.path.join(cover_dir, "cover.jpg")
                 # Download cover to temporary file
                 image_downloader.download_cover(
                     entity_data=track_data,
-                    filename="_temp_cover.jpg",
-                    path=os.path.dirname(file_path),
+                    filename="cover.jpg",
+                    path=cover_dir,
+                    overwrite=False,
                 )
 
                 # Load audio file
@@ -365,10 +380,6 @@ class AudioDownloader:
                 # Save changes
                 audio_file.tag.save()
                 logger.debug("Embedded cover image in %s", file_path)
-            finally:
-                # Clean up temporary files
-                if os.path.exists(temp_cover_path):
-                    os.remove(temp_cover_path)
         except Exception as e:
             logger.warning("Failed to embed cover image: %s", e)
             # This is not a critical error, so we don't raise an exception

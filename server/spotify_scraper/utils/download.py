@@ -26,8 +26,9 @@ downloaders and page fetchers:
 """
 
 import ipaddress
+import os
 import socket
-from typing import Any, FrozenSet, Tuple
+from typing import Any, Callable, FrozenSet, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse, urlunparse
 
 # Hosts that page/API fetches may target. Redirects are only followed when
@@ -55,6 +56,23 @@ ALLOWED_MEDIA_HOSTS: FrozenSet[str] = frozenset(
 )
 MAX_MANUAL_REDIRECTS = 5
 REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+
+OverwritePolicy = Union[bool, Callable[[str], bool]]
+
+
+def select_download_mode(file_path: str, overwrite: OverwritePolicy) -> Optional[str]:
+    """Choose a write mode after resolving the sanitized destination.
+
+    A callback approves replacement of this specific existing path. Declining
+    returns None so the downloader can skip it. Without replacement permission,
+    exclusive creation protects files that appear after this check, including
+    dangling symlinks. True retains the library's unconditional overwrite mode.
+    """
+    if overwrite is True:
+        return "wb"
+    if callable(overwrite) and os.path.lexists(file_path):
+        return "wb" if overwrite(file_path) else None
+    return "xb"
 
 
 def require_https_url(url: str, *, error_factory: Any) -> None:

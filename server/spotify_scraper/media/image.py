@@ -32,7 +32,12 @@ from spotify_scraper.browsers.base import Browser
 from spotify_scraper.core.constants import MAX_IMAGE_DOWNLOAD_BYTES, STREAM_CHUNK_SIZE
 from spotify_scraper.core.exceptions import DownloadError
 from spotify_scraper.core.types import AlbumData, ArtistData, PlaylistData, TrackData
-from spotify_scraper.utils.download import check_content_length, require_https_url
+from spotify_scraper.utils.download import (
+    OverwritePolicy,
+    check_content_length,
+    require_https_url,
+    select_download_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +103,7 @@ class ImageDownloader:
         filename: Optional[str] = None,
         path: str = "",
         size: str = "large",
+        overwrite: OverwritePolicy = True,
     ) -> str:
         """Download cover image for a Spotify entity.
 
@@ -124,10 +130,14 @@ class ImageDownloader:
                 - "medium": Medium size (typically 300x300)
                 - "large": Largest available (typically 640x640)
                 Actual dimensions depend on what Spotify provides.
+            overwrite: True replaces existing files; False uses exclusive
+                creation. A callback receives the sanitized destination and
+                decides whether to replace an existing file before downloading.
 
         Returns:
             str: Full path to the downloaded image file.
                 Example: "/covers/Bohemian_Rhapsody_track_cover.jpg"
+                Empty string if the overwrite callback declines replacement.
 
         Raises:
             DownloadError: If no cover image is available or download fails.
@@ -150,7 +160,7 @@ class ImageDownloader:
         Note:
             - Tracks use their album's cover (no track-specific covers)
             - Image files are always saved as JPEG regardless of source format
-            - Existing files are overwritten without warning
+            - Existing files are overwritten by default; use overwrite to control replacement
         """
         # Get cover URL based on entity type
         cover_url = self._get_cover_url(entity_data, size)
@@ -181,6 +191,10 @@ class ImageDownloader:
         else:
             file_path = filename
 
+        mode = select_download_mode(file_path, overwrite)
+        if mode is None:
+            return ""
+
         # Download the image
         try:
             logger.debug("Downloading cover image from %s", cover_url)
@@ -197,8 +211,10 @@ class ImageDownloader:
                 check_content_length(response, MAX_IMAGE_DOWNLOAD_BYTES, error_factory=DownloadError)
 
                 total_bytes = 0
+                opened = False
                 try:
-                    with open(file_path, "wb") as f:
+                    with open(file_path, mode) as f:
+                        opened = True
                         for chunk in response.iter_content(chunk_size=STREAM_CHUNK_SIZE):
                             if not chunk:  # Filter out keep-alive chunks
                                 continue
@@ -220,7 +236,7 @@ class ImageDownloader:
                     # Remove partial files so a limit breach (or any write
                     # failure) cannot exhaust disk space with truncated output.
                     try:
-                        if os.path.exists(file_path):
+                        if opened and os.path.exists(file_path):
                             os.remove(file_path)
                     except OSError:
                         pass
