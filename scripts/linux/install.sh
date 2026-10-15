@@ -163,7 +163,7 @@ install_files() {
         fi
     done
     # Helper scripts live alongside the bundle for operators.
-    for entry in start.sh update.sh uninstall.sh generate_hash.py; do
+    for entry in install.sh start.sh update.sh uninstall.sh generate_hash.py; do
         [[ -e "${SCRIPT_SRC_DIR}/${entry}" ]] && cp -a "${SCRIPT_SRC_DIR}/${entry}" "${APP_DIR}/${entry}"
     done
     chmod 755 "${APP_DIR}"/start.sh "${APP_DIR}"/update.sh "${APP_DIR}"/uninstall.sh 2>/dev/null || true

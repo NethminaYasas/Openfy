@@ -180,6 +180,9 @@ def test_credential_generator_ships_in_bundle_and_survives_updates():
     assert "generate_hash.py" in updater
     installer = (REPO_ROOT / "scripts" / "linux" / "install.sh").read_text()
     assert "generate_hash.py" in installer
+    # The installer must install itself: the updater's backup/swap lists it,
+    # so an /opt/openfy without install.sh would break future updates.
+    assert "for entry in install.sh start.sh update.sh uninstall.sh" in installer
 
 
 @pytest.mark.parametrize("name", LINUX_SCRIPTS)

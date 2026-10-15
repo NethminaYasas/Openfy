@@ -72,10 +72,15 @@ jobs:
       - name: Validate tag and derive version
         id: parse
         shell: bash
+        env:
+          # Passed via the environment so the tag value is never expanded
+          # into script text before parse_release_tag validates it.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
           source scripts/release/common.sh
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${RELEASE_TAG}"
           [[ -n "${TAG}" ]] || { echo "::error::Release event has no tag_name."; exit 1; }
           parse_release_tag "${TAG}" || exit 1
 
@@ -88,7 +93,7 @@ jobs:
           fi
 
           # The GitHub "prerelease" checkbox must agree with the tag suffix.
-          FLAG="${{ github.event.release.prerelease }}"
+          FLAG="${RELEASE_PRERELEASE}"
           if [[ "${OPENFY_IS_PRERELEASE}" == "true" && "${FLAG}" != "true" ]]; then
             echo "::error::Tag ${OPENFY_TAG} looks like a prerelease but the release is not marked as prerelease. Tick 'Set as a pre-release' or use a stable tag."
             exit 1
