@@ -26,6 +26,7 @@ DATA_DIR="${OPENFY_DATA_DIR_OVERRIDE:-/var/lib/openfy}"
 CONFIG_DIR="${OPENFY_CONFIG_DIR:-/etc/openfy}"
 ENV_FILE="${CONFIG_DIR}/openfy.env"
 SERVICE_NAME="${OPENFY_SERVICE_NAME:-openfy}"
+SYSTEMD_DIR="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}"
 BACKUP_ROOT="${OPENFY_BACKUP_DIR:-/var/backups/openfy}"
 
 VERSION=""
@@ -260,7 +261,7 @@ rollback() {
         || echo "[openfy-update] WARNING: dependency reinstall during rollback failed." >&2
     chown -R "${svc_user}:${svc_user}" "${APP_DIR}/app" "${APP_DIR}/client" "${APP_DIR}/venv" 2>/dev/null || true
     # Restore the previous unit before restarting.
-    cp -a "${APP_DIR}/openfy.service" "/etc/systemd/system/${SERVICE_NAME}.service" \
+    cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
         || echo "[openfy-update] WARNING: could not restore the systemd unit file." >&2
     systemctl daemon-reload || true
     systemctl restart "${SERVICE_NAME}" || true
@@ -317,7 +318,8 @@ SERVICE_USER="$(stat -c %U "${DATA_DIR}" 2>/dev/null || echo openfy)"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}/app" "${APP_DIR}/client" "${APP_DIR}/venv" 2>/dev/null || true
 
 # Refresh the systemd unit if the bundle changed it, then restart.
-cp -a "${APP_DIR}/openfy.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
+    || { rollback || true; echo "[openfy-update] ERROR: failed to install systemd unit." >&2; exit 1; }
 systemctl daemon-reload
 systemctl start "${SERVICE_NAME}" || { rollback || true; echo "[openfy-update] ERROR: service failed to start." >&2; exit 1; }
 

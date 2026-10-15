@@ -16,7 +16,7 @@ Download the `openfy-vVERSION-linux-amd64.tar.gz` (x86-64) or
 plus `SHA256SUMS`, then:
 
 ```bash
-sha256sum -c SHA256SUMS   # every line must report OK
+sha256sum -c --ignore-missing SHA256SUMS   # every downloaded file must report OK
 tar -xzf openfy-vVERSION-linux-amd64.tar.gz
 cd openfy-vVERSION-linux-amd64
 sudo ./install.sh

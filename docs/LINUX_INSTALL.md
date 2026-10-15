@@ -42,10 +42,11 @@ OPENFY_DATABASE_URL=sqlite:////var/lib/openfy/openfy.db
    `SHA256SUMS`, all into one directory. Verify integrity first:
 
    ```bash
-   sha256sum -c SHA256SUMS
+   sha256sum -c --ignore-missing SHA256SUMS
    ```
 
-   All lines must report `OK`. Do not install if verification fails.
+   Every downloaded file must report `OK` (missing optional assets are
+   skipped). Do not install if verification fails.
 
 2. Extract and install:
 

@@ -194,7 +194,7 @@ install_config() {
 # Installed by install.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ). Edit values, then restart: sudo systemctl restart ${SERVICE_NAME}
 OPENFY_ENV=prod
 OPENFY_ADMIN_USERNAME=${admin_user}
-# Generate with: python3 scripts/generate_hash.py  (paste the of1_... value below)
+# Generate with: sudo ${APP_DIR}/venv/bin/python ${APP_DIR}/generate_hash.py  (paste the of1_... value below)
 OPENFY_ADMIN_HASH=
 OPENFY_ALLOWED_ORIGINS=http://localhost:8000
 OPENFY_MAX_UPLOAD_SIZE_MB=200
@@ -228,7 +228,17 @@ install_venv() {
 
 install_service() {
     log "Installing systemd unit ${SERVICE_NAME}."
-    cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+    local unit_tmp
+    unit_tmp="$(mktemp)"
+    sed -e "s|^User=.*|User=${SERVICE_USER}|" \
+        -e "s|^Group=.*|Group=${SERVICE_USER}|" \
+        -e "s|^WorkingDirectory=.*|WorkingDirectory=${APP_DIR}|" \
+        -e "s|^EnvironmentFile=.*|EnvironmentFile=${ENV_FILE}|" \
+        -e "s|^ExecStart=.*|ExecStart=${APP_DIR}/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000|" \
+        -e "s|^ReadWritePaths=.*|ReadWritePaths=${DATA_DIR}|" \
+        "${APP_DIR}/openfy.service" > "${unit_tmp}"
+    cp -a "${unit_tmp}" "${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+    rm -f "${unit_tmp}"
     chmod 644 "${SYSTEMD_DIR}/${SERVICE_NAME}.service"
     chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}/app" "${APP_DIR}/client" 2>/dev/null || true
     chown "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}" 2>/dev/null || true
