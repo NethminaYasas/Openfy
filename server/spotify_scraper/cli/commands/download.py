@@ -22,6 +22,11 @@ from spotify_scraper.cli.utils import (
 from spotify_scraper.core.exceptions import MediaError, SpotifyScraperError
 
 
+def _confirm_overwrite(file_path: str) -> bool:
+    """Approve replacement before the downloader opens the destination."""
+    return confirm_action(f"File {Path(file_path).name} already exists. Overwrite?")
+
+
 @click.group(name="download")
 def download():
     """Download media content from Spotify URLs."""
@@ -104,16 +109,12 @@ def cover(
 
         # Download cover
         downloaded_path = client.download_cover(
-            url=url, path=str(output_dir), filename=filename, quality_preference=quality_preference
+            url=url, path=str(output_dir), filename=filename, quality_preference=quality_preference,
+            overwrite=True if force else _confirm_overwrite,
         )
 
         if downloaded_path:
-            # Check if file already exists and handle accordingly
             downloaded_file = Path(downloaded_path)
-            if downloaded_file.exists() and not force:
-                if not confirm_action(f"File {downloaded_file.name} already exists. Overwrite?"):
-                    print_warning("Download cancelled")
-                    return
 
             print_success(f"Cover image saved to: {downloaded_path}")
 
@@ -122,8 +123,7 @@ def cover(
             size_mb = file_size / (1024 * 1024)
             print_info(f"File size: {size_mb:.2f} MB")
         else:
-            print_error("Failed to download cover image")
-            sys.exit(1)
+            print_warning("Download cancelled")
 
     except MediaError as e:
         print_error(f"Media error: {e}")
@@ -215,16 +215,12 @@ def track(
 
         # Download preview MP3
         downloaded_path = client.download_preview_mp3(
-            url=url, path=str(output_dir), with_cover=with_cover
+            url=url, path=str(output_dir), with_cover=with_cover,
+            overwrite=True if force else _confirm_overwrite,
         )
 
         if downloaded_path:
-            # Check if file already exists and handle accordingly
             downloaded_file = Path(downloaded_path)
-            if downloaded_file.exists() and not force:
-                if not confirm_action(f"File {downloaded_file.name} already exists. Overwrite?"):
-                    print_warning("Download cancelled")
-                    return
 
             print_success(f"Track preview saved to: {downloaded_path}")
 
@@ -243,8 +239,7 @@ def track(
             if with_cover:
                 print_info("Cover art: Embedded")
         else:
-            print_error("Failed to download track preview")
-            sys.exit(1)
+            print_warning("Download cancelled")
 
     except MediaError as e:
         print_error(f"Media error: {e}")
@@ -355,11 +350,13 @@ def batch(
                 if type in ["cover", "both"]:
                     # Download cover
                     click.echo("  Downloading cover...")
-                    cover_path = client.download_cover(url=url, path=str(output_dir))
+                    cover_path = client.download_cover(
+                        url=url, path=str(output_dir), overwrite=True if force else _confirm_overwrite
+                    )
                     if cover_path:
                         print_success(f"  Cover saved: {Path(cover_path).name}")
                     else:
-                        print_warning("  No cover available")
+                        print_warning("  Cover download cancelled")
 
                 if type in ["track", "both"]:
                     # Check if it's a track URL
@@ -368,12 +365,13 @@ def batch(
                     if get_url_type(url) == "track":
                         click.echo("  Downloading track preview...")
                         track_path = client.download_preview_mp3(
-                            url=url, path=str(output_dir), with_cover=with_cover
+                            url=url, path=str(output_dir), with_cover=with_cover,
+                            overwrite=True if force else _confirm_overwrite,
                         )
                         if track_path:
                             print_success(f"  Track saved: {Path(track_path).name}")
                         else:
-                            print_warning("  No preview available")
+                            print_warning("  Track download cancelled")
                     else:
                         print_info("  Skipping track download (not a track URL)")
 

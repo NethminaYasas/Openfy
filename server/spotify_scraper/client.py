@@ -37,6 +37,7 @@ from spotify_scraper.extractors.show import ShowExtractor
 from spotify_scraper.extractors.track import TrackExtractor
 from spotify_scraper.media.audio import AudioDownloader
 from spotify_scraper.media.image import ImageDownloader
+from spotify_scraper.utils.download import OverwritePolicy
 from spotify_scraper.utils.logger import configure_logging
 from spotify_scraper.utils.proxy import normalize_proxy
 
@@ -863,6 +864,7 @@ class SpotifyClient:
         path: Union[str, Path] = "",
         filename: Optional[str] = None,
         quality_preference: Optional[List[str]] = None,
+        overwrite: OverwritePolicy = True,
     ) -> Optional[str]:
         """Download cover image from any Spotify entity.
 
@@ -881,10 +883,14 @@ class SpotifyClient:
             quality_preference: List of size preferences in order. Options vary
                 by entity type but typically include ["large", "medium", "small"].
                 If None, defaults to ["large"].
+            overwrite: True replaces existing files; False uses exclusive
+                creation. A callback receives the sanitized destination and
+                approves replacement before any media download or write.
 
         Returns:
             Optional[str]: Full path to the downloaded image file, or None if
                 download failed. Example: "/path/to/album_cover.jpg"
+                Empty string if the overwrite callback declines replacement.
 
         Raises:
             URLError: If the URL is not a valid Spotify URL.
@@ -910,7 +916,7 @@ class SpotifyClient:
         Note:
             - Track URLs download the album cover (tracks don't have separate covers)
             - Image quality/size depends on what Spotify provides
-            - Files are overwritten if they already exist
+            - Files are overwritten by default; use overwrite to control replacement
         """
         logger.info("Downloading cover for %s", url)
 
@@ -924,12 +930,15 @@ class SpotifyClient:
                 filename=filename,
                 path=str(path) if path else "",
                 size="large" if not quality_preference else quality_preference[0],
+                overwrite=overwrite,
             )
         except Exception as e:
             logger.error("Failed to download cover: %s", e)
             raise MediaError(f"Failed to download cover: {e}") from e
 
-    def download_preview_mp3(self, url: str, path: str = "", with_cover: bool = False) -> str:
+    def download_preview_mp3(
+        self, url: str, path: str = "", with_cover: bool = False, overwrite: OverwritePolicy = True
+    ) -> str:
         """Download 30-second preview MP3 from a Spotify track.
 
         Downloads the preview audio clip that Spotify provides for most tracks.
@@ -944,10 +953,14 @@ class SpotifyClient:
             with_cover: Whether to embed the album cover art in the MP3
                 metadata. Requires eyeD3 library. If eyeD3 is not installed,
                 this option is ignored with a warning.
+            overwrite: True replaces existing files; False uses exclusive
+                creation. A callback receives the sanitized destination and
+                approves replacement before any media download or write.
 
         Returns:
             str: Full path to the downloaded MP3 file.
                 Example: "/path/to/Bohemian_Rhapsody_by_Queen.mp3"
+                Empty string if the overwrite callback declines replacement.
 
         Raises:
             URLError: If the URL is not a valid Spotify track URL.
@@ -987,7 +1000,7 @@ class SpotifyClient:
 
             # Download preview using the track data
             return self._audio_downloader.download_preview(
-                track_data=track_data, path=path, with_cover=with_cover
+                track_data=track_data, path=path, with_cover=with_cover, overwrite=overwrite
             )
         except Exception as e:
             logger.error("Failed to download preview MP3: %s", e)
