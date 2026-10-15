@@ -680,6 +680,35 @@ main --rotate-credential --admin-user testadmin {'--yes' if assume_yes else ''} 
     assert not (tmp_path / "cfg").exists()
 
 
+@pytest.mark.parametrize("stored_username", [None, "", "savedadmin"])
+@pytest.mark.parametrize("explicit_username", [False, True])
+def test_bootstrap_rotation_reports_persisted_username(tmp_path, stored_username, explicit_username):
+    setup = _installed_rotation_script(tmp_path)
+    (tmp_path / "app" / "install.sh").write_text(f"""{_bundle_prelude()}
+require_root() {{ return 0; }}
+create_user() {{ return 0; }}
+chown() {{ return 0; }}
+generate_credential() {{ echo of1_{'a' * 60}; }}
+main "$@"
+""", encoding="utf-8")
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    config = "OPENFY_ADMIN_HASH=of1_" + "b" * 60 + "\n"
+    if stored_username is not None:
+        config += f"OPENFY_ADMIN_USERNAME={stored_username}\n"
+    env_file = cfg / "openfy.env"
+    env_file.write_text(config, encoding="utf-8")
+    proc = _bash_eval(_need_bash(), f"""{setup}
+ADMIN_USER=admin
+require_root_native() {{ return 0; }}
+main --yes --rotate-credential {'--admin-user requestedadmin' if explicit_username else ''}
+""")
+    assert proc.returncode == 0, proc.stderr
+    expected_username = stored_username or ("requestedadmin" if explicit_username else "admin")
+    assert f"  User: {expected_username}\n" in proc.stdout
+    assert env_file.read_text() == config.replace("of1_" + "b" * 60, "of1_" + "a" * 60)
+
+
 @pytest.mark.parametrize("failure", ["missing_install", "missing_script", "nonroot", "docker", "delegate"])
 def test_rotation_only_refuses_invalid_native_requests(tmp_path, failure):
     setup = _installed_rotation_script(tmp_path)
@@ -773,6 +802,43 @@ main --rotate-credential
     else:
         assert proc.returncode != 0
         assert "no config" in proc.stderr
+        assert not cfg.exists()
+
+
+@pytest.mark.parametrize("has_config", [False, True])
+def test_bundle_repair_requires_and_preserves_config(tmp_path, has_config):
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "VERSION.json").write_text('{"version": "9.9.9"}', encoding="utf-8")
+    cfg = tmp_path / "cfg"
+    env_file = cfg / "openfy.env"
+    config = "OPENFY_ADMIN_USERNAME=savedadmin\nOPENFY_ADMIN_HASH=of1_" + "b" * 60 + "\n"
+    if has_config:
+        cfg.mkdir()
+        env_file.write_text(config, encoding="utf-8")
+    proc = _run_bash(_need_bash(), f"""{_bundle_prelude()}
+APP_DIR="{_m(app)}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+chown() {{ return 0; }}
+create_user() {{ echo REPAIR_STARTED; }}
+install_files() {{ return 0; }}
+create_dirs() {{ return 0; }}
+install_venv() {{ return 0; }}
+install_service() {{ return 0; }}
+validate_install() {{ return 0; }}
+repair_install
+""")
+    if has_config:
+        assert proc.returncode == 0, proc.stderr
+        assert "Repair complete" in proc.stdout
+        assert env_file.read_text() == config
+        assert "of1_" not in proc.stdout
+    else:
+        assert proc.returncode != 0
+        assert "no config" in proc.stderr
+        assert "repair never creates configuration" in proc.stderr
+        assert "REPAIR_STARTED" not in proc.stdout
         assert not cfg.exists()
 
 

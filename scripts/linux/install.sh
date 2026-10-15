@@ -235,7 +235,7 @@ print_credential_once() {
     echo ""
     echo "=================================================================="
     echo "  INITIAL ADMIN CREDENTIAL (generated now, shown ONCE)"
-    echo "  User: ${ADMIN_USER}"
+    echo "  User: ${2:-${ADMIN_USER}}"
     echo "  Credential: ${credential}"
     echo "  Save it in a password manager. It CANNOT be recovered if lost;"
     echo "  it can only be rotated (./install.sh --rotate-credential)."
@@ -383,12 +383,15 @@ rotate_credential() {
     chmod 640 "${ENV_FILE}"
     log "Previous config backed up at ${backup}."
     log "Restart the service to apply: sudo systemctl restart ${SERVICE_NAME} (the OLD credential stops working then)."
-    print_credential_once "${fresh}"
+    local username
+    username="$(grep -E '^OPENFY_ADMIN_USERNAME=' "${ENV_FILE}" | cut -d= -f2- || true)"
+    print_credential_once "${fresh}" "${username}"
 }
 
 repair_install() {
     log "Repairing installation at ${APP_DIR} (config and data are never modified)."
     [[ -f "${APP_DIR}/VERSION.json" ]] || die "no Openfy installation at ${APP_DIR} (missing VERSION.json); install first."
+    [[ -f "${ENV_FILE}" ]] || die "no config at ${ENV_FILE}; repair never creates configuration. Restore it before retrying."
     create_user
     # Reinstall application files from THIS bundle (the caller verified it),
     # then fix ownership/permissions, venv, and the systemd unit.
