@@ -100,8 +100,9 @@ cp "${REPO_ROOT}/scripts/linux/install.sh"   "${STAGE}/install.sh"
 cp "${REPO_ROOT}/scripts/linux/start.sh"     "${STAGE}/start.sh"
 cp "${REPO_ROOT}/scripts/linux/update.sh"    "${STAGE}/update.sh"
 cp "${REPO_ROOT}/scripts/linux/uninstall.sh" "${STAGE}/uninstall.sh"
+cp "${REPO_ROOT}/scripts/linux/openfy"        "${STAGE}/openfy"
 cp "${REPO_ROOT}/scripts/linux/openfy.service" "${STAGE}/openfy.service"
-chmod 755 "${STAGE}/install.sh" "${STAGE}/start.sh" "${STAGE}/update.sh" "${STAGE}/uninstall.sh"
+chmod 755 "${STAGE}/install.sh" "${STAGE}/start.sh" "${STAGE}/update.sh" "${STAGE}/uninstall.sh" "${STAGE}/openfy"
 
 # --- Docs, license, notices ---
 cp "${REPO_ROOT}/LICENSE" "${STAGE}/LICENSE"
@@ -172,7 +173,7 @@ required=(
     "generate_hash.py"
     "client/index.html" "client/main.js"
     ".env.example" "install.sh" "start.sh" "update.sh" "uninstall.sh"
-    "openfy.service" "README_LINUX.md" "LICENSE"
+    "openfy" "openfy.service" "README_LINUX.md" "LICENSE"
     "THIRD_PARTY_NOTICES.md" "VERSION.json"
 )
 for rel in "${required[@]}"; do

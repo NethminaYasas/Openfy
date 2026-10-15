@@ -202,19 +202,35 @@ install_system_deps() {
         apt) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ${pkgs} ;;
         dnf) dnf install -y ${pkgs/ ffmpeg/} && { dnf install -y ffmpeg || log "WARNING: ffmpeg unavailable (enable RPM Fusion)."; } ;;
         yum) yum install -y ${pkgs/ ffmpeg/} && { yum install -y ffmpeg || log "WARNING: ffmpeg unavailable (enable RPM Fusion/EPEL)."; } ;;
-        pacman) pacman -Sy --noconfirm ${pkgs} ;;
+        pacman) pacman -S --needed --noconfirm ${pkgs} ;;
         zypper) zypper --non-interactive install ${pkgs} ;;
     esac || die "package installation via ${mgr} failed; install dependencies manually and rerun (or use --no-install-deps)."
 }
 
 port_in_use() {
     local port="${1:-${OPENFY_PORT}}"
-    # ss sees listeners on all local addresses (service binds 0.0.0.0);
-    # python fallback only probes loopback.
+    # ss sees listeners on all local addresses (service binds 0.0.0.0).
     if command -v ss >/dev/null 2>&1; then
-        ss -ltn 2>/dev/null | grep -q ":${port} "
-    elif command -v python3 >/dev/null 2>&1; then
-        python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "${port}" 2>/dev/null
+        ss -ltn 2>/dev/null | grep -q ":${port} " && return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        # Loopback connect catches loopback listeners (even when ss is
+        # blind to them); wildcard bind catches non-loopback ones.
+        python3 - "${port}" 2>/dev/null <<'EOF'
+import socket, sys
+port = int(sys.argv[1])
+s = socket.socket()
+s.settimeout(2)
+if s.connect_ex(("127.0.0.1", port)) == 0:
+    sys.exit(0)
+s2 = socket.socket()
+s2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s2.bind(("0.0.0.0", port))
+except OSError:
+    sys.exit(0)
+sys.exit(1)
+EOF
     else
         return 1
     fi
@@ -324,11 +340,30 @@ install_files() {
             fi
         done
         # Helper scripts live alongside the bundle for operators.
-        for entry in install.sh start.sh update.sh uninstall.sh generate_hash.py; do
+        for entry in install.sh start.sh update.sh uninstall.sh generate_hash.py openfy; do
             [[ -e "${SCRIPT_SRC_DIR}/${entry}" ]] && cp -a "${SCRIPT_SRC_DIR}/${entry}" "${APP_DIR}/${entry}"
         done
     fi
-    chmod 755 "${APP_DIR}"/start.sh "${APP_DIR}"/update.sh "${APP_DIR}"/uninstall.sh 2>/dev/null || true
+    chmod 755 "${APP_DIR}"/start.sh "${APP_DIR}"/update.sh "${APP_DIR}"/uninstall.sh "${APP_DIR}"/openfy 2>/dev/null || true
+}
+
+install_cli() {
+    # Expose the manager on PATH via a wrapper that pins the configured
+    # install dir; /opt/openfy/openfy always remains directly usable.
+    local bin_dir="${OPENFY_BIN_DIR:-/usr/local/bin}"
+    if [[ -f "${APP_DIR}/openfy" ]]; then
+        mkdir -p "${bin_dir}" 2>/dev/null || true
+        if {
+            printf '%s\n' '#!/bin/bash'
+            printf 'export OPENFY_INSTALL_DIR=%q\n' "${APP_DIR}"
+            printf 'exec bash %q "$@"\n' "${APP_DIR}/openfy"
+        } > "${bin_dir}/openfy" 2>/dev/null; then
+            chmod 755 "${bin_dir}/openfy" 2>/dev/null || true
+            log "Manager command installed at ${bin_dir}/openfy (run: sudo openfy)."
+        else
+            log "WARNING: could not install openfy to ${bin_dir}."
+        fi
+    fi
 }
 
 create_dirs() {
@@ -452,6 +487,7 @@ repair_install() {
     install_config
     install_venv
     install_service
+    install_cli
     validate_install
     log "Repair complete."
 }
@@ -556,10 +592,12 @@ main() {
         install_config
         install_venv
         install_service
+        install_cli
         validate_install
     fi
     start_and_healthcheck
     log "Install complete. Config: ${ENV_FILE}  Data: ${DATA_DIR}  App: ${APP_DIR}"
+    log "Manage the server anytime with: sudo openfy (status, logs, update, port, credentials, uninstall)"
 }
 
 if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then

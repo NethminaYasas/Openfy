@@ -18,7 +18,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP = REPO_ROOT / "install.sh"
@@ -100,6 +104,8 @@ def _m(path):
     paths, so rewrite temp paths to their /tmp/... aliases.
     """
     native = os.path.abspath(path)
+    if os.name != "nt":
+        return Path(native).as_posix()
     tmp = os.path.abspath(tempfile.gettempdir())
     if os.path.normcase(native) == os.path.normcase(tmp) or os.path.normcase(native).startswith(
         os.path.normcase(tmp) + os.sep
@@ -139,7 +145,7 @@ def _fake_github(tmp_path: Path, releases: dict, bundles: dict):
         (stage / "app").mkdir(parents=True)
         (stage / "client").mkdir(parents=True)
         for rel in ["app/main.py", "client/index.html", "requirements.txt",
-                    "install.sh", "update.sh", "uninstall.sh",
+                    "install.sh", "update.sh", "uninstall.sh", "openfy",
                     "openfy.service", "generate_hash.py"]:
             (stage / rel).write_text("x\n", encoding="utf-8")
         (stage / "VERSION.json").write_text(json.dumps({
@@ -578,9 +584,13 @@ run_native_delegate "{_m(staged)}" upgrade 9.9.9 /verified.tar.gz
 
 def test_port_check_helpers():
     bash = _need_bash()
+    if shutil.which("python3") is None:
+        import pytest
+        pytest.skip("python3 not available for port test")
     proc = _run_bash(bash, f"""{_source_prelude()}
-# Port 1 is (practically) never listening: must report free.
-if port_in_use "1"; then echo P1_USED; else echo P1_FREE; fi
+# A freshly released ephemeral port is not listening: must report free.
+FREE_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+if port_in_use "${{FREE_PORT}}"; then echo P1_USED; else echo P1_FREE; fi
 # Hold an ephemeral port open in the background: must report in use.
 HELD_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 python3 - "${{HELD_PORT}}" <<'EOF' &
@@ -784,7 +794,12 @@ main --yes --rotate-credential --admin-user testadmin {'--method docker' if fail
 def test_explicit_action_preserves_install_flow_before_rotation(tmp_path, action, rotate, dry_run):
     setup = _installed_rotation_script(tmp_path)
     same_version = action == "upgrade_same_version"
-    version = "9.9.9" if same_version else "9.9.10"
+    # repair/reinstall must target the installed version (9.9.9); version
+    # changes go through upgrade. install/upgrade use 9.9.10.
+    if same_version or action in ("repair", "reinstall"):
+        version = "9.9.9"
+    else:
+        version = "9.9.10"
     arch = "linux-amd64"
     api, dl = _fake_github(
         tmp_path,
@@ -816,6 +831,30 @@ main --yes --action {'upgrade' if same_version else action} --version {version} 
         if rotate:
             assert proc.stdout.index("DELEGATE:") < proc.stdout.index("ROTATED")
     assert ("ROTATED" in proc.stdout) == (rotate and not dry_run)
+
+
+@pytest.mark.parametrize("action", ["repair", "reinstall"])
+def test_repair_reinstall_reject_version_change(tmp_path, action):
+    setup = _installed_rotation_script(tmp_path)
+    arch = "linux-amd64"
+    api, dl = _fake_github(
+        tmp_path,
+        {f"v9.9.10": {"draft": False, "prerelease": False,
+                      "assets": [f"openfy-v9.9.10-{arch}.tar.gz", "SHA256SUMS"]}},
+        {("9.9.10", arch): {}},
+    )
+    proc = _bash_eval(_need_bash(), f"""{setup}
+require_root_native() {{ return 0; }}
+detect_os() {{ return 0; }}
+check_requirements_native() {{ return 0; }}
+install_system_deps() {{ return 0; }}
+check_port_conflict() {{ return 0; }}
+run_native_delegate() {{ echo "DELEGATE:$2"; }}
+main --yes --action {action} --version 9.9.10 --arch {arch} --admin-user testadmin
+""", env={"OPENFY_API_BASE": api, "OPENFY_DOWNLOAD_BASE": dl})
+    assert proc.returncode != 0
+    assert f"--action {action} targets 9.9.10 but 9.9.9 is installed" in proc.stderr
+    assert "DELEGATE:" not in proc.stdout
 
 
 @pytest.mark.parametrize("has_config", [False, True])
@@ -904,6 +943,8 @@ def test_upgrade_delegates_to_verified_update_archive():
 
 
 def test_docker_image_matches_release_registry():
+    if yaml is None:
+        pytest.skip("PyYAML not installed (test-only dependency)")
     bootstrap = BOOTSTRAP.read_text()
     assert "ghcr.io/nethminayasas/openfy" in bootstrap
     release = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
@@ -919,12 +960,13 @@ def test_bundle_required_files_match_packager():
     required_block = re.search(r"for entry in (.*?); do", bootstrap, re.S)
     assert required_block, "extract_and_validate file list not found"
     listed = required_block.group(1).replace("\n", " ").split()
-    for rel in ["install.sh", "update.sh", "uninstall.sh", "openfy.service",
+    for rel in ["install.sh", "update.sh", "uninstall.sh", "openfy",
+                "openfy.service",
                 "app/main.py", "client/index.html", "requirements.txt",
                 "generate_hash.py"]:
         assert rel in listed, f"bootstrap does not require {rel}"
     packager = (REPO_ROOT / "scripts" / "release" / "package-linux.sh").read_text()
-    for rel in ["install.sh", "generate_hash.py", "openfy.service"]:
+    for rel in ["install.sh", "generate_hash.py", "openfy.service", "openfy"]:
         assert rel in packager
 
 

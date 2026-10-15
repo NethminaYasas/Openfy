@@ -70,7 +70,7 @@ REQUIRED_FILES=(
     "generate_hash.py"
     "client/index.html" "client/main.js"
     ".env.example" "install.sh" "start.sh" "update.sh" "uninstall.sh"
-    "openfy.service" "README_LINUX.md" "LICENSE"
+    "openfy" "openfy.service" "README_LINUX.md" "LICENSE"
     "THIRD_PARTY_NOTICES.md" "VERSION.json"
 )
 
@@ -141,7 +141,7 @@ EOF
 
     # Shell syntax.
     syntax_ok=true
-    for sh in install.sh start.sh update.sh uninstall.sh; do
+    for sh in install.sh start.sh update.sh uninstall.sh openfy; do
         if ! bash -n "${root}/${sh}"; then
             fail "${base}: ${sh} fails bash -n"
             syntax_ok=false
@@ -175,7 +175,7 @@ EOF
     fi
 
     # Executable bits survive tar.
-    for sh in install.sh start.sh update.sh uninstall.sh; do
+    for sh in install.sh start.sh update.sh uninstall.sh openfy; do
         if [[ -x "${root}/${sh}" ]]; then
             ok "${base}: ${sh} is executable"
         else

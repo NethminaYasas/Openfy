@@ -2,5 +2,6 @@
 # CRLF would break execution on Linux (bad interpreter, stray \r in values).
 *.sh text eol=lf
 *.service text eol=lf
+scripts/linux/openfy text eol=lf
 # Python sources stay LF as well for consistent diffs and pytest collection.
 *.py text eol=lf

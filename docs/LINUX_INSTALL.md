@@ -21,11 +21,11 @@ bundle's installer:
 
 ```bash
 # Latest stable release (interactive wizard; native installs need a root shell):
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
 
 # An exact version (installs EXACTLY this version; example uses the
 # vMAJOR.MINOR.PATCH tag convention — see the Releases page for real versions):
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
 
 # Already downloaded (same behaviour; native installs need root):
 sudo bash install.sh v1.4.2
@@ -135,12 +135,21 @@ touching config/data), `--rotate-credential` (new admin secret, explicit).
 
 ## Service management
 
+The installer also provides `sudo openfy` — a text-menu manager (no extra
+dependencies) for status, logs, start/stop/restart, update to latest or a
+specific version (older versions downgrade), port changes, credential
+rotation, username changes, repair, and uninstall.
+
 ```bash
-sudo systemctl start openfy
-sudo systemctl stop openfy
-sudo systemctl restart openfy
-sudo systemctl status openfy
-sudo journalctl -u openfy -f
+sudo openfy
+sudo openfy status
+sudo openfy logs
+sudo openfy restart
+sudo openfy update --latest
+sudo openfy port 9000
+sudo openfy rotate-credential
+sudo openfy repair
+sudo openfy uninstall
 ```
 
 To try things manually in the foreground (uses the installed virtualenv and
@@ -168,8 +177,10 @@ sudo /opt/openfy/install.sh --rotate-credential
 sudo systemctl restart openfy   # the old credential stops working here
 ```
 
-If you lose the credential without a backup, rotation is the only recovery —
-it cannot be "looked up" afterwards.
+If you lose the printed credential, root can still read it as
+`OPENFY_ADMIN_HASH` in `/etc/openfy/openfy.env` (mode `640`). Otherwise
+rotate to a new one — a lost credential cannot be "looked up" without shell
+access to that file.
 
 ## Update
 

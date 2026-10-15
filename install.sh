@@ -5,10 +5,10 @@
 # repository or manually extracting release archives:
 #
 #   Latest stable release:
-#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
+#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
 #
 #   Exact version (installs EXACTLY this version, never silently "latest"):
-#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
+#     curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
 #
 #   Already downloaded (same behaviour, run as root for native installs):
 #     sudo bash install.sh v1.4.2
@@ -121,7 +121,7 @@ usage() {
     cat <<'EOF'
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh [VERSION] [options]
+  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh [VERSION] [options]
   sudo bash install.sh [VERSION] [options]
 
 Options:
@@ -152,8 +152,8 @@ Options:
   -h, --help              show this help
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
-  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
+  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
+  curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
   sudo bash install.sh --yes --version 1.4.2
   sudo bash install.sh --yes --method docker --version 1.4.2
 EOF
@@ -442,7 +442,7 @@ detect_pkg_manager() {
 
 require_root_native() {
     if [[ "$(id -u)" -ne 0 ]]; then
-        die "native installation requires root (sudo cannot use bash <(curl ...)). Download first: curl -fsSL -o install.sh https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh && sudo bash install.sh ${REQUESTED_VERSION_RAW:-} (or see --help for Docker installs)."
+        die "native installation requires root. Rerun with: sudo bash install.sh ${REQUESTED_VERSION_RAW:-} (or use --method docker; see --help)."
     fi
 }
 
@@ -459,6 +459,8 @@ check_requirements_native() {
         local ver
         ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "?")"
         log "python3 ${ver} found."
+        python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null \
+            || die "python3 ${ver} is too old; Openfy requires Python >= 3.11."
     fi
     if ! have_cmd ffmpeg; then
         warn "ffmpeg not found. Audio processing/downloads need it; it will be installed automatically unless --no-install-deps is given."
@@ -491,20 +493,35 @@ install_system_deps() {
         apt) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ${pkgs} ;;
         dnf) dnf install -y ${pkgs/ ffmpeg/} && { dnf install -y ffmpeg || warn "ffmpeg unavailable (enable RPM Fusion)."; } ;;
         yum) yum install -y ${pkgs/ ffmpeg/} && { yum install -y ffmpeg || warn "ffmpeg unavailable (enable RPM Fusion/EPEL)."; } ;;
-        pacman) pacman -Sy --noconfirm ${pkgs} ;;
+        pacman) pacman -S --needed --noconfirm ${pkgs} ;;
         zypper) zypper --non-interactive install ${pkgs} ;;
     esac || die "package installation via ${mgr} failed. Install dependencies manually and rerun (or use --no-install-deps to skip this step)."
     log "System dependencies installed."
 }
 
 # port_in_use <port> : true if something listens on <port> on any local
-# address (service binds 0.0.0.0; ss sees all, python fallback probes loopback).
+# address (ss sees all; python checks loopback connect + wildcard bind).
 port_in_use() {
     local port="$1"
     if have_cmd ss; then
-        ss -ltn 2>/dev/null | grep -q ":${port} "
-    elif have_cmd python3; then
-        python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1])))==0 else 1)' "${port}" 2>/dev/null
+        ss -ltn 2>/dev/null | grep -q ":${port} " && return 0
+    fi
+    if have_cmd python3; then
+        python3 - "${port}" 2>/dev/null <<'EOF'
+import socket, sys
+port = int(sys.argv[1])
+s = socket.socket()
+s.settimeout(2)
+if s.connect_ex(("127.0.0.1", port)) == 0:
+    sys.exit(0)
+s2 = socket.socket()
+s2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s2.bind(("0.0.0.0", port))
+except OSError:
+    sys.exit(0)
+sys.exit(1)
+EOF
     else
         return 1
     fi
@@ -549,7 +566,11 @@ verify_download() {
     local destdir="$1" archive="$2"
     step "Verifying integrity (SHA-256)"
     # SHA256SUMS lines use either "  <file>" (text) or " *<file>" (binary).
-    if ! grep -qF " ${archive}" "${destdir}/SHA256SUMS" && ! grep -qF "*${archive}" "${destdir}/SHA256SUMS"; then
+    # Match the complete filename so prefixed assets (e.g. *.tar.gz.sig)
+    # are never picked up.
+    local entry
+    entry="$(awk -v f="${archive}" '{n=$2; sub(/^\*/,"",n); if (n==f) {print; exit}}' "${destdir}/SHA256SUMS")"
+    if [[ -z "${entry}" ]]; then
         die "SHA256SUMS has no entry for '${archive}'. The release is incomplete; refusing to install."
     fi
     local hash_cmd=""
@@ -561,9 +582,7 @@ verify_download() {
         die "cannot verify checksums (need sha256sum or python3)."
     fi
     if [[ "${hash_cmd}" == "sha256sum" ]]; then
-        # Either grep may legitimately match nothing (text vs binary marker);
-        # `|| true` keeps pipefail honest — sha256sum decides pass/fail.
-        (cd "${destdir}" && { grep -F " ${archive}" SHA256SUMS || true; grep -F "*${archive}" SHA256SUMS || true; } | sort -u | sha256sum -c -) \
+        (cd "${destdir}" && printf '%s\n' "${entry}" | sha256sum -c -) \
             || die "CHECKSUM MISMATCH for '${archive}'. The download is corrupt or tampered with; nothing was installed. Delete partial files and rerun."
     else
         python3 - "${destdir}/SHA256SUMS" "${destdir}/${archive}" <<'EOF' \
@@ -620,10 +639,11 @@ extract_and_validate() {
         || die "bundle version '${got_version:-<empty>}' != requested '${version}'. Refusing to install the wrong version."
     [[ "${got_arch}" == "${arch}" ]] \
         || die "bundle arch '${got_arch:-<empty>}' != host '${arch}'. Download the ${arch} archive instead."
-    for entry in install.sh update.sh uninstall.sh openfy.service app/main.py client/index.html requirements.txt generate_hash.py; do
+    for entry in install.sh update.sh uninstall.sh openfy openfy.service app/main.py client/index.html requirements.txt generate_hash.py; do
         [[ -e "${top}/${entry}" ]] || die "bundle is missing required file '${entry}'; refusing to install an incomplete release."
     done
     bash -n "${top}/install.sh" || die "bundled installer failed syntax check; refusing to run it."
+    bash -n "${top}/openfy" || die "bundled manager failed syntax check; refusing to run it."
     echo "[openfy] Bundle validated: version ${got_version}, arch ${got_arch}." >&2
     printf '%s\n' "${top}"
 }
@@ -776,11 +796,18 @@ run_wizard() {
     # 5. Service port (native service port / Docker host mapping).
     if [[ "${METHOD}" == "native" || "${METHOD}" == "docker" ]]; then
         local default_port="${OPENFY_PORT}"
-        if [[ "${METHOD}" == "native" && "${PORT_EXPLICIT}" != "true" ]]; then
-            local unit_file="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}/openfy.service"
-            local unit_port
-            unit_port="$(grep -oE -- '--port [0-9]+' "${unit_file}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
-            [[ -n "${unit_port}" ]] && default_port="${unit_port}"
+        if [[ "${PORT_EXPLICIT}" != "true" ]]; then
+            if [[ "${METHOD}" == "native" ]]; then
+                local unit_file="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}/openfy.service"
+                local unit_port
+                unit_port="$(grep -oE -- '--port [0-9]+' "${unit_file}" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+                valid_port "${unit_port}" && default_port="${unit_port}"
+            else
+                local cname="${OPENFY_CONTAINER_NAME:-openfy}"
+                local dock_port
+                dock_port="$(docker inspect -f '{{with index .HostConfig.PortBindings "8000/tcp"}}{{(index . 0).HostPort}}{{end}}' "${cname}" 2>/dev/null || true)"
+                valid_port "${dock_port}" && default_port="${dock_port}"
+            fi
         fi
         while true; do
             local entered
@@ -885,6 +912,17 @@ run_uninstall_delegate() {
     bash "${APP_DIR}/uninstall.sh" "${args[@]}"
 }
 
+docker_health_ok() {
+    local url="http://localhost:$1/health"
+    if have_cmd curl; then
+        curl -fsS --max-time 3 "${url}" >/dev/null 2>&1
+    elif have_cmd python3; then
+        python3 -c 'import sys,urllib.request; urllib.request.urlopen(sys.argv[1], timeout=3)' "${url}" >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
 run_docker_uninstall() {
     local cname="${OPENFY_CONTAINER_NAME:-openfy}"
     local docker_dir="${OPENFY_DOCKER_DIR:-/opt/openfy-docker}"
@@ -970,6 +1008,14 @@ EOF
         if docker ps --format '{{.Names}}' | grep -qx "${cname}"; then
             was_running="true"
         fi
+        if [[ "${PORT_EXPLICIT}" != "true" ]]; then
+            local existing_port
+            existing_port="$(docker inspect -f '{{with index .HostConfig.PortBindings "8000/tcp"}}{{(index . 0).HostPort}}{{end}}' "${cname}" 2>/dev/null || true)"
+            if valid_port "${existing_port}"; then
+                OPENFY_PORT="${existing_port}"
+                log "Keeping existing host port ${OPENFY_PORT} (pass --port to change it)."
+            fi
+        fi
         log "Preserving existing container '${cname}' while replacing it with ${image}."
         if docker ps -a --format '{{.Names}}' | grep -qx "${backup_cname}"; then
             docker rm -f "${backup_cname}" >/dev/null 2>&1 || true
@@ -1000,11 +1046,16 @@ EOF
             docker rm "${backup_cname}" >/dev/null 2>&1 || true
         fi
         log "Container created but left stopped (--no-start)."
+        if [[ -n "${credential}" ]]; then
+            echo "  Admin user: ${ADMIN_USER}"
+            echo "  Admin credential (generated NOW, shown ONCE — save it securely):"
+            echo "    ${credential}"
+        fi
         return
     fi
     local attempt=0
     while [[ "${attempt}" -lt 30 ]]; do
-        if curl -fsS --max-time 3 "http://localhost:${OPENFY_PORT}/health" >/dev/null 2>&1; then
+        if docker_health_ok "${OPENFY_PORT}"; then
             log "Openfy (Docker) is healthy at http://localhost:${OPENFY_PORT}/health."
             break
         fi
@@ -1022,8 +1073,14 @@ EOF
                 else
                     warn "could not restore original container '${backup_cname}'. Manual recovery: docker rename \"${backup_cname}\" \"${cname}\""
                 fi
+                die "container did not become healthy. Inspect with: docker logs ${cname}"
+            else
+                local fail_log="${docker_dir}/${cname}-failed.log"
+                docker logs "${cname}" > "${fail_log}" 2>&1 || true
+                docker stop "${cname}" >/dev/null 2>&1 || true
+                docker rm "${cname}" >/dev/null 2>&1 || true
+                die "container did not become healthy and was removed. Logs saved to ${fail_log}."
             fi
-            die "container did not become healthy. Inspect with: docker logs ${cname}"
         fi
     done
     if [[ "${had_existing}" == "true" ]]; then
@@ -1059,6 +1116,7 @@ print_native_summary() {
     echo "  Restart: sudo systemctl restart openfy"
     echo "  Update:  sudo ${APP_DIR}/update.sh --latest   (or rerun this installer)"
     echo "  Remove:  sudo ${APP_DIR}/uninstall.sh         (keeps data + config)"
+    echo "  Manage:  sudo openfy   (TUI: status, logs, update/downgrade, port, credentials, repair, uninstall)"
     echo ""
     echo "Sign in with your admin credential in the Auth Hash field."
     echo "If a credential was generated during this install, it was printed ONCE above —"
@@ -1134,18 +1192,22 @@ main() {
         return
     fi
 
-    # A repair without an explicit version fixes the INSTALLED version in
-    # place — it must not silently pull the latest release instead.
-    if [[ "${METHOD}" == "native" && "${ACTION}" == "repair" && -z "${REQUESTED_VERSION_RAW}" && "${WANT_LATEST}" != "true" ]]; then
+    # A repair/reinstall without an explicit version fixes the INSTALLED
+    # version in place — it must not silently pull the latest release instead.
+    if [[ "${METHOD}" == "native" && ("${ACTION}" == "repair" || "${ACTION}" == "reinstall") && -z "${REQUESTED_VERSION_RAW}" && "${WANT_LATEST}" != "true" ]]; then
         detect_existing_install
-        if [[ -n "${INSTALLED_VERSION}" && "${INSTALLED_VERSION}" != "unknown" ]]; then
+        if [[ -z "${INSTALLED_VERSION}" ]]; then
+            die "no existing installation at ${APP_DIR}, so --action ${ACTION} is impossible. Omit --action for a fresh install; nothing changed."
+        elif [[ "${INSTALLED_VERSION}" == "unknown" ]]; then
+            die "cannot determine the installed version; use --action upgrade with an explicit --version."
+        else
             local pinned
             if pinned="$(normalize_version_input "${INSTALLED_VERSION}")"; then
                 REQUESTED_VERSION="${pinned%% *}"
                 REQUESTED_TAG="${pinned##* }"
                 log "Repair target pinned to installed version ${REQUESTED_TAG}."
             else
-                warn "installed version '${INSTALLED_VERSION}' is not a recognised tag; falling back to the latest stable release for repair."
+                die "installed version '${INSTALLED_VERSION}' is not a recognised tag; use --action upgrade with an explicit --version."
             fi
         fi
     fi
@@ -1221,6 +1283,9 @@ main() {
             fi
         else
             mode="${ACTION}"
+            if [[ ("${mode}" == "reinstall" || "${mode}" == "repair") && "${INSTALLED_VERSION}" != "${RESOLVED_VERSION}" ]]; then
+                die "--action ${mode} targets ${RESOLVED_VERSION} but ${INSTALLED_VERSION} is installed. Use --action upgrade (backups + rollback) or pass --version ${INSTALLED_VERSION}; nothing changed."
+            fi
             if [[ "${mode}" == "upgrade" && "${INSTALLED_VERSION}" == "${RESOLVED_VERSION}" ]]; then
                 log "Already at version ${RESOLVED_VERSION}; nothing to do."
                 if [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
@@ -1237,6 +1302,15 @@ main() {
     fi
     if [[ "${ROTATE_CREDENTIAL}" == "true" && -z "${INSTALLED_VERSION}" ]]; then
         die "--rotate-credential needs an existing installation at ${APP_DIR}."
+    fi
+
+    # Non-interactive runs skip the wizard, so resolve a custom unit port here
+    # (wizard already does this interactively). Keeps PORT_EXPLICIT=false so
+    # the bundle still applies its own resolve_port.
+    if [[ "${METHOD}" == "native" && "${PORT_EXPLICIT}" != "true" && -n "${INSTALLED_VERSION}" ]]; then
+        local unit_port
+        unit_port="$(grep -oE -- '--port [0-9]+' "${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}/openfy.service" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+        if valid_port "${unit_port}"; then OPENFY_PORT="${unit_port}"; fi
     fi
 
     # Port check runs only for modes that invoke the bundle installer
@@ -1275,6 +1349,8 @@ main() {
     print_native_summary "${RESOLVED_VERSION}"
 }
 
-if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+if [[ -z "${BASH_SOURCE[0]:-}" ]]; then
+    die "run this installer from a file: curl -fsSL https://raw.githubusercontent.com/${OPENFY_REPO}/main/install.sh -o install.sh && sudo bash install.sh"
+elif [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

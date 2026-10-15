@@ -11,7 +11,17 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+def _need_yaml():
+    if yaml is None:
+        pytest.skip("PyYAML not installed (test-only dependency)")
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -140,7 +150,7 @@ def test_no_real_env_in_repo_root():
                 f"packager stages a real .env: {stripped}"
 
 
-LINUX_SCRIPTS = ["install.sh", "start.sh", "update.sh", "uninstall.sh"]
+LINUX_SCRIPTS = ["install.sh", "start.sh", "update.sh", "uninstall.sh", "openfy"]
 
 
 def test_rollback_restores_deps_unit_and_reports_health():
@@ -185,7 +195,7 @@ def test_credential_generator_ships_in_bundle_and_survives_updates():
     assert "generate_hash.py" in installer
     # The installer must install itself: the updater's backup/swap lists it,
     # so an /opt/openfy without install.sh would break future updates.
-    assert "for entry in install.sh start.sh update.sh uninstall.sh" in installer
+    assert "for entry in install.sh start.sh update.sh uninstall.sh generate_hash.py openfy; do" in installer
 
 
 @pytest.mark.parametrize("name", LINUX_SCRIPTS)
@@ -277,6 +287,7 @@ def test_shell_syntax(name):
 
 
 def test_release_workflow_wiring():
+    _need_yaml()
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
     doc = yaml.safe_load(text)
     # NOTE: YAML 1.1 parses the `on:` key as boolean True; accept either form.
@@ -295,6 +306,7 @@ def test_release_workflow_wiring():
 
 
 def test_stable_aliases_promote_only_after_attach():
+    _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
     jobs = doc["jobs"]
     promote = jobs["promote"]
@@ -326,6 +338,7 @@ def test_stable_aliases_promote_only_after_attach():
 
 
 def test_release_tag_passed_via_env_not_script_text():
+    _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
     parse = next(s for s in doc["jobs"]["resolve"]["steps"] if s.get("id") == "parse")
     env = parse.get("env", {})
@@ -336,6 +349,7 @@ def test_release_tag_passed_via_env_not_script_text():
 
 
 def test_sbom_release_upload_owned_by_attach():
+    _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
     sbom = next(
         s for s in doc["jobs"]["docker-publish"]["steps"]
@@ -347,6 +361,7 @@ def test_sbom_release_upload_owned_by_attach():
 
 
 def test_rerun_reuses_verified_published_image():
+    _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
     publish = doc["jobs"]["docker-publish"]["steps"]
     reuse = next(s for s in publish if s.get("id") == "reuse")
@@ -358,11 +373,13 @@ def test_rerun_reuses_verified_published_image():
 
 
 def test_ci_workflow_is_read_only():
+    _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text())
     assert doc.get("permissions", {}).get("contents") == "read"
 
 
 def test_checkout_does_not_persist_credentials():
+    _need_yaml()
     def checkout_steps(path, job):
         doc = yaml.safe_load((REPO_ROOT / path).read_text())
         return [
@@ -380,6 +397,7 @@ def test_checkout_does_not_persist_credentials():
 
 
 def test_prod_compose_uses_pinned_ghcr_image():
+    _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / "docker-compose.prod.yml").read_text())
     image = doc["services"]["openfy-server"]["image"]
     assert image.startswith("ghcr.io/nethminayasas/openfy:")

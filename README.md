@@ -21,7 +21,7 @@ method, version, admin account, and dependencies; native installs need a
 root shell — sudo users use the download-first command below):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
 ```
 
 Install an exact version instead (installs **exactly** this version — check
@@ -30,7 +30,7 @@ published versions; `v1.4.2` below is an example of the `vMAJOR.MINOR.PATCH`
 tag convention):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && bash install.sh v1.4.2
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
 ```
 
 Or download the script first, then run it as root (same behaviour):

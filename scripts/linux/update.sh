@@ -204,7 +204,7 @@ fi
 # then require tar itself to succeed: a failed snapshot aborts before
 # anything changes, instead of leaving a partial backup behind.
 members=()
-for m in app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
+for m in app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh openfy; do
     if [[ -e "${APP_DIR}/${m}" ]]; then
         members+=("${m}")
     else
@@ -274,6 +274,15 @@ rollback() {
         cp "${restore_tmp}/${entry}" "${APP_DIR}/${entry}.new"
         mv -f "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
     done
+    # The manager is new: older installs have no backup copy; restore it only
+    # when present so rollback still succeeds for them.
+    if [[ -e "${restore_tmp}/openfy" ]]; then
+        cp "${restore_tmp}/openfy" "${APP_DIR}/openfy.new"
+        mv -f "${APP_DIR}/openfy.new" "${APP_DIR}/openfy"
+        chmod 755 "${APP_DIR}/openfy" 2>/dev/null || true
+    else
+        rm -f "${APP_DIR}/openfy.new"
+    fi
     rm -rf "${restore_tmp}"
     rm -f "${APP_DIR}"/*.new
     # The venv is shared: reinstall the restored requirements so the old code
@@ -285,6 +294,7 @@ rollback() {
     # Restore the previous unit before restarting.
     cp -a "${APP_DIR}/openfy.service" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" \
         || echo "[openfy-update] WARNING: could not restore the systemd unit file." >&2
+    sed -i -E "s|--port [0-9]+|--port ${OPENFY_PORT}|" "${SYSTEMD_DIR}/${SERVICE_NAME}.service" || true
     systemctl daemon-reload || true
     systemctl restart "${SERVICE_NAME}" || true
     if wait_for_health; then
@@ -314,7 +324,8 @@ cp "${EXTRACTED}/VERSION.json" "${APP_DIR}/VERSION.json.new" && \
 cp "${EXTRACTED}/install.sh" "${APP_DIR}/install.sh.new" && \
 cp "${EXTRACTED}/start.sh" "${APP_DIR}/start.sh.new" && \
 cp "${EXTRACTED}/update.sh" "${APP_DIR}/update.sh.new" && \
-cp "${EXTRACTED}/uninstall.sh" "${APP_DIR}/uninstall.sh.new"
+cp "${EXTRACTED}/uninstall.sh" "${APP_DIR}/uninstall.sh.new" && \
+cp "${EXTRACTED}/openfy" "${APP_DIR}/openfy.new"
 SWAP_OK=$?
 set -e
 if [[ "${SWAP_OK}" -ne 0 ]]; then
@@ -328,9 +339,21 @@ for entry in app client spotify_scraper; do
     [[ -e "${APP_DIR}/${entry}" ]] && mv "${APP_DIR}/${entry}" "${APP_DIR}/${entry}.old"
     mv "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
-for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
+for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh openfy; do
     mv -f "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
+chmod 755 "${APP_DIR}/openfy" 2>/dev/null || true
+bin_dir="${OPENFY_BIN_DIR:-/usr/local/bin}"
+mkdir -p "${bin_dir}" 2>/dev/null || true
+if {
+    printf '%s\n' '#!/bin/bash'
+    printf 'export OPENFY_INSTALL_DIR=%q\n' "${APP_DIR}"
+    printf 'exec bash %q "$@"\n' "${APP_DIR}/openfy"
+} > "${bin_dir}/openfy" 2>/dev/null; then
+    chmod 755 "${bin_dir}/openfy" 2>/dev/null || true
+else
+    echo "[openfy-update] WARNING: could not install openfy to ${bin_dir}." >&2
+fi
 # Renames are atomic: the running update.sh keeps reading its original inode
 # while the directory entry switches to the new file.
 
