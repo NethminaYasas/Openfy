@@ -1,5 +1,20 @@
 FROM python:3.11-slim
 
+# Release metadata, injected by the release workflow (--build-arg).
+# Defaults keep local `docker build` / `docker compose up --build` working.
+ARG OPENFY_VERSION=dev
+ARG OPENFY_REVISION=unknown
+ARG OPENFY_CREATED=unknown
+
+LABEL org.opencontainers.image.title="Openfy" \
+      org.opencontainers.image.description="Self-hosted music streaming platform" \
+      org.opencontainers.image.source="https://github.com/NethminaYasas/Openfy" \
+      org.opencontainers.image.url="https://github.com/NethminaYasas/Openfy" \
+      org.opencontainers.image.version="${OPENFY_VERSION}" \
+      org.opencontainers.image.revision="${OPENFY_REVISION}" \
+      org.opencontainers.image.created="${OPENFY_CREATED}" \
+      org.opencontainers.image.licenses="GPL-3.0-only"
+
 WORKDIR /app
 
 COPY server/requirements.txt /app/requirements.txt
