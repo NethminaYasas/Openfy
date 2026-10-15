@@ -299,6 +299,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Reuse published image when revision matches (reruns)
+        id: reuse
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          REF="ghcr.io/nethminayasas/openfy:${VERSION}"
+          REUSE="false"
+          # A rerun after a partial failure must not depend on a fresh
+          # multi-arch rebuild: if the exact version tag is already published
+          # from this same commit, reuse it and scan that digest instead.
+          if docker pull --quiet "${REF}" >/dev/null 2>&1; then
+            REV="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${REF}" 2>/dev/null || true)"
+            VER="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${REF}" 2>/dev/null || true)"
+            if [[ "${REV}" == "${EXPECTED_SHA}" && "${VER}" == "${VERSION}" ]]; then
+              echo "Reusing already-published ${REF} (revision verified); skipping rebuild."
+              REUSE="true"
+            else
+              echo "Existing ${REF} carries unexpected labels (revision=${REV:-none} version=${VER:-none}); rebuilding it."
+            fi
+          else
+            echo "Version tag not published yet; building."
+          fi
+          echo "reuse=${REUSE}" >> "${GITHUB_OUTPUT}"
+
       - name: Compute push tag (exact version only)
         id: tags
         shell: bash
@@ -313,6 +340,7 @@ jobs:
 
       - name: Build + push (linux/amd64, linux/arm64)
         id: push
+        if: steps.reuse.outputs.reuse != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -492,26 +520,47 @@ jobs:
             [[ "$1" == "$2" ]] && return 0
             [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" == "$1" ]]
           }
+          # Prints the version recorded on an alias, and returns:
+          #   0 + version — alias exists with a recorded version
+          #   2, no output — alias confirmed missing (safe to create)
+          #   1 — anything else (network/auth/server/parse failure):
+          #       the caller aborts instead of guessing.
           alias_version() {
-            # Version recorded on the alias at promotion time; empty when the
-            # alias does not exist yet or was created outside this workflow.
-            docker buildx imagetools inspect --raw "$1" 2>/dev/null | python3 -c \
-              "import sys,json; print(json.load(sys.stdin).get('annotations',{}).get('org.opencontainers.image.version',''))" 2>/dev/null || true
+            local ref="$1" raw parsed
+            if ! raw="$(docker buildx imagetools inspect --raw "${ref}" 2>&1)"; then
+              if [[ "${raw}" == *"manifest unknown"* || "${raw}" == *"not found"* ]]; then
+                return 2
+              fi
+              echo "::error::Could not inspect alias ${ref}: ${raw}" >&2
+              return 1
+            fi
+            if ! parsed="$(python3 -c "import sys,json; print(json.load(sys.stdin).get('annotations',{}).get('org.opencontainers.image.version',''))" <<<"${raw}")"; then
+              echo "::error::Could not parse manifest for alias ${ref}." >&2
+              return 1
+            fi
+            printf '%s' "${parsed}"
           }
           for t in ${ALIASES}; do
             ref="ghcr.io/nethminayasas/openfy:${t}"
-            current="$(alias_version "${ref}")"
-            if [[ -n "${current}" ]]; then
-              if version_gte "${current}" "${VERSION}"; then
-                echo "SKIP: alias ${t} already points to ${current} (>= ${VERSION}); refusing to move it backwards."
-                continue
-              fi
-              echo "Alias ${t} currently at ${current}; promoting to ${VERSION}."
+            current=""
+            status=0
+            current="$(alias_version "${ref}")" || status=$?
+            if [[ "${status}" -eq 2 ]]; then
+              echo "Alias ${t} does not exist yet; creating it at ${VERSION}."
+            elif [[ "${status}" -ne 0 ]]; then
+              echo "::error::Aborting promotion: current target of alias ${t} is unknown." >&2
+              exit 1
+            elif [[ -z "${current}" ]]; then
+              echo "::error::Alias ${t} exists but records no version (created outside this workflow); refusing to guess. Inspect or remove it manually, then rerun." >&2
+              exit 1
+            elif version_gte "${current}" "${VERSION}"; then
+              echo "SKIP: alias ${t} already points to ${current} (>= ${VERSION}); refusing to move it backwards."
+              continue
             else
-              echo "Alias ${t} has no recorded version (first promotion); creating it at ${VERSION}."
+              echo "Alias ${t} currently at ${current}; promoting to ${VERSION}."
             fi
             docker buildx imagetools create \
-              --annotation "org.opencontainers.image.version=${VERSION}" \
+              --annotation "index:org.opencontainers.image.version=${VERSION}" \
               -t "${ref}" "${SRC}"
             docker buildx imagetools inspect "${ref}" >/dev/null \
               || { echo "::error::GHCR alias missing after promotion: ${t}"; exit 1; }

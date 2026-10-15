@@ -275,6 +275,11 @@ def test_stable_aliases_promote_only_after_attach():
     group = concurrency.get("group", "") if isinstance(concurrency, dict) else str(concurrency)
     assert "promote" in group and "alias" in group
     assert "annotation" in run and "version_gte" in run
+    # Lookup failures must abort, never fall through to first-promotion logic.
+    assert "manifest unknown" in run
+    assert "Aborting promotion" in run
+    # Annotations target the index (bare key=value is rejected by buildx).
+    assert "index:org.opencontainers.image.version" in run
     # Phase 1 publishes the exact version tag only.
     publish = next(
         s for s in jobs["docker-publish"]["steps"]
@@ -293,6 +298,22 @@ def test_sbom_release_upload_owned_by_attach():
     # The action defaults upload-release-assets to true on release events;
     # publication must stay in the attach job (controlled filenames).
     assert sbom["with"].get("upload-release-assets") is False
+
+
+def test_rerun_reuses_verified_published_image():
+    doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
+    publish = doc["jobs"]["docker-publish"]["steps"]
+    reuse = next(s for s in publish if s.get("id") == "reuse")
+    assert "org.opencontainers.image.revision" in reuse["run"]
+    build = next(s for s in publish if s.get("id") == "push")
+    assert "reuse" in str(build.get("if", ""))
+    # Unpublished versions still flow through the normal build.
+    assert "not published yet" in reuse["run"]
+
+
+def test_ci_workflow_is_read_only():
+    doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert doc.get("permissions", {}).get("contents") == "read"
 
 
 def test_checkout_does_not_persist_credentials():

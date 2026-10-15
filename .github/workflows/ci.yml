@@ -10,6 +10,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: validation never writes back to the repository.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint

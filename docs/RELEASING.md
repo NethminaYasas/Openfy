@@ -59,11 +59,16 @@ Distinguish *what* failed before deciding how to recover:
 - **Any later failure** (tests, Docker build/smoke test, bundle packaging,
   push, asset upload): the workflow is **safe to rerun** on the original ref
   and commit — one concurrency group per tag prevents overlapping publishes;
-  `gh release upload --clobber` converges assets instead of duplicating them;
-  re-pushing an unchanged image digest is a no-op. Fix the cause, then
+  if the exact version image is already published from the same commit it is
+  reused (revision verified) instead of rebuilt; `gh release upload --clobber`
+  converges assets instead of duplicating them. Fix the cause, then
   **Re-run failed jobs** (or re-run all jobs).
 - A failed run never moves stable aliases: the `promote` step runs only after
   the versioned image, bundles, SBOM, and their verification all succeed.
+  Promotion additionally refuses to move an alias backwards, and aborts
+  rather than guesses when an alias's current target cannot be determined
+  (e.g. it exists without a recorded version — inspect or remove it
+  manually, then rerun).
 
 ## Repository settings required (one-time manual setup)
 
