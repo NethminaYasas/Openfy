@@ -1082,7 +1082,7 @@ def test_docs_document_one_line_installer():
     readme = (REPO_ROOT / "README.md").read_text()
     assert "raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh" in readme
     assert "bash <(curl -fsSL " in readme
-    assert "docker pull ghcr.io/nethminayasas/openfy:latest" in readme
+    assert "raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh" in readme
     linux_doc = (REPO_ROOT / "docs" / "LINUX_INSTALL.md").read_text()
     assert "bash install.sh v1.4.2" in linux_doc
     assert "--yes --version 1.4.2" in linux_doc
