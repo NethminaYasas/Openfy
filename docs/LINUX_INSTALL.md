@@ -25,6 +25,15 @@ Run in a **root Bash shell** (`sudo -i` if needed), with `curl` installed:
 bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
 ```
 
+To install a specific published version, append its tag:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v0.1.0
+```
+
+Replace `v0.1.0` with the release you want. Without a version, the installer
+offers the latest stable release.
+
 For a downloaded copy or a specific version:
 
 ```bash

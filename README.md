@@ -18,6 +18,15 @@ up dependencies and the systemd service, verifies the release checksum, and
 generates your admin credential. **Save the credential shown at the end**
 and use it in the **Auth Hash** sign-in field (default username: `admin`).
 
+To install a specific published version, append its tag:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v0.1.0
+```
+
+Replace `v0.1.0` with the release you want. Without a version, the installer
+offers the latest stable release.
+
 To manage or update your installation later:
 
 ```bash
@@ -27,21 +36,11 @@ sudo openfy
 See the [Linux installation guide](docs/LINUX_INSTALL.md) for specific
 versions, automation, configuration, backups, and uninstall instructions.
 
-### Docker (quick setup)
+### Docker
 
 Requires **Docker Engine with the Compose plugin** (`docker compose`).
-No Python installation or repository clone needed. Run in a Bash shell
-with permission to use Docker:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh)
-```
-
-The script pulls `ghcr.io/nethminayasas/openfy:latest`, starts Openfy, and
-prints your admin credential. **Save it** and sign in as `admin` using the
-**Auth Hash** field.
-
-It creates this directory in your current location:
+No Python installation or repository clone needed. Choose either method
+below; both use `ghcr.io/nethminayasas/openfy:latest` and create the same layout:
 
 ```text
 openfy/
@@ -50,13 +49,93 @@ openfy/
 └── data/               # database, music, downloads, artwork
 ```
 
+#### Option 1 — Quick setup script
+
+Run in a Bash shell with permission to use Docker:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh)
+```
+
+The script creates the directory and configuration, pulls the image, starts
+Openfy, and prints your admin credential. **Save it** and sign in as `admin`
+using the **Auth Hash** field.
+
 Rerunning preserves your configuration, credentials, and data. To choose a
 different directory, add its path after the command (for example, `/opt/openfy`).
 
-Manage or update your installation:
+#### Option 2 — Manual Docker setup
+
+**1. Create the directory and pull the image:**
 
 ```bash
+umask 077
+mkdir -p openfy/data
 cd openfy
+docker pull ghcr.io/nethminayasas/openfy:latest
+```
+
+**2. Generate your admin credential** (Python runs inside the container):
+
+```bash
+docker run --rm --network none --entrypoint python ghcr.io/nethminayasas/openfy:latest \
+  -c 'import secrets; print("of1_" + secrets.token_urlsafe(45))'
+```
+
+**3. Save your settings** in `openfy/.env`. Replace
+`PASTE_YOUR_CREDENTIAL_HERE` with the output above. These file creation
+commands are for a fresh installation; keep existing files when updating.
+
+```bash
+cat > .env <<'EOF'
+OPENFY_VERSION=latest
+OPENFY_BIND_IP=127.0.0.1
+OPENFY_PORT=8000
+OPENFY_ADMIN_USERNAME=admin
+OPENFY_ADMIN_HASH=PASTE_YOUR_CREDENTIAL_HERE
+OPENFY_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+EOF
+```
+
+**4. Create `openfy/docker-compose.yml`:**
+
+```bash
+cat > docker-compose.yml <<'EOF'
+services:
+  openfy:
+    image: ghcr.io/nethminayasas/openfy:${OPENFY_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "${OPENFY_BIND_IP:-127.0.0.1}:${OPENFY_PORT:-8000}:8000"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      OPENFY_ENV: prod
+      OPENFY_DATA_DIR: /data
+      OPENFY_MUSIC_DIR: /data/music
+      OPENFY_DOWNLOADS_DIR: /data/downloads
+      OPENFY_ARTWORK_DIR: /data/artwork
+      OPENFY_DATABASE_URL: sqlite:////data/openfy.db
+EOF
+```
+
+**5. Start Openfy:**
+
+```bash
+docker compose pull
+docker compose up -d --wait --wait-timeout 120
+```
+
+Sign in as `admin` using your saved credential in the **Auth Hash** field.
+Your database and library stay in `openfy/data/`.
+
+#### Manage either Docker installation
+
+From your `openfy` directory:
+
+```bash
 docker compose logs -f             # logs (Ctrl+C to exit)
 docker compose pull && docker compose up -d --wait   # update
 docker compose down                # stop; keeps ./data and .env
