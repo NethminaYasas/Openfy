@@ -39,6 +39,7 @@ from spotify_scraper.media.audio import AudioDownloader
 from spotify_scraper.media.image import ImageDownloader
 from spotify_scraper.utils.download import OverwritePolicy
 from spotify_scraper.utils.logger import configure_logging
+from spotify_scraper.utils.proxy import normalize_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,8 @@ class SpotifyClient:
                 Useful for setting User-Agent or other headers.
                 Example: {"User-Agent": "Custom Bot 1.0"}
             proxy: Proxy server configuration for all requests.
+                Supports HTTP/HTTPS proxy URLs with http, https or all keys;
+                must cover HTTPS. Requires browser_type="requests".
                 Example: {"http": "http://proxy.example.com:8080",
                          "https": "https://proxy.example.com:8080"}
             browser_type: Backend browser implementation to use.
@@ -141,7 +144,7 @@ class SpotifyClient:
                 Example: "spotify_scraper.log"
 
         Raises:
-            ValueError: If browser_type is not one of the supported values.
+            ValueError: If browser_type or the proxy configuration is unsupported.
             FileNotFoundError: If cookie_file is specified but doesn't exist.
 
         Example:
@@ -153,8 +156,7 @@ class SpotifyClient:
 
             >>> # Client with custom configuration
             >>> client = SpotifyClient(
-            ...     browser_type="selenium",
-            ...     use_webdriver_manager=True,  # Auto-download drivers
+            ...     browser_type="requests",
             ...     proxy={"https": "https://proxy.example.com:8080"},
             ...     log_level="DEBUG",
             ...     log_file="scraper.log"
@@ -163,15 +165,20 @@ class SpotifyClient:
         # Configure logging
         configure_logging(level=log_level.upper(), log_file=log_file)
 
+        self.proxy = normalize_proxy(proxy)
+        if self.proxy and browser_type != "requests":
+            raise ValueError("Explicit proxies require browser_type='requests'")
+
         # Create session with correct parameters
         self.session = Session(cookies=cookies, headers=headers)
-        # Handle cookie file and proxy separately if needed
+        # Handle cookie file separately if needed
         self.cookie_file = cookie_file
-        self.proxy = proxy
 
         # Create browser
         # For now, create browser without session until we properly implement session management
         browser_kwargs = {}
+        if self.proxy:
+            browser_kwargs["proxy"] = self.proxy
         if browser_type == "selenium":
             browser_kwargs["use_webdriver_manager"] = use_webdriver_manager
         self.browser = create_browser(browser_type=browser_type, **browser_kwargs)
@@ -188,8 +195,8 @@ class SpotifyClient:
         self.show_extractor = ShowExtractor(browser=self.browser)
 
         # Create downloaders
-        self._image_downloader = ImageDownloader(browser=self.browser)
-        self._audio_downloader = AudioDownloader(browser=self.browser)
+        self._image_downloader = ImageDownloader(browser=self.browser, proxy=self.proxy)
+        self._audio_downloader = AudioDownloader(browser=self.browser, proxy=self.proxy)
 
         logger.info("SpotifyClient initialized")
 
@@ -723,7 +730,8 @@ class SpotifyClient:
             response = None
             for _ in range(MAX_MANUAL_REDIRECTS + 1):
                 candidate = requests.get(
-                    current_url, stream=True, timeout=30, allow_redirects=False
+                    current_url, stream=True, timeout=30, allow_redirects=False,
+                    proxies=self.proxy.copy() if self.proxy else None,
                 )
                 if candidate.status_code not in REDIRECT_STATUS_CODES:
                     response = candidate

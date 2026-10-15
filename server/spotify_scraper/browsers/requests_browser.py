@@ -40,6 +40,7 @@ from spotify_scraper.utils.download import (
     is_allowed_media_url,
     resolve_redirect,
 )
+from spotify_scraper.utils.proxy import normalize_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ class RequestsBrowser(Browser):
         headers: Optional[Dict[str, str]] = None,
         rate_limit_delay: float = 0.5,
         rate_limit_backoff: float = 2.0,
+        proxy: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the requests-based browser.
@@ -111,8 +113,10 @@ class RequestsBrowser(Browser):
             headers: Additional headers to include in requests
             rate_limit_delay: Minimum delay between requests in seconds
             rate_limit_backoff: Backoff multiplier for rate limit errors
+            proxy: Explicit HTTP/HTTPS proxy policy, which must cover HTTPS
         """
         self.session = session
+        self.proxy = normalize_proxy(proxy)
         self.timeout = timeout
         self.retries = retries
         self.rate_limit_delay = rate_limit_delay
@@ -140,16 +144,10 @@ class RequestsBrowser(Browser):
         if headers:
             self.default_headers.update(headers)
 
-        # Add authentication headers if we have a session
-        if self.session:
-            auth_headers = self.session.get_auth_headers()
-            self.default_headers.update(auth_headers)
-
-            # Add cookies if available
-            if self.session.cookies:
-                self.requests_session.cookies.update(self.session.cookies)
-
         self.requests_session.headers.update(self.default_headers)
+        # Keep constructor headers separate from replaceable session credentials.
+        self._base_headers = self.requests_session.headers.copy()
+        self.update_session(session)
 
         logger.debug("Initialized RequestsBrowser")
 
@@ -212,6 +210,7 @@ class RequestsBrowser(Browser):
 
                     response = self.requests_session.get(
                         current_url,
+                        proxies=self.proxy.copy() if self.proxy else None,
                         timeout=self.timeout,
                         allow_redirects=False,
                     )
@@ -320,6 +319,7 @@ class RequestsBrowser(Browser):
 
                 response = self.requests_session.get(
                     current_url,
+                    proxies=self.proxy.copy() if self.proxy else None,
                     timeout=self.timeout,
                     headers={"Accept": "application/json"},
                     allow_redirects=False,
@@ -394,6 +394,7 @@ class RequestsBrowser(Browser):
             while True:
                 resp = self.requests_session.get(
                     current_url,
+                    proxies=self.proxy.copy() if self.proxy else None,
                     stream=True,
                     timeout=self.timeout,
                     allow_redirects=False,
@@ -503,7 +504,7 @@ class RequestsBrowser(Browser):
             self.requests_session.close()
         logger.debug("Closed RequestsBrowser")
 
-    def update_session(self, session: Session) -> None:
+    def update_session(self, session: Optional[Session]) -> None:
         """
         Update the authentication session used by this browser.
 
@@ -511,9 +512,15 @@ class RequestsBrowser(Browser):
         without creating a new browser instance.
 
         Args:
-            session: New session to use for authentication
+            session: New session to use for authentication, or None to clear it
         """
         self.session = session
+
+        # Discard the previous identity, including cookies received from servers
+        # and custom authentication headers, before installing the replacement.
+        self.requests_session.headers.clear()
+        self.requests_session.headers.update(self._base_headers)
+        self.requests_session.cookies.clear()
 
         # Update headers with new authentication info
         if session:

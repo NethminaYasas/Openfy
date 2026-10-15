@@ -24,7 +24,7 @@ Example:
 
 import logging
 import os
-from typing import Optional, Union
+from typing import Dict, Optional, Union
 
 import requests
 
@@ -38,6 +38,7 @@ from spotify_scraper.utils.download import (
     require_https_url,
     select_download_mode,
 )
+from spotify_scraper.utils.proxy import normalize_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +82,14 @@ class ImageDownloader:
         Not all entities have images in all sizes.
     """
 
-    def __init__(self, browser: Browser):
+    def __init__(self, browser: Browser, proxy: Optional[Dict[str, str]] = None):
         """Initialize the ImageDownloader.
 
         Args:
             browser: Browser instance for web interactions. While the browser
                 is not directly used for downloading images (uses requests),
                 it's maintained for consistency with other components.
+            proxy: Explicit HTTP/HTTPS proxy policy, which must cover HTTPS.
 
         Example:
             >>> from spotify_scraper.browsers import create_browser
@@ -95,6 +97,7 @@ class ImageDownloader:
             >>> downloader = ImageDownloader(browser)
         """
         self.browser = browser
+        self.proxy = normalize_proxy(proxy)
         logger.debug("Initialized ImageDownloader")
 
     def download_cover(
@@ -201,6 +204,7 @@ class ImageDownloader:
             require_https_url(cover_url, error_factory=DownloadError)
             with requests.get(
                 cover_url,
+                proxies=self.proxy.copy() if self.proxy else None,
                 stream=True,
                 timeout=30,
                 allow_redirects=False,
