@@ -512,10 +512,12 @@ port_in_use() {
 
 check_port_conflict() {
     if port_in_use "${OPENFY_PORT}"; then
-        if have_cmd systemctl && systemctl is-active --quiet openfy 2>/dev/null; then
-            log "Port ${OPENFY_PORT} is held by the running openfy service (expected during upgrades)."
+        local service_name="${OPENFY_SERVICE_NAME:-openfy}" unit_port
+        unit_port="$(grep -oE -- '--port [0-9]+' "${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}/${service_name}.service" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+        if [[ "${unit_port}" == "${OPENFY_PORT}" ]] && have_cmd systemctl && systemctl is-active --quiet "${service_name}" 2>/dev/null; then
+            log "Port ${OPENFY_PORT} is held by the running ${service_name} service (expected during upgrades)."
         else
-            die "port ${OPENFY_PORT} is already in use by another process. Free the port or stop the other process first (native install/reinstall/repair cannot proceed with a busy port)."
+            die "port ${OPENFY_PORT} is already in use by another process. Free the port or stop the other process first."
         fi
     else
         log "Port ${OPENFY_PORT} is free."
@@ -827,6 +829,9 @@ run_native_delegate() {
         fi
         [[ "${NO_START}" != "true" ]] \
             || die "--no-start is not supported for native upgrades; update.sh always restarts the service to apply the new version."
+        if [[ "${PORT_EXPLICIT}" == "true" ]]; then
+            check_port_conflict
+        fi
         bash "${staged_dir}/update.sh" --archive "${archive_path}" --arch "$(detect_arch)"
     else
         step "Installing application files (config + data preserved)"
@@ -1235,8 +1240,8 @@ main() {
     fi
 
     # Port check runs only for modes that invoke the bundle installer
-    # (install/reinstall/repair). Upgrades keep the running service's port
-    # and Docker never uses this check.
+    # (install/reinstall/repair). Explicit upgrade ports are checked in
+    # run_native_delegate; other upgrades preserve the service's port.
     if [[ "${mode}" == "install" || "${mode}" == "reinstall" || "${mode}" == "repair" ]]; then
         check_port_conflict
     fi

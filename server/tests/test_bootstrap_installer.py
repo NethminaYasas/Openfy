@@ -533,6 +533,49 @@ if (check_requirements_native); then echo OK; else echo MISSING; fi""",
 
 # ------------------------------------------------------- ports
 
+@pytest.mark.parametrize("service_name", ["openfy", "custom-openfy"])
+@pytest.mark.parametrize("busy,unit_port,active,explicit,dry_run,allowed", [
+    (True, "9000", True, True, False, True),
+    (True, "8000", True, True, False, False),
+    (True, "9000", False, True, False, False),
+    (True, None, True, True, False, False),
+    (True, "", True, True, False, False),
+    (False, "8000", False, True, False, True),
+    (True, "8000", True, False, False, True),
+    (True, "8000", True, True, True, True),
+])
+def test_native_upgrade_port_conflict(tmp_path, service_name, busy, unit_port, active, explicit, dry_run, allowed):
+    systemd_dir = tmp_path / "systemd"
+    systemd_dir.mkdir()
+    if unit_port is not None:
+        port_arg = f" --port {unit_port}" if unit_port else ""
+        (systemd_dir / f"{service_name}.service").write_text(
+            f"[Service]\nExecStart=/opt/openfy/venv/bin/python -m uvicorn app.main:app{port_arg}\n",
+            encoding="utf-8",
+        )
+    staged = tmp_path / "bundle"
+    staged.mkdir()
+    (staged / "update.sh").write_text('printf "UPDATE:%s\\n" "$*"\n', encoding="utf-8")
+    env = {"OPENFY_SYSTEMD_DIR": _m(systemd_dir), "OPENFY_SERVICE_NAME": service_name}
+    proc = _bash_eval(_need_bash(), f"""
+OPENFY_PORT=9000
+PORT_EXPLICIT={'true' if explicit else 'false'}
+DRY_RUN={'true' if dry_run else 'false'}
+INSTALLED_VERSION=9.9.8
+port_in_use() {{ [[ "$1" == "9000" ]] && return {0 if busy else 1}; }}
+systemctl() {{ [[ "$*" == "is-active --quiet {service_name}" ]] && return {0 if active else 1}; }}
+detect_arch() {{ echo linux-amd64; }}
+run_native_delegate "{_m(staged)}" upgrade 9.9.9 /verified.tar.gz
+""", env=env)
+    assert (proc.returncode == 0) == allowed, proc.stdout + proc.stderr
+    if allowed and not dry_run:
+        assert "UPDATE:--archive /verified.tar.gz --arch linux-amd64" in proc.stdout
+    else:
+        assert "UPDATE:" not in proc.stdout
+    if not allowed:
+        assert "port 9000 is already in use by another process" in proc.stderr
+
+
 def test_port_check_helpers():
     bash = _need_bash()
     proc = _run_bash(bash, f"""{_source_prelude()}
