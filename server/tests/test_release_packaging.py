@@ -155,8 +155,11 @@ def test_rollback_restores_deps_unit_and_reports_health():
     assert "wait_for_health" in body
     assert "ROLLBACK FAILED" in body
     # Stale trees are removed before restore so new-only files cannot linger.
-    assert 'rm -rf "${APP_DIR}/${entry}"' in body
-
+    # Destructive removals guard against an empty APP_DIR (which set -u alone
+    # would not catch): "${APP_DIR:?}" aborts instead of resolving to "/...".
+    for line in updater.splitlines():
+        if line.lstrip().startswith("rm -rf") and "APP_DIR" in line:
+            assert "${APP_DIR:?}" in line, f"unguarded rm: {line}"
 
 def test_uninstaller_refuses_nested_data_loss():
     content = (REPO_ROOT / "scripts" / "linux" / "uninstall.sh").read_text()

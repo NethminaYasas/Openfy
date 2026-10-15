@@ -238,7 +238,7 @@ rollback() {
             rm -rf "${restore_tmp}"
             return 1
         fi
-        rm -rf "${APP_DIR}/${entry}" "${APP_DIR}/${entry}.old" "${APP_DIR}/${entry}.new"
+        rm -rf "${APP_DIR:?}/${entry}" "${APP_DIR:?}/${entry}.old" "${APP_DIR:?}/${entry}.new"
         mv "${restore_tmp}/${entry}" "${APP_DIR}/${entry}"
     done
     for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
@@ -301,7 +301,7 @@ if [[ "${SWAP_OK}" -ne 0 ]]; then
 fi
 # Atomic-ish switch of the versioned directories.
 for entry in app client spotify_scraper; do
-    rm -rf "${APP_DIR}/${entry}.old"
+    rm -rf "${APP_DIR:?}/${entry}.old"
     [[ -e "${APP_DIR}/${entry}" ]] && mv "${APP_DIR}/${entry}" "${APP_DIR}/${entry}.old"
     mv "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
@@ -327,6 +327,6 @@ if ! wait_for_health; then
     exit 1
 fi
 
-rm -rf "${APP_DIR}"/app.old "${APP_DIR}"/client.old "${APP_DIR}"/spotify_scraper.old
+rm -rf "${APP_DIR:?}"/app.old "${APP_DIR:?}"/client.old "${APP_DIR:?}"/spotify_scraper.old
 echo "[openfy-update] Updated ${CURRENT} -> ${VERSION}. Backup retained at ${BACKUP_DIR}."
 echo "[openfy-update] Config ${ENV_FILE} and data ${DATA_DIR} were preserved."
