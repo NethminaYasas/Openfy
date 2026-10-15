@@ -914,9 +914,12 @@ EOF
         if [[ "${had_existing}" == "true" ]]; then
             warn "replacement failed; restoring preserved container '${backup_cname}'."
             docker rm "${cname}" >/dev/null 2>&1 || true
-            docker rename "${backup_cname}" "${cname}" >/dev/null 2>&1 || true
-            if [[ "${was_running}" == "true" ]]; then
-                docker start "${cname}" >/dev/null 2>&1 || true
+            if docker rename "${backup_cname}" "${cname}" >/dev/null 2>&1; then
+                if [[ "${was_running}" == "true" ]]; then
+                    docker start "${cname}" >/dev/null 2>&1 || true
+                fi
+            else
+                warn "could not restore original container '${backup_cname}'. Manual recovery: docker rename \"${backup_cname}\" \"${cname}\""
             fi
         fi
         die "failed to start the container (see 'docker logs ${cname}'). Original container restored where possible."
@@ -942,9 +945,12 @@ EOF
                 warn "replacement failed its health check; restoring preserved container '${backup_cname}'."
                 docker stop "${cname}" >/dev/null 2>&1 || true
                 docker rm "${cname}" >/dev/null 2>&1 || true
-                docker rename "${backup_cname}" "${cname}" >/dev/null 2>&1 || true
-                if [[ "${was_running}" == "true" ]]; then
-                    docker start "${cname}" >/dev/null 2>&1 || true
+                if docker rename "${backup_cname}" "${cname}" >/dev/null 2>&1; then
+                    if [[ "${was_running}" == "true" ]]; then
+                        docker start "${cname}" >/dev/null 2>&1 || true
+                    fi
+                else
+                    warn "could not restore original container '${backup_cname}'. Manual recovery: docker rename \"${backup_cname}\" \"${cname}\""
                 fi
             fi
             die "container did not become healthy. Inspect with: docker logs ${cname}"
