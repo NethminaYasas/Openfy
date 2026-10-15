@@ -472,7 +472,7 @@ start_and_healthcheck() {
 main() {
     parse_args "$@"
     require_root
-    if [[ "${ROTATE_CREDENTIAL}" == "true" && -f "${ENV_FILE}" ]]; then
+    if [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
         create_user
         rotate_credential
         return

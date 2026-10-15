@@ -804,6 +804,19 @@ run_native_delegate() {
     fi
 }
 
+run_rotate_credential_delegate() {
+    detect_existing_install
+    [[ -n "${INSTALLED_VERSION}" ]] || die "--rotate-credential needs an existing installation at ${APP_DIR}."
+    [[ -f "${APP_DIR}/install.sh" ]] || die "no native installer at ${APP_DIR}/install.sh; repair the installation before rotating credentials."
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        log "DRY RUN: would execute: ${APP_DIR}/install.sh --rotate-credential --admin-user ${ADMIN_USER}"
+        return
+    fi
+    require_root_native
+    OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
+        bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || die "credential rotation failed."
+}
+
 run_uninstall_delegate() {
     if [[ ! -f "${APP_DIR}/uninstall.sh" && ! -f "${APP_DIR}/VERSION.json" ]]; then
         die "no Openfy installation found at ${APP_DIR}; nothing to uninstall."
@@ -1014,6 +1027,14 @@ main() {
         return
     fi
 
+    # Rotation alone uses the installed native script without release planning.
+    if [[ "${ROTATE_CREDENTIAL}" == "true" && "${ACTION}" == "auto" ]]; then
+        [[ "${METHOD}" != "docker" ]] || die "--rotate-credential requires a native installation."
+        METHOD="native"
+        run_rotate_credential_delegate
+        return
+    fi
+
     if [[ "${ASSUME_YES}" != "true" ]] && is_interactive; then
         run_wizard
     else
@@ -1107,6 +1128,8 @@ main() {
         log "DRY RUN: no changes made. Plan: ${plan_mode} Openfy ${RESOLVED_TAG} (${arch}): download openfy-v${RESOLVED_VERSION}-${arch}.tar.gz -> verify SHA-256 -> delegate to verified bundle."
         if [[ "${METHOD}" == "docker" ]]; then
             run_docker_install "${RESOLVED_VERSION}"
+        elif [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
+            run_rotate_credential_delegate
         fi
         return
     fi
@@ -1137,6 +1160,9 @@ main() {
             mode="${ACTION}"
             if [[ "${mode}" == "upgrade" && "${INSTALLED_VERSION}" == "${RESOLVED_VERSION}" ]]; then
                 log "Already at version ${RESOLVED_VERSION}; nothing to do."
+                if [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
+                    run_rotate_credential_delegate
+                fi
                 return
             fi
         fi
@@ -1174,7 +1200,7 @@ main() {
     fi
 
     if [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
-        bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || die "credential rotation failed."
+        run_rotate_credential_delegate
     fi
 
     print_native_summary "${RESOLVED_VERSION}"

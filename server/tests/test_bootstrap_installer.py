@@ -645,6 +645,137 @@ def test_updater_never_touches_admin_credentials():
     assert "openfy.env" in content
 
 
+def _installed_rotation_script(tmp_path, version="9.9.9"):
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "VERSION.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+    (app / "install.sh").write_text(
+        '[[ "$*" == "--rotate-credential --admin-user testadmin" ]] || exit 2\n'
+        '[[ "$OPENFY_CONFIG_DIR" == "$OPENFY_INSTALL_DIR/../cfg" ]] || exit 3\n'
+        'echo ROTATED\n', encoding="utf-8",
+    )
+    return f'APP_DIR="{_m(app)}"\nCONFIG_DIR="${{APP_DIR}}/../cfg"'
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("assume_yes", [False, True])
+def test_rotation_only_bypasses_release_and_install_planning(tmp_path, dry_run, assume_yes):
+    setup = _installed_rotation_script(tmp_path)
+    proc = _bash_eval(_need_bash(), f"""{setup}
+is_interactive() {{ return 0; }}
+run_wizard() {{ die 'unexpected wizard'; }}
+resolve_latest_stable() {{ die 'unexpected release lookup'; }}
+fetch_release_metadata() {{ die 'unexpected release lookup'; }}
+require_root_native() {{ echo ROOT_CHECKED; }}
+main --rotate-credential --admin-user testadmin {'--yes' if assume_yes else ''} {'--dry-run' if dry_run else ''}
+""")
+    assert proc.returncode == 0, proc.stderr
+    if dry_run:
+        assert "DRY RUN" in proc.stdout
+        assert "ROOT_CHECKED" not in proc.stdout
+        assert "ROTATED" not in proc.stdout
+    else:
+        assert "ROOT_CHECKED" in proc.stdout
+        assert "ROTATED" in proc.stdout
+    assert not (tmp_path / "cfg").exists()
+
+
+@pytest.mark.parametrize("failure", ["missing_install", "missing_script", "nonroot", "docker", "delegate"])
+def test_rotation_only_refuses_invalid_native_requests(tmp_path, failure):
+    setup = _installed_rotation_script(tmp_path)
+    if failure == "missing_install":
+        (tmp_path / "app" / "VERSION.json").unlink()
+    elif failure == "missing_script":
+        (tmp_path / "app" / "install.sh").unlink()
+    elif failure == "delegate":
+        (tmp_path / "app" / "install.sh").write_text("exit 1\n", encoding="utf-8")
+    proc = _bash_eval(_need_bash(), f"""{setup}
+resolve_latest_stable() {{ die 'unexpected release lookup'; }}
+id() {{ echo {'1000' if failure == 'nonroot' else '0'}; }}
+main --yes --rotate-credential --admin-user testadmin {'--method docker' if failure == 'docker' else ''}
+""")
+    assert proc.returncode != 0
+    expected = {
+        "missing_install": "needs an existing installation",
+        "missing_script": "no native installer",
+        "nonroot": "requires root",
+        "docker": "requires a native installation",
+        "delegate": "credential rotation failed",
+    }
+    assert expected[failure] in proc.stderr
+    assert "ROTATED" not in proc.stdout
+
+
+@pytest.mark.parametrize("action", ["install", "upgrade", "repair", "reinstall", "upgrade_same_version"])
+@pytest.mark.parametrize("rotate", [False, True])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_explicit_action_preserves_install_flow_before_rotation(tmp_path, action, rotate, dry_run):
+    setup = _installed_rotation_script(tmp_path)
+    same_version = action == "upgrade_same_version"
+    version = "9.9.9" if same_version else "9.9.10"
+    arch = "linux-amd64"
+    api, dl = _fake_github(
+        tmp_path,
+        {f"v{version}": {"draft": False, "prerelease": False,
+                         "assets": [f"openfy-v{version}-{arch}.tar.gz", "SHA256SUMS"]}},
+        {(version, arch): {}},
+    )
+    proc = _bash_eval(_need_bash(), f"""{setup}
+require_root_native() {{ return 0; }}
+detect_os() {{ return 0; }}
+check_requirements_native() {{ return 0; }}
+install_system_deps() {{ return 0; }}
+check_port_conflict() {{ return 0; }}
+run_native_delegate() {{ echo "DELEGATE:$2"; }}
+main --yes --action {'upgrade' if same_version else action} --version {version} --arch {arch} --admin-user testadmin {'--rotate-credential' if rotate else ''} {'--dry-run' if dry_run else ''}
+""", env={"OPENFY_API_BASE": api, "OPENFY_DOWNLOAD_BASE": dl})
+    assert proc.returncode == 0, proc.stderr
+    assert f"Release v{version} is published" in proc.stdout
+    if dry_run:
+        assert "DRY RUN" in proc.stdout
+        assert "DELEGATE:" not in proc.stdout
+        assert ("--rotate-credential" in proc.stdout) == rotate
+    elif same_version:
+        assert "Already at version" in proc.stdout
+        assert "DELEGATE:" not in proc.stdout
+    else:
+        mode = "upgrade" if action == "install" else action
+        assert f"DELEGATE:{mode}" in proc.stdout
+        if rotate:
+            assert proc.stdout.index("DELEGATE:") < proc.stdout.index("ROTATED")
+    assert ("ROTATED" in proc.stdout) == (rotate and not dry_run)
+
+
+@pytest.mark.parametrize("has_config", [False, True])
+def test_bundle_rotation_request_never_falls_through_to_install(tmp_path, has_config):
+    cfg = tmp_path / "cfg"
+    if has_config:
+        cfg.mkdir()
+        (cfg / "openfy.env").write_text("OPENFY_ADMIN_HASH=of1_" + "b" * 60 + "\n", encoding="utf-8")
+    proc = _run_bash(_need_bash(), f"""{_bundle_prelude()}
+APP_DIR="{_m(tmp_path / 'app')}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+require_root() {{ return 0; }}
+create_user() {{ echo USER_CHECKED; }}
+chown() {{ return 0; }}
+generate_credential() {{ echo of1_{'a' * 60}; }}
+check_os() {{ die 'unexpected install'; }}
+main --rotate-credential
+""")
+    assert "USER_CHECKED" in proc.stdout
+    assert "unexpected install" not in proc.stderr
+    assert not (tmp_path / "app").exists()
+    if has_config:
+        assert proc.returncode == 0, proc.stderr
+        assert "OPENFY_ADMIN_HASH=of1_" + "a" * 60 in (cfg / "openfy.env").read_text()
+        assert len(list(cfg.glob("openfy.env.bak-*"))) == 1
+    else:
+        assert proc.returncode != 0
+        assert "no config" in proc.stderr
+        assert not cfg.exists()
+
+
 # ------------------------------------------------------- wiring/policy
 
 def test_no_curl_pipe_shell_patterns():
