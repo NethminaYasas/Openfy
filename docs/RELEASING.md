@@ -88,7 +88,36 @@ These cannot be committed and must be configured by someone with admin access:
    branch protection on `main`; the release pipeline re-runs the same gates
    on the tag commit regardless.
 
-## Reproducibility notes
+## Root installer contract (do not break)
+
+The root `install.sh` bootstrap (fetched via the one-line installer URL) is
+NOT part of the release bundles — it downloads them. It depends on this
+contract; keep it stable across releases:
+
+- Asset names: `openfy-v<VERSION>-linux-amd64.tar.gz`,
+  `openfy-v<VERSION>-linux-arm64.tar.gz`, `SHA256SUMS` (all required),
+  `openfy-v<VERSION>-sbom.spdx.json` (informational).
+- Tag convention: `vMAJOR.MINOR.PATCH`, optional `-rc.N` / `-beta.N` /
+  `-alpha.N` suffix (see `scripts/release/common.sh`, the single source of
+  truth mirrored by the bootstrap and the packaging tests).
+- Every bundle contains a top-level `openfy-v<VERSION>-<arch>/` directory
+  with `VERSION.json` (`version`, `tag`, `arch` fields matching the release),
+  plus working `install.sh` (accepting `--admin-user`, `--no-start`,
+  `--allow-unsupported-os`, `--force`, `--no-generate-credential`,
+  `--no-install-deps`, `--repair`), `update.sh` (`--archive`), and
+  `uninstall.sh`.
+- CI enforces this: `server/tests/test_bootstrap_installer.py` sources the
+  bootstrap's functions against a mocked GitHub API, and the packaging
+  validation rebuilds + verifies both bundles on every PR.
+
+## Docker image notes
+
+- The image is a single `python:3.11-slim` stage (not multi-stage) on
+  purpose: `ffmpeg` is a runtime dependency, and build-only packages (`git`,
+  `curl`) are purged in the same layer with caches cleaned, so a separate
+  builder stage would save nothing measurable while complicating the
+  `spotiflac` install. Revisit only if build tooling grows.
+- `linux/arm64` Docker images are **built but not runtime smoke-tested** in
 
 - Bundle contents come from the tag commit; tar metadata is normalised
   (`--sort-name`, fixed owner, `SOURCE_DATE_EPOCH` mtime). `VERSION.json`
@@ -106,3 +135,5 @@ These cannot be committed and must be configured by someone with admin access:
 - No signatures are attached: integrity is via `SHA256SUMS`
   (`sha256sum -c SHA256SUMS`) plus GHCR digest pinning. Do not claim
   otherwise in release notes.
+
+## Reproducibility notes
