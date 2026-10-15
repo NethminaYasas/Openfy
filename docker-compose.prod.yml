@@ -1,0 +1,33 @@
+services:
+  openfy-server:
+    # Production: run the published, version-pinned image — no local build.
+    # Set OPENFY_VERSION to a release (e.g. 1.4.2), or leave it at latest.
+    image: ghcr.io/nethminayasas/openfy:${OPENFY_VERSION:-latest}
+    ports:
+      - "8000:8000"
+    volumes:
+      - openfy_data:/data
+    env_file:
+      - .env
+    environment:
+      # Pin absolute container paths so the relative ./data paths in host .env
+      # cannot redirect storage to ephemeral /app/data (compose `environment:`
+      # wins over `env_file`, which wins over Dockerfile ENV).
+      # Origins honour an operator-supplied value (shell env or .env),
+      # falling back to the localhost defaults when unset.
+      - OPENFY_ALLOWED_ORIGINS=${OPENFY_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      - OPENFY_DATA_DIR=/data
+      - OPENFY_MUSIC_DIR=/data/music
+      - OPENFY_DOWNLOADS_DIR=/data/downloads
+      - OPENFY_ARTWORK_DIR=/data/artwork
+      - OPENFY_DATABASE_URL=sqlite:////data/openfy.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  openfy_data:

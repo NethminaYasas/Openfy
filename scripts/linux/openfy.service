@@ -1,0 +1,41 @@
+[Unit]
+Description=Openfy music streaming server
+Documentation=https://github.com/NethminaYasas/Openfy
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=openfy
+Group=openfy
+WorkingDirectory=/opt/openfy
+EnvironmentFile=/etc/openfy/openfy.env
+ExecStart=/opt/openfy/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Filesystem: read-only OS + app, writes only where Openfy stores data.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/openfy
+
+# Privilege escalation + kernel attack surface reduction.
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Logs go to the journal: journalctl -u openfy -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openfy
+
+[Install]
+WantedBy=multi-user.target

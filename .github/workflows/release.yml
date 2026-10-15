@@ -1,0 +1,573 @@
+name: Release
+
+# Fully automatic release pipeline. Trigger: publishing a GitHub Release in the
+# web UI (no local commands, no manual dispatch, no second commit needed).
+#
+# Tag policy (authoritative version source = the Git tag):
+#   stable:     v1.4.2            -> GHCR tags 1.4.2, 1.4, 1, latest
+#   prerelease: v1.5.0-rc.1       -> GHCR tag  1.5.0-rc.1 only (stable aliases untouched)
+# Supported prerelease suffixes: -rc.N, -beta.N, -alpha.N
+#
+# Every job checks out the EXACT tag commit (github.ref), never main.
+# Rerun-safe: concurrency group serialises runs per tag; `gh release upload
+# --clobber` makes asset publication idempotent; pushing an unchanged image
+# digest to GHCR is a no-op.
+#
+# Two-phase image publication: docker-publish pushes ONLY the exact version
+# tag. The mutable stable aliases (minor, major, latest) are promoted by the
+# promote job, which runs only after docker-publish, linux, AND attach
+# (bundles + SBOM published and verified) all succeed — a late failure can
+# never leave stable aliases pointing at an incompletely published release.
+# Prereleases have no aliases to promote.
+#
+# Third-party actions are pinned to full commit SHAs (version in trailing
+# comment); SBOM release-asset upload is disabled so the attach job owns
+# publication filenames and checksums.
+#
+# Architecture note: linux/amd64 images are build- AND smoke-tested on native
+# runners. linux/arm64 is BUILT (Buildx + QEMU) but smoke-tested only to the
+# extent CI emulation permits; it is never claimed as runtime-tested beyond
+# the build. The Python-source Linux bundles are arch-independent (native
+# wheels resolve at install time) and labelled per arch.
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/nethminayasas/openfy
+  REPO_SLUG: NethminaYasas/Openfy
+
+jobs:
+  # ---------------------------------------------------------------- resolve
+  resolve:
+    name: Resolve + validate tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.parse.outputs.tag }}
+      version: ${{ steps.parse.outputs.version }}
+      is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
+      major: ${{ steps.parse.outputs.major }}
+      minor: ${{ steps.parse.outputs.minor }}
+      sha: ${{ steps.parse.outputs.sha }}
+      docker_tags: ${{ steps.parse.outputs.docker_tags }}
+      alias_tags: ${{ steps.parse.outputs.alias_tags }}
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag and derive version
+        id: parse
+        shell: bash
+        env:
+          # Passed via the environment so the tag value is never expanded
+          # into script text before parse_release_tag validates it.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          source scripts/release/common.sh
+          TAG="${RELEASE_TAG}"
+          [[ -n "${TAG}" ]] || { echo "::error::Release event has no tag_name."; exit 1; }
+          parse_release_tag "${TAG}" || exit 1
+
+          # The checked-out commit must be the tag itself, not drifting main.
+          SHA="$(git rev-parse HEAD)"
+          TAG_SHA="$(git rev-list -n 1 "${OPENFY_TAG}")"
+          if [[ "${SHA}" != "${TAG_SHA}" ]]; then
+            echo "::error::Checked-out ${SHA} != tag ${OPENFY_TAG} (${TAG_SHA}). Refusing to build the wrong commit."
+            exit 1
+          fi
+
+          # The GitHub "prerelease" checkbox must agree with the tag suffix.
+          FLAG="${RELEASE_PRERELEASE}"
+          if [[ "${OPENFY_IS_PRERELEASE}" == "true" && "${FLAG}" != "true" ]]; then
+            echo "::error::Tag ${OPENFY_TAG} looks like a prerelease but the release is not marked as prerelease. Tick 'Set as a pre-release' or use a stable tag."
+            exit 1
+          fi
+          if [[ "${OPENFY_IS_PRERELEASE}" == "false" && "${FLAG}" == "true" ]]; then
+            echo "::error::Tag ${OPENFY_TAG} is stable but the release is marked as prerelease. Untick 'Set as a pre-release' or use a -rc.N/-beta.N/-alpha.N tag."
+            exit 1
+          fi
+
+          TAGS="$(docker_tags_for_release | tr '\n' ' ' | xargs)"
+          if [[ "${OPENFY_IS_PRERELEASE}" == "true" ]]; then
+            ALIASES=""
+          else
+            ALIASES="${OPENFY_MAJOR}.${OPENFY_MINOR} ${OPENFY_MAJOR} latest"
+          fi
+          echo "Release ${OPENFY_TAG}: version=${OPENFY_VERSION} prerelease=${OPENFY_IS_PRERELEASE} sha=${SHA} docker_tags='${TAGS}' aliases='${ALIASES}'"
+          {
+            echo "tag=${OPENFY_TAG}"
+            echo "version=${OPENFY_VERSION}"
+            echo "is_prerelease=${OPENFY_IS_PRERELEASE}"
+            echo "major=${OPENFY_MAJOR}"
+            echo "minor=${OPENFY_MINOR}"
+            echo "sha=${SHA}"
+            echo "docker_tags=${TAGS}"
+            echo "alias_tags=${ALIASES}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # -------------------------------------------------------------------- test
+  test:
+    name: Gate checks
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+          # Dependency install runs untrusted-adjacent code (git+https deps);
+          # do not leave a credential helper behind for it.
+          persist-credentials: false
+
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          pip install -r requirements.txt
+          pip install pytest ruff pyyaml
+
+      - name: Ruff check
+        shell: bash
+        run: ruff check server/
+
+      - name: Python syntax + import check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q server/app
+          cd server
+          python -c "import app.settings; print('settings import OK')"
+
+      - name: Existing + packaging tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          pytest --tb=short -q
+
+      - name: Shell script syntax (bash -n)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in scripts/release/*.sh scripts/linux/*.sh scripts/check_spotiflac_update.sh; do
+            if bash -n "$f"; then
+              echo "OK: $f"
+            else
+              echo "::error::Syntax error in $f"
+              exit 1
+            fi
+          done
+
+      - name: YAML validation (workflows + compose)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c "
+          import yaml, glob, sys
+          files = glob.glob('.github/workflows/*.yml') + ['docker-compose.yml', 'docker-compose.prod.yml']
+          assert files, 'no workflow/compose files found'
+          for f in files:
+              yaml.safe_load(open(f))
+              print('OK:', f)
+          "
+
+      - name: Build Linux bundles (exact tag commit)
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/*.sh scripts/linux/*.sh
+          rm -rf dist && mkdir -p dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-amd64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-arm64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          (cd dist && sha256sum openfy-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Validate release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/release/validate-release.sh --tag '${{ needs.resolve.outputs.tag }}' --dir dist --expect-commit '${{ needs.resolve.outputs.sha }}'
+
+  # ------------------------------------------------------------ docker-verify
+  docker-verify:
+    name: Docker build + smoke test (amd64)
+    runs-on: ubuntu-latest
+    needs: [resolve, test]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Build image (local, linux/amd64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f server/Dockerfile \
+            --build-arg OPENFY_VERSION='${{ needs.resolve.outputs.version }}' \
+            --build-arg OPENFY_REVISION='${{ needs.resolve.outputs.sha }}' \
+            --build-arg OPENFY_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t openfy:verify .
+
+      - name: Smoke test (start, health, frontend, files, writability, no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(python3 scripts/generate_hash.py)"
+          docker run -d --name openfy-verify -p 8000:8000 \
+            -e "OPENFY_ADMIN_USERNAME=admin" \
+            -e "OPENFY_ADMIN_HASH=${TOKEN}" \
+            -e "OPENFY_ALLOWED_ORIGINS=http://localhost:8000" \
+            openfy:verify
+          trap 'docker logs openfy-verify || true; docker rm -f openfy-verify >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 3 http://localhost:8000/health >/dev/null 2>&1; then
+              echo "Healthy after ~$((i * 2))s"
+              break
+            fi
+            sleep 2
+            if [[ "$i" -eq 30 ]]; then echo "::error::Container never became healthy."; docker logs openfy-verify; exit 1; fi
+          done
+          curl -fsS http://localhost:8000/health | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"'
+          echo "PASS: /health returns status ok"
+          curl -fsS http://localhost:8000/ | grep -qi 'openfy'
+          echo "PASS: frontend serves Openfy UI"
+          docker exec openfy-verify test -f /app/app/main.py
+          docker exec openfy-verify test -f /app/client/index.html
+          docker exec openfy-verify python -c "import fastapi, sqlalchemy, mutagen, PIL; print('deps OK')"
+          echo "PASS: required files + dependencies present"
+          docker exec openfy-verify touch /data/.write-test && docker exec openfy-verify rm /data/.write-test
+          echo "PASS: /data is writable"
+          # The baked-in /app/.env is the safe example: no real admin credential.
+          # [^[:space:]] (not .) so CRLF line endings cannot false-positive.
+          if docker exec openfy-verify grep -qE '^OPENFY_ADMIN_HASH=[^[:space:]]' /app/.env 2>/dev/null; then
+            echo "::error::Image embeds a real OPENFY_ADMIN_HASH."; exit 1
+          fi
+          echo "PASS: no admin credential embedded in image"
+          docker inspect openfy:verify --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' | grep -q '${{ needs.resolve.outputs.version }}'
+          echo "PASS: OCI version label matches release"
+
+  # ----------------------------------------------------------- docker-publish
+  docker-publish:
+    name: Publish multi-arch image to GHCR
+    runs-on: ubuntu-latest
+    needs: [resolve, test, docker-verify]
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up QEMU (arm64 emulation for build)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reuse published image when revision matches (reruns)
+        id: reuse
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          REF="ghcr.io/nethminayasas/openfy:${VERSION}"
+          REUSE="false"
+          # A rerun after a partial failure must not depend on a fresh
+          # multi-arch rebuild: if the exact version tag is already published
+          # from this same commit, reuse it and scan that digest instead.
+          if docker pull --quiet "${REF}" >/dev/null 2>&1; then
+            REV="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${REF}" 2>/dev/null || true)"
+            VER="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${REF}" 2>/dev/null || true)"
+            if [[ "${REV}" == "${EXPECTED_SHA}" && "${VER}" == "${VERSION}" ]]; then
+              echo "Reusing already-published ${REF} (revision verified); skipping rebuild."
+              REUSE="true"
+            else
+              echo "Existing ${REF} carries unexpected labels (revision=${REV:-none} version=${VER:-none}); rebuilding it."
+            fi
+          else
+            echo "Version tag not published yet; building."
+          fi
+          echo "reuse=${REUSE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Compute push tag (exact version only)
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Phase 1 publishes ONLY the immutable version tag. Stable aliases
+          # are promoted by the promote job after linux + attach succeed.
+          OUT="ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}"
+          echo "Pushing tag: ${OUT}"
+          echo "list=${OUT}" >> "${GITHUB_OUTPUT}"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build + push (linux/amd64, linux/arm64)
+        id: push
+        if: steps.reuse.outputs.reuse != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          build-args: |
+            OPENFY_VERSION=${{ needs.resolve.outputs.version }}
+            OPENFY_REVISION=${{ needs.resolve.outputs.sha }}
+            OPENFY_CREATED=${{ steps.tags.outputs.created }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SBOM (SPDX) for release assets
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}
+          format: spdx-json
+          output-file: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
+          # The action defaults upload-release-assets to true on release
+          # events; keep publication in the attach job so filenames and
+          # checksums stay under our control.
+          upload-release-assets: false
+
+      - name: Upload SBOM as workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom
+          path: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------- linux
+  linux:
+    name: Build Linux bundles
+    runs-on: ubuntu-latest
+    needs: [resolve, test]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Package linux-amd64 + linux-arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/release/*.sh scripts/linux/*.sh
+          rm -rf dist && mkdir -p dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-amd64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          scripts/release/package-linux.sh --tag '${{ needs.resolve.outputs.tag }}' --arch linux-arm64 --commit '${{ needs.resolve.outputs.sha }}' --out dist
+          (cd dist && sha256sum openfy-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          scripts/release/validate-release.sh --tag '${{ needs.resolve.outputs.tag }}' --dir dist --expect-commit '${{ needs.resolve.outputs.sha }}'
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-bundles
+          path: |
+            dist/openfy-*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------- attach
+  attach:
+    name: Attach assets + verify publication
+    runs-on: ubuntu-latest
+    needs: [resolve, docker-publish, linux]
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-bundles
+          path: stage
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sbom
+          path: stage
+
+      - name: Finalise checksum manifest + upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd stage
+          ls -la
+          # Flatten: artifact downloads may nest files one level deep.
+          find . -mindepth 2 \( -name 'openfy-*.tar.gz' -o -name 'openfy-*-sbom.spdx.json' \) -exec mv -t . {} + 2>/dev/null || true
+          ls -la
+          # SHA256SUMS must be generated from the FINAL files being uploaded.
+          rm -f SHA256SUMS
+          sha256sum openfy-*.tar.gz openfy-*-sbom.spdx.json > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+          # Idempotent publication: --clobber overwrites same-name assets so a
+          # rerun after partial failure converges instead of duplicating.
+          gh release upload "${TAG}" openfy-*.tar.gz SHA256SUMS openfy-*-sbom.spdx.json --clobber --repo "${{ env.REPO_SLUG }}"
+          echo "Assets uploaded. Current release assets:"
+          gh release view "${TAG}" --repo "${{ env.REPO_SLUG }}" --json assets --jq '.assets[].name'
+
+      - name: Verify release assets + GHCR tags
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          for asset in "openfy-v${VERSION}-linux-amd64.tar.gz" "openfy-v${VERSION}-linux-arm64.tar.gz" SHA256SUMS "openfy-v${VERSION}-sbom.spdx.json"; do
+            gh release view "${TAG}" --repo "${{ env.REPO_SLUG }}" --json assets --jq '.assets[].name' | grep -qx "${asset}" \
+              || { echo "::error::Release asset missing: ${asset}"; exit 1; }
+            echo "PASS: asset present: ${asset}"
+          done
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          # Phase 1 verification: only the exact version tag exists at this
+          # point. Stable aliases are verified by the promote job.
+          docker buildx imagetools inspect "ghcr.io/nethminayasas/openfy:${VERSION}" >/dev/null \
+            || { echo "::error::GHCR tag missing: ${VERSION}"; exit 1; }
+          echo "PASS: GHCR tag present: ${VERSION}"
+          if [[ "${{ needs.resolve.outputs.is_prerelease }}" == "true" ]]; then
+            echo "Prerelease confirmed: no stable aliases exist for this run."
+          else
+            echo "Stable aliases promote next, only after this verification passed."
+          fi
+          echo "Release ${TAG} assets published and verified."
+
+  # ------------------------------------------------------------------ promote
+  promote:
+    name: Promote stable aliases
+    runs-on: ubuntu-latest
+    needs: [resolve, docker-publish, attach]
+    # Stable aliases move only after the versioned image, Linux bundles, and
+    # SBOM are all published and verified. Prereleases have no aliases.
+    if: needs.resolve.outputs.is_prerelease == 'false'
+    # Serialise promotions across release tags. The per-alias version check
+    # below then guarantees an older release can never move an alias
+    # backwards past a newer release (serialization alone cannot promise
+    # version order when releases finish out of order).
+    concurrency:
+      group: openfy-promote-aliases
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote aliases at or below the released version (no rebuild)
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ALIASES: ${{ needs.resolve.outputs.alias_tags }}
+        run: |
+          set -euo pipefail
+          SRC="ghcr.io/nethminayasas/openfy:${VERSION}"
+          version_gte() {
+            # True if $1 >= $2 for numeric dotted versions (aliases track
+            # stable releases only, so no prerelease suffixes to compare).
+            [[ "$1" == "$2" ]] && return 0
+            [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" == "$1" ]]
+          }
+          # Prints the version recorded on an alias, and returns:
+          #   0 + version — alias exists with a recorded version
+          #   2, no output — alias confirmed missing (safe to create)
+          #   1 — anything else (network/auth/server/parse failure):
+          #       the caller aborts instead of guessing.
+          alias_version() {
+            local ref="$1" raw parsed
+            if ! raw="$(docker buildx imagetools inspect --raw "${ref}" 2>&1)"; then
+              if [[ "${raw}" == *"manifest unknown"* || "${raw}" == *"not found"* ]]; then
+                return 2
+              fi
+              echo "::error::Could not inspect alias ${ref}: ${raw}" >&2
+              return 1
+            fi
+            if ! parsed="$(python3 -c "import sys,json; print(json.load(sys.stdin).get('annotations',{}).get('org.opencontainers.image.version',''))" <<<"${raw}")"; then
+              echo "::error::Could not parse manifest for alias ${ref}." >&2
+              return 1
+            fi
+            printf '%s' "${parsed}"
+          }
+          for t in ${ALIASES}; do
+            ref="ghcr.io/nethminayasas/openfy:${t}"
+            current=""
+            status=0
+            current="$(alias_version "${ref}")" || status=$?
+            if [[ "${status}" -eq 2 ]]; then
+              echo "Alias ${t} does not exist yet; creating it at ${VERSION}."
+            elif [[ "${status}" -ne 0 ]]; then
+              echo "::error::Aborting promotion: current target of alias ${t} is unknown." >&2
+              exit 1
+            elif [[ -z "${current}" ]]; then
+              echo "::error::Alias ${t} exists but records no version (created outside this workflow); refusing to guess. Inspect or remove it manually, then rerun." >&2
+              exit 1
+            elif version_gte "${current}" "${VERSION}"; then
+              echo "SKIP: alias ${t} already points to ${current} (>= ${VERSION}); refusing to move it backwards."
+              continue
+            else
+              echo "Alias ${t} currently at ${current}; promoting to ${VERSION}."
+            fi
+            docker buildx imagetools create \
+              --annotation "index:org.opencontainers.image.version=${VERSION}" \
+              -t "${ref}" "${SRC}"
+            docker buildx imagetools inspect "${ref}" >/dev/null \
+              || { echo "::error::GHCR alias missing after promotion: ${t}"; exit 1; }
+            echo "PASS: GHCR alias live: ${t} -> ${VERSION}"
+          done
