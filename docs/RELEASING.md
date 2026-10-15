@@ -34,7 +34,9 @@ For stable `v1.4.2`:
 - GHCR `ghcr.io/nethminayasas/openfy:1.4.2` is pushed first; the mutable
   aliases `:1.4`, `:1`, `:latest` are promoted to it only after the Linux
   bundles and SBOM are attached and verified (separate `promote` step, no
-  rebuild — a late failure can never move them).
+  rebuild — a late failure can never move them). Promotions are serialised
+  across tags and refuse to move an alias backwards: each alias records its
+  version, so an older release finishing late can never downgrade `latest`.
   (multi-arch `linux/amd64` + `linux/arm64`, with SBOM + provenance
   attestations; OCI `version`/`revision`/`source`/`licenses` labels).
 - Release assets: `openfy-v1.4.2-linux-amd64.tar.gz`,

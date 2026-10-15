@@ -128,6 +128,9 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
+          # Dependency install runs untrusted-adjacent code (git+https deps);
+          # do not leave a credential helper behind for it.
+          persist-credentials: false
 
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
@@ -167,7 +170,12 @@ jobs:
         run: |
           set -euo pipefail
           for f in scripts/release/*.sh scripts/linux/*.sh scripts/check_spotiflac_update.sh; do
-            bash -n "$f" && echo "OK: $f"
+            if bash -n "$f"; then
+              echo "OK: $f"
+            else
+              echo "::error::Syntax error in $f"
+              exit 1
+            fi
           done
 
       - name: YAML validation (workflows + compose)
@@ -449,6 +457,13 @@ jobs:
     # Stable aliases move only after the versioned image, Linux bundles, and
     # SBOM are all published and verified. Prereleases have no aliases.
     if: needs.resolve.outputs.is_prerelease == 'false'
+    # Serialise promotions across release tags. The per-alias version check
+    # below then guarantees an older release can never move an alias
+    # backwards past a newer release (serialization alone cannot promise
+    # version order when releases finish out of order).
+    concurrency:
+      group: openfy-promote-aliases
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
@@ -463,21 +478,42 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Point stable aliases at the released version (no rebuild)
+      - name: Promote aliases at or below the released version (no rebuild)
         shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ALIASES: ${{ needs.resolve.outputs.alias_tags }}
         run: |
           set -euo pipefail
-          SRC="ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}"
-          ARGS=""
-          for t in ${{ needs.resolve.outputs.alias_tags }}; do
-            ARGS="${ARGS} -t ghcr.io/nethminayasas/openfy:${t}"
-          done
-          # Intentional word splitting: ARGS is a list of -t flags.
-          # shellcheck disable=SC2086
-          docker buildx imagetools create ${ARGS} "${SRC}"
-          for t in ${{ needs.resolve.outputs.alias_tags }}; do
-            docker buildx imagetools inspect "ghcr.io/nethminayasas/openfy:${t}" >/dev/null \
+          SRC="ghcr.io/nethminayasas/openfy:${VERSION}"
+          version_gte() {
+            # True if $1 >= $2 for numeric dotted versions (aliases track
+            # stable releases only, so no prerelease suffixes to compare).
+            [[ "$1" == "$2" ]] && return 0
+            [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" == "$1" ]]
+          }
+          alias_version() {
+            # Version recorded on the alias at promotion time; empty when the
+            # alias does not exist yet or was created outside this workflow.
+            docker buildx imagetools inspect --raw "$1" 2>/dev/null | python3 -c \
+              "import sys,json; print(json.load(sys.stdin).get('annotations',{}).get('org.opencontainers.image.version',''))" 2>/dev/null || true
+          }
+          for t in ${ALIASES}; do
+            ref="ghcr.io/nethminayasas/openfy:${t}"
+            current="$(alias_version "${ref}")"
+            if [[ -n "${current}" ]]; then
+              if version_gte "${current}" "${VERSION}"; then
+                echo "SKIP: alias ${t} already points to ${current} (>= ${VERSION}); refusing to move it backwards."
+                continue
+              fi
+              echo "Alias ${t} currently at ${current}; promoting to ${VERSION}."
+            else
+              echo "Alias ${t} has no recorded version (first promotion); creating it at ${VERSION}."
+            fi
+            docker buildx imagetools create \
+              --annotation "org.opencontainers.image.version=${VERSION}" \
+              -t "${ref}" "${SRC}"
+            docker buildx imagetools inspect "${ref}" >/dev/null \
               || { echo "::error::GHCR alias missing after promotion: ${t}"; exit 1; }
-            echo "PASS: GHCR alias live: ${t}"
+            echo "PASS: GHCR alias live: ${t} -> ${VERSION}"
           done
-          echo "Stable aliases promoted for ${SRC}."

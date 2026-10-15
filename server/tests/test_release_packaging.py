@@ -268,7 +268,13 @@ def test_stable_aliases_promote_only_after_attach():
     assert "is_prerelease" in promote.get("if", "")
     run = "\n".join(str(s.get("run", "")) for s in promote["steps"])
     assert "imagetools create" in run
-    assert "alias_tags" in run
+    promote_step = next(s for s in promote["steps"] if "imagetools create" in str(s.get("run", "")))
+    assert "alias_tags" in str(promote_step.get("env", {}).get("ALIASES", ""))
+    # Promotions are serialised across tags and never move an alias backwards.
+    concurrency = promote.get("concurrency", {})
+    group = concurrency.get("group", "") if isinstance(concurrency, dict) else str(concurrency)
+    assert "promote" in group and "alias" in group
+    assert "annotation" in run and "version_gte" in run
     # Phase 1 publishes the exact version tag only.
     publish = next(
         s for s in jobs["docker-publish"]["steps"]
@@ -287,6 +293,23 @@ def test_sbom_release_upload_owned_by_attach():
     # The action defaults upload-release-assets to true on release events;
     # publication must stay in the attach job (controlled filenames).
     assert sbom["with"].get("upload-release-assets") is False
+
+
+def test_checkout_does_not_persist_credentials():
+    def checkout_steps(path, job):
+        doc = yaml.safe_load((REPO_ROOT / path).read_text())
+        return [
+            s for s in doc["jobs"][job]["steps"]
+            if str(s.get("uses", "")).startswith("actions/checkout@")
+        ]
+
+    for path, job in ((".github/workflows/ci.yml", "packaging"),
+                      (".github/workflows/release.yml", "test")):
+        steps = checkout_steps(path, job)
+        assert steps, f"no checkout step in {path}:{job}"
+        for step in steps:
+            # The persisted token would be reachable from job scripts.
+            assert step.get("with", {}).get("persist-credentials") is False, path
 
 
 def test_prod_compose_uses_pinned_ghcr_image():
