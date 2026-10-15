@@ -187,11 +187,10 @@ credentials on upgrades, repairs, or status checks, and never overwrites an
 existing config.
 
 Rotate the credential explicitly (backs up the config, prints the new secret
-once, keeps everything else):
+once, restarts the service automatically to apply it, keeps everything else):
 
 ```bash
 sudo /opt/openfy/install.sh --rotate-credential
-sudo systemctl restart openfy   # the old credential stops working here
 ```
 
 If you lose the printed credential, root can still read it as

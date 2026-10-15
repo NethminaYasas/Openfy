@@ -72,6 +72,7 @@ ROTATE_CREDENTIAL="false"
 NO_INSTALL_DEPS="false"
 REPAIR="false"
 PENDING_ADMIN_CREDENTIAL=""
+CONFIG_STATE=""
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -104,6 +105,15 @@ parse_args() {
 SCRIPT_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log()  { echo "[openfy-install] $*"; }
 die()  { echo "[openfy-install] ERROR: $*" >&2; exit 1; }
+
+# Minimal color support for the final screens only (TTY-only; pipes and
+# automation always see plain text). Evaluated at source time with no output.
+_ui_has_color="false"; _ui_bold=""; _ui_dim=""; _ui_green=""; _ui_yellow=""; _ui_reset=""
+if [[ -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]] && [[ -t 1 && -t 2 ]]; then
+    _ui_reset=$'\e[0m'; _ui_bold=$'\e[1m'; _ui_dim=$'\e[2m'
+    _ui_green=$'\e[32m'; _ui_yellow=$'\e[33m'
+    _ui_has_color="true"
+fi
 
 require_root() {
     if [[ "$(id -u)" -ne 0 ]]; then
@@ -288,7 +298,11 @@ print_credential_once() {
     local credential="$1"
     echo ""
     echo "=================================================================="
-    echo "  INITIAL ADMIN CREDENTIAL (generated now, shown ONCE)"
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s%s\n' "${_ui_bold}" "${_ui_green}" "  INITIAL ADMIN CREDENTIAL (generated now, shown ONCE)" "${_ui_reset}"
+    else
+        echo "  INITIAL ADMIN CREDENTIAL (generated now, shown ONCE)"
+    fi
     echo "  User: ${2:-${ADMIN_USER}}"
     echo "  Credential: ${credential}"
     echo "  Save it in a password manager. It CANNOT be recovered if lost;"
@@ -306,6 +320,41 @@ publish_credential() {
         ( umask 077; printf '%s\n%s\n' "${username}" "${credential}" > "${OPENFY_CREDENTIAL_OUTPUT_FILE}" )
     else
         print_credential_once "${credential}" "${username}"
+    fi
+}
+
+# print_credential_notice : loud end-of-install guidance when no new
+# credential was generated, so a finished install never leaves the operator
+# wondering where the credential is. Never prints any secret.
+print_credential_notice() {
+    # Repairs and bootstrap-delegated runs have their own messaging.
+    if [[ "${REPAIR}" == "true" ]]; then return 0; fi
+    if [[ -n "${OPENFY_CREDENTIAL_OUTPUT_FILE:-}" ]]; then return 0; fi
+    if [[ "${CONFIG_STATE}" == "empty" ]]; then
+        echo ""
+        echo "=================================================================="
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%s%s%s%s\n' "${_ui_bold}" "${_ui_yellow}" "  NO ADMIN CREDENTIAL IS CONFIGURED" "${_ui_reset}"
+        else
+            echo "  NO ADMIN CREDENTIAL IS CONFIGURED"
+        fi
+        echo "  OPENFY_ADMIN_HASH is empty (--no-generate-credential was used)."
+        echo "  Generate one and store it, then restart the service:"
+        echo "    sudo ${APP_DIR}/venv/bin/python ${APP_DIR}/generate_hash.py"
+        echo "    (paste the printed value into ${ENV_FILE} as OPENFY_ADMIN_HASH)"
+        echo "    sudo systemctl restart ${SERVICE_NAME}"
+        echo "  Or rotate to a fresh one (prints once):"
+        echo "    sudo ${APP_DIR}/install.sh --rotate-credential"
+        echo "=================================================================="
+        echo ""
+    elif [[ "${CONFIG_STATE}" == "preserved" ]]; then
+        echo ""
+        echo "  NOTE: the existing admin credential was kept (credentials are"
+        echo "  only ever displayed once, when first generated)."
+        echo "  If you have lost it, generate a new one - the service restarts"
+        echo "  automatically to apply it (prints once):"
+        echo "    sudo ${APP_DIR}/install.sh --rotate-credential"
+        echo ""
     fi
 }
 
@@ -390,10 +439,12 @@ create_dirs() {
 
 install_config() {
     PENDING_ADMIN_CREDENTIAL=""
+    CONFIG_STATE=""
     if [[ -f "${ENV_FILE}" ]]; then
         log "Existing config ${ENV_FILE} preserved (not overwritten; credentials untouched and never printed)."
         chown root:"${SERVICE_USER}" "${ENV_FILE}"
         chmod 640 "${ENV_FILE}"
+        CONFIG_STATE="preserved"
         return
     fi
     local admin_hash=""
@@ -403,12 +454,15 @@ install_config() {
             || die "OPENFY_ADMIN_HASH_VALUE has an invalid format (expected of1_... from generate_hash.py); refusing to write a bad credential."
         admin_hash="${OPENFY_ADMIN_HASH_VALUE}"
         log "Using administrator credential supplied via OPENFY_ADMIN_HASH_VALUE (not shown)."
+        CONFIG_STATE="supplied"
     elif [[ "${NO_GENERATE_CREDENTIAL}" == "true" ]]; then
         log "Leaving OPENFY_ADMIN_HASH empty (--no-generate-credential). Set it manually, then restart the service."
+        CONFIG_STATE="empty"
     else
         admin_hash="$(generate_credential)"
         valid_credential "${admin_hash}" || die "generated credential failed validation (internal error)."
         generated="true"
+        CONFIG_STATE="generated"
     fi
     log "Writing default configuration to ${ENV_FILE}."
     mkdir -p "${CONFIG_DIR}"
@@ -482,10 +536,56 @@ rotate_credential() {
     chown root:"${SERVICE_USER}" "${ENV_FILE}"
     chmod 640 "${ENV_FILE}"
     log "Previous config backed up at ${backup}."
-    log "Restart the service to apply: sudo systemctl restart ${SERVICE_NAME} (the OLD credential stops working then)."
+    log "New credential stored; the service restarts next to apply it (the OLD credential stops working then)."
     local username
     username="$(grep -E '^OPENFY_ADMIN_USERNAME=' "${ENV_FILE}" | cut -d= -f2- || true)"
     publish_credential "${fresh}" "${username}"
+}
+
+# service_port_from_unit : print the port from the installed systemd unit,
+# falling back to 8000 when the unit is missing or unparsable.
+service_port_from_unit() {
+    local p=""
+    p="$(grep -oE -- '--port [0-9]+' "${SYSTEMD_DIR}/${SERVICE_NAME}.service" 2>/dev/null | awk '{print $2}' | head -n 1 || true)"
+    if valid_port "${p}"; then
+        printf '%s' "${p}"
+    else
+        printf '8000'
+    fi
+}
+
+# wait_for_app_health <port> : bounded poll of /health (same probe as
+# start_and_healthcheck). Returns nonzero when the app never responds.
+wait_for_app_health() {
+    local port="$1" attempt=0
+    while [[ "${attempt}" -lt 15 ]]; do
+        if "${APP_DIR}/venv/bin/python" -c "import urllib.request;urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+    return 1
+}
+
+# restart_service_for_credential : apply a freshly rotated credential by
+# restarting the service now. The config on disk is already updated, so a
+# failed restart or an unhealthy app is fatal with an explicit manual
+# recovery command.
+restart_service_for_credential() {
+    log "Restarting '${SERVICE_NAME}' to apply the new credential."
+    systemctl restart "${SERVICE_NAME}" \
+        || die "credential was rotated, but 'systemctl restart ${SERVICE_NAME}' failed. Finish manually: sudo systemctl restart ${SERVICE_NAME} (then check: sudo systemctl status ${SERVICE_NAME})."
+    sleep 2
+    systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null \
+        || die "credential was rotated, but '${SERVICE_NAME}' is not active after restart. Check: sudo systemctl status ${SERVICE_NAME} ; sudo journalctl -u ${SERVICE_NAME} -n 100"
+    local port
+    port="$(service_port_from_unit)"
+    if wait_for_app_health "${port}"; then
+        log "Service '${SERVICE_NAME}' is healthy. The new credential is live; the old one no longer works."
+    else
+        die "credential was rotated and '${SERVICE_NAME}' is active, but the app is not responding at http://localhost:${port}/health. Check: sudo journalctl -u ${SERVICE_NAME} -n 100"
+    fi
 }
 
 repair_install() {
@@ -580,6 +680,7 @@ main() {
         [[ -f "${ENV_FILE}" ]] || die "no config at ${ENV_FILE}; nothing to rotate (fresh installs generate a credential automatically)."
         create_user
         rotate_credential
+        restart_service_for_credential
         return
     fi
     if [[ "${REPAIR}" == "true" ]]; then
@@ -614,6 +715,8 @@ main() {
     if [[ -n "${PENDING_ADMIN_CREDENTIAL}" ]]; then
         publish_credential "${PENDING_ADMIN_CREDENTIAL}"
         PENDING_ADMIN_CREDENTIAL=""
+    else
+        print_credential_notice
     fi
 }
 

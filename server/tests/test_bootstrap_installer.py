@@ -838,6 +838,8 @@ def test_bootstrap_rotation_reports_persisted_username(tmp_path, stored_username
 require_root() {{ return 0; }}
 create_user() {{ return 0; }}
 chown() {{ return 0; }}
+systemctl() {{ return 0; }}
+wait_for_app_health() {{ return 0; }}
 generate_credential() {{ echo of1_{'a' * 60}; }}
 main "$@"
 """, encoding="utf-8")
@@ -967,6 +969,8 @@ ENV_FILE="${{CONFIG_DIR}}/openfy.env"
 require_root() {{ return 0; }}
 create_user() {{ echo USER_CHECKED; }}
 chown() {{ return 0; }}
+systemctl() {{ return 0; }}
+wait_for_app_health() {{ return 0; }}
 generate_credential() {{ echo of1_{'a' * 60}; }}
 check_os() {{ die 'unexpected install'; }}
 main --rotate-credential
@@ -1185,3 +1189,187 @@ def test_docs_document_one_line_installer():
     assert "--yes --version 1.4.2" in linux_doc
     assert "--rotate-credential" in linux_doc
     assert "--action" in linux_doc and "repair" in linux_doc
+
+
+# ------------------------------------------------------- missing credentials
+
+
+def test_bundle_preserved_config_prints_rotate_hint_without_leaking(tmp_path):
+    """A finished install that kept an existing config must say so loudly.
+
+    Regression test: previously the install completed with no credential
+    shown and no recovery hint, leaving operators locked out.
+    """
+    bash = _need_bash()
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    secret = "of1_" + "b" * 60
+    (cfg / "openfy.env").write_text(
+        f"OPENFY_ADMIN_USERNAME=savedadmin\nOPENFY_ADMIN_HASH={secret}\n",
+        encoding="utf-8",
+    )
+    script = f"""{_func_stub("chown", "return 0")}
+{_bundle_prelude()}
+APP_DIR="{_m(tmp_path / 'app')}"
+DATA_DIR="{_m(tmp_path / 'data')}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+unset OPENFY_CREDENTIAL_OUTPUT_FILE
+REPAIR="false"
+install_config >/dev/null
+OUT="$(print_credential_notice)"
+echo "$OUT"
+[[ "$OUT" == *"rotate-credential"* ]] && echo HINT_OK || echo HINT_MISSING"""
+    proc = _run_bash(bash, script)
+    assert proc.returncode == 0, proc.stderr
+    assert "HINT_OK" in proc.stdout, proc.stdout
+    assert secret not in proc.stdout
+    assert "of1_" not in proc.stdout
+
+
+def test_bundle_credential_notice_stays_silent_for_repairs_and_delegates(tmp_path):
+    bash = _need_bash()
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "openfy.env").write_text("OPENFY_ADMIN_HASH=of1_" + "b" * 60 + "\n", encoding="utf-8")
+    script = f"""{_func_stub("chown", "return 0")}
+{_bundle_prelude()}
+APP_DIR="{_m(tmp_path / 'app')}"
+DATA_DIR="{_m(tmp_path / 'data')}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+install_config >/dev/null
+REPAIR="true"
+unset OPENFY_CREDENTIAL_OUTPUT_FILE
+[[ -z "$(print_credential_notice)" ]] && echo REPAIR_SILENT || echo REPAIR_NOISY
+REPAIR="false"
+OPENFY_CREDENTIAL_OUTPUT_FILE="{_m(tmp_path / 'handoff')}"
+[[ -z "$(print_credential_notice)" ]] && echo DELEGATE_SILENT || echo DELEGATE_NOISY"""
+    proc = _run_bash(bash, script)
+    assert proc.returncode == 0, proc.stderr
+    assert "REPAIR_SILENT" in proc.stdout, proc.stdout
+    assert "DELEGATE_SILENT" in proc.stdout, proc.stdout
+
+
+def test_bundle_no_generate_credential_prints_setup_hint(tmp_path):
+    bash = _need_bash()
+    cfg = tmp_path / "cfg"
+    script = f"""{_func_stub("chown", "return 0")}
+{_bundle_prelude()}
+APP_DIR="{_m(tmp_path / 'app')}"
+DATA_DIR="{_m(tmp_path / 'data')}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+NO_GENERATE_CREDENTIAL="true"
+unset OPENFY_ADMIN_HASH_VALUE
+unset OPENFY_CREDENTIAL_OUTPUT_FILE
+REPAIR="false"
+install_config >/dev/null
+OUT="$(print_credential_notice)"
+echo "$OUT"
+[[ "$OUT" == *"NO ADMIN CREDENTIAL IS CONFIGURED"* ]] && echo SETUP_HINT_OK || echo SETUP_HINT_MISSING"""
+    proc = _run_bash(bash, script)
+    assert proc.returncode == 0, proc.stderr
+    assert "SETUP_HINT_OK" in proc.stdout, proc.stdout
+    assert "of1_" not in proc.stdout
+
+
+def test_bootstrap_fresh_install_without_credential_warns_loudly(tmp_path):
+    """Fresh native install with no handoff must warn instead of staying silent."""
+    proc = _bash_eval(_need_bash(), f"""
+APP_DIR="{_m(tmp_path / 'app')}"
+require_root_native() {{ return 0; }}
+detect_os() {{ return 0; }}
+check_requirements_native() {{ return 0; }}
+install_system_deps() {{ return 0; }}
+check_port_conflict() {{ return 0; }}
+detect_existing_install() {{ INSTALLED_VERSION=""; }}
+resolve_latest_stable() {{ RESOLVED_TAG=v9.9.9; RESOLVED_VERSION=9.9.9; }}
+download_release() {{ return 0; }}
+verify_download() {{ return 0; }}
+extract_and_validate() {{ echo /verified-bundle; }}
+run_native_delegate() {{
+    echo VERIFIED_BUNDLE_FINISHED
+}}
+main --yes --admin-user testadmin --arch linux-amd64
+""")
+    assert proc.returncode == 0, proc.stderr
+    assert "Openfy v9.9.9 installation complete." in proc.stdout
+    assert "NO NEW ADMIN CREDENTIAL WAS GENERATED" in proc.stdout
+    assert "openfy rotate-credential" in proc.stdout
+
+
+def test_bootstrap_summary_has_sections_and_next_steps(tmp_path):
+    """The final summary groups paths/commands and ends with next steps."""
+    credential = "of1_" + "a" * 60
+    proc = _bash_eval(_need_bash(), f"""
+APP_DIR="{_m(tmp_path / 'app')}"
+require_root_native() {{ return 0; }}
+detect_os() {{ return 0; }}
+check_requirements_native() {{ return 0; }}
+install_system_deps() {{ return 0; }}
+check_port_conflict() {{ return 0; }}
+detect_existing_install() {{ INSTALLED_VERSION=""; }}
+resolve_latest_stable() {{ RESOLVED_TAG=v9.9.9; RESOLVED_VERSION=9.9.9; }}
+download_release() {{ return 0; }}
+verify_download() {{ return 0; }}
+extract_and_validate() {{ echo /verified-bundle; }}
+run_native_delegate() {{
+    ( umask 077; printf '%s\\n%s\\n' testadmin "{credential}" > "${{WORK_DIR}}/admin-credential" )
+    echo VERIFIED_BUNDLE_FINISHED
+}}
+main --yes --admin-user testadmin --arch linux-amd64
+""")
+    assert proc.returncode == 0, proc.stderr
+    assert "Openfy v9.9.9 installation complete." in proc.stdout
+    assert "Where things live" in proc.stdout
+    assert "Manage the server" in proc.stdout
+    assert "Next steps" in proc.stdout
+    assert "  User: testadmin" in proc.stdout
+    assert proc.stdout.count(credential) == 1
+
+
+@pytest.mark.parametrize("health_ok", [True, False])
+@pytest.mark.parametrize("restart_ok", [True, False])
+def test_bundle_rotation_restarts_service_automatically(tmp_path, restart_ok, health_ok):
+    """Rotation restarts the service and verifies app health; failures are explicit."""
+    bash = _need_bash()
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    before = "of1_" + "b" * 60
+    (cfg / "openfy.env").write_text(f"OPENFY_ADMIN_HASH={before}\n", encoding="utf-8")
+    rc = 0 if restart_ok else 1
+    hc = 0 if health_ok else 1
+    script = f"""{_func_stub("chown", "return 0")}
+{_bundle_prelude()}
+APP_DIR="{_m(tmp_path / 'app')}"
+DATA_DIR="{_m(tmp_path / 'data')}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+require_root() {{ return 0; }}
+create_user() {{ return 0; }}
+generate_credential() {{ echo of1_{'a' * 60}; }}
+systemctl() {{
+    echo "SYSTEMCTL:$*"
+    if [[ "$1" == "restart" ]]; then return {rc}; fi
+    return 0
+}}
+wait_for_app_health() {{ echo "HEALTH_CHECK:$1"; return {hc}; }}
+main --rotate-credential
+"""
+    proc = _run_bash(bash, script)
+    # The config rotation itself always lands, even if restart/health fails.
+    after = (cfg / "openfy.env").read_text()
+    assert "of1_" + "a" * 60 in after, after
+    assert before not in after
+    assert "SYSTEMCTL:restart openfy" in proc.stdout, proc.stdout
+    if restart_ok and health_ok:
+        assert proc.returncode == 0, proc.stderr
+        assert "HEALTH_CHECK:" in proc.stdout, proc.stdout
+        assert "new credential is live" in proc.stdout, proc.stdout
+    elif not restart_ok:
+        assert proc.returncode != 0
+        assert "credential was rotated, but" in proc.stderr, proc.stderr
+    else:
+        assert proc.returncode != 0
+        assert "not responding" in proc.stderr, proc.stderr
