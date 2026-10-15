@@ -663,6 +663,103 @@ echo "HASH2=$(grep -E '^OPENFY_ADMIN_HASH=' "${{ENV_FILE}}" | cut -d= -f2-)" """
     assert stored and stored.group(1) in first
 
 
+
+@pytest.mark.parametrize("outcome", ["success", "no_start", "dependencies_fail", "health_fail", "existing", "supplied"])
+@pytest.mark.parametrize("defer", [False, True])
+def test_fresh_credentials_only_appear_after_success(tmp_path, outcome, defer):
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    credential = "of1_" + "a" * 60
+    if outcome == "existing":
+        (cfg / "openfy.env").write_text(f"OPENFY_ADMIN_HASH={credential}\n")
+    handoff = tmp_path / "handoff"
+    stubs = "\n".join(
+        f"{name}() {{ return 0; }}"
+        for name in ["require_root", "resolve_port", "check_os", "check_bundle_arch", "check_systemd",
+                     "install_system_deps", "check_python", "check_port", "check_existing", "create_user",
+                     "install_files", "create_dirs", "install_service", "install_cli", "chown"]
+    )
+    proc = _run_bash(_need_bash(), f"""{_bundle_prelude()}
+APP_DIR="{_m(tmp_path / 'app')}"
+CONFIG_DIR="{_m(cfg)}"
+ENV_FILE="${{CONFIG_DIR}}/openfy.env"
+OPENFY_CREDENTIAL_OUTPUT_FILE="{_m(handoff) if defer else ''}"
+OPENFY_ADMIN_HASH_VALUE="{credential if outcome == 'supplied' else ''}"
+{stubs}
+generate_credential() {{ echo "{credential}"; }}
+install_venv() {{ echo DEPENDENCIES; {'die dependency-failed' if outcome == 'dependencies_fail' else ':'}; }}
+validate_install() {{ echo VALIDATED; }}
+start_and_healthcheck() {{ echo HEALTH_CHECK; {'die health-failed' if outcome == 'health_fail' else ':'}; }}
+main --admin-user testadmin {'--no-start' if outcome == 'no_start' else ''}
+""")
+    failed = outcome.endswith("fail")
+    assert (proc.returncode != 0) == failed, proc.stderr
+    if failed or outcome in ["existing", "supplied"]:
+        assert credential not in proc.stdout
+        assert not handoff.exists()
+    elif defer:
+        assert credential not in proc.stdout
+        assert handoff.read_text() == f"testadmin\n{credential}\n"
+        assert handoff.stat().st_mode & 0o777 == 0o600
+    else:
+        assert proc.stdout.count(credential) == 1
+        assert proc.stdout.index(credential) > proc.stdout.index("HEALTH_CHECK")
+        assert proc.stdout.index(credential) > proc.stdout.index("Install complete.")
+        assert "  User: testadmin" in proc.stdout
+        assert "Manage the server" not in proc.stdout.split(credential, 1)[1]
+
+
+def test_bootstrap_prints_new_credential_after_summary_and_only_once(tmp_path):
+    credential = "of1_" + "a" * 60
+    proc = _bash_eval(_need_bash(), f"""
+APP_DIR="{_m(tmp_path / 'app')}"
+require_root_native() {{ return 0; }}
+detect_os() {{ return 0; }}
+check_requirements_native() {{ return 0; }}
+install_system_deps() {{ return 0; }}
+check_port_conflict() {{ return 0; }}
+detect_existing_install() {{ INSTALLED_VERSION=""; }}
+resolve_latest_stable() {{ RESOLVED_TAG=v9.9.9; RESOLVED_VERSION=9.9.9; }}
+download_release() {{ return 0; }}
+verify_download() {{ return 0; }}
+extract_and_validate() {{ echo /verified-bundle; }}
+run_native_delegate() {{
+    ( umask 077; printf '%s\n%s\n' testadmin "{credential}" > "${{WORK_DIR}}/admin-credential" )
+    echo VERIFIED_BUNDLE_FINISHED
+}}
+main --yes --admin-user testadmin --arch linux-amd64
+print_deferred_credential
+[[ ! -e "${{WORK_DIR}}/admin-credential" ]] || exit 2
+""")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.count(credential) == 1
+    assert proc.stdout.index(credential) > proc.stdout.index("Openfy v9.9.9 installation complete.")
+    assert proc.stdout.index(credential) > proc.stdout.index("VERIFIED_BUNDLE_FINISHED")
+    assert "  User: testadmin" in proc.stdout
+
+
+@pytest.mark.parametrize("explicit_port", [False, True])
+def test_verified_bundle_passes_credential_to_final_bootstrap_output(tmp_path, explicit_port):
+    credential = "of1_" + "a" * 60
+    staged = tmp_path / "bundle"
+    staged.mkdir()
+    (staged / "install.sh").write_text(
+        f'{_bundle_prelude()}\npublish_credential "{credential}" testadmin\necho BUNDLE_FINISHED\n',
+    )
+    proc = _bash_eval(_need_bash(), f"""
+new_workdir
+ADMIN_USER=testadmin
+PORT_EXPLICIT={'true' if explicit_port else 'false'}
+run_native_delegate "{_m(staged)}" install 9.9.9 ""
+[[ -f "${{WORK_DIR}}/admin-credential" ]] || exit 2
+print_native_summary 9.9.9
+print_deferred_credential
+""")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.count(credential) == 1
+    assert proc.stdout.index(credential) > proc.stdout.index("BUNDLE_FINISHED")
+    assert proc.stdout.index(credential) > proc.stdout.index("Openfy v9.9.9 installation complete.")
+
 def test_credential_rotation(tmp_path):
     bash = _need_bash()
     cfg = tmp_path / "cfg"
@@ -1081,8 +1178,10 @@ def test_explicit_prerelease_needs_opt_in_noninteractive(tmp_path):
 def test_docs_document_one_line_installer():
     readme = (REPO_ROOT / "README.md").read_text()
     assert "raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh" in readme
-    assert "bash install.sh v1.4.2" in readme
-    assert "--yes --version 1.4.2" in readme
+    assert "bash <(curl -fsSL " in readme
+    assert "raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh" in readme
     linux_doc = (REPO_ROOT / "docs" / "LINUX_INSTALL.md").read_text()
+    assert "bash install.sh v1.4.2" in linux_doc
+    assert "--yes --version 1.4.2" in linux_doc
     assert "--rotate-credential" in linux_doc
     assert "--action" in linux_doc and "repair" in linux_doc

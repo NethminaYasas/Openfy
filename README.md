@@ -2,170 +2,125 @@
 
 A self-hosted music streaming platform.
 
-## Prerequisites
-
-- For the one-line / bare-metal install: a fresh supported Linux server —
-  current **Ubuntu or Debian** (other systemd distros with
-  `--allow-unsupported-os`), CPU **x86-64 (`linux-amd64`)** or
-  **ARM64 (`linux-arm64`)**, **Python 3.11+**, `ffmpeg`, systemd, root access,
-  and internet access during installation. System packages are installed
-  automatically via apt/dnf/yum/pacman/zypper unless `--no-install-deps` is
-  given.
-- For Docker install: Docker and Docker Compose.
-- For manual setup: Python 3.11+.
-
-## Quick Start (one-line installer, bare-metal Linux, no Docker)
-
-Install the latest stable release (interactive wizard — guides you through
-method, version, admin account, and dependencies; native installs need a
-root shell — sudo users use the download-first command below):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
-```
-
-Install an exact version instead (installs **exactly** this version — check
-the [Releases page](https://github.com/NethminaYasas/Openfy/releases) for
-published versions; `v1.4.2` below is an example of the `vMAJOR.MINOR.PATCH`
-tag convention):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh v1.4.2
-```
-
-Or download the script first, then run it as root (same behaviour):
-
-```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh
-sudo bash install.sh v1.4.2
-```
-
-Non-interactive (automation):
-
-```bash
-sudo bash install.sh --yes                                    # latest stable
-sudo bash install.sh --yes --version 1.4.2                    # pinned version
-sudo bash install.sh --yes --method docker --version 1.4.2    # Docker instead
-```
-
-The installer detects your OS/architecture, resolves the release from the
-official GitHub repository, downloads the archive for your CPU plus
-`SHA256SUMS`, **verifies the checksum before executing anything from the
-bundle**, installs the app to `/opt/openfy`, writes config to
-`/etc/openfy/openfy.env`, keeps data in `/var/lib/openfy/`, creates the
-`openfy` systemd service, generates the initial admin credential (shown
-**once** — save it), and health-checks the service. Rerunning is safe:
-existing config, credentials, and data are preserved. A requested version
-that is missing, a draft, or lacks assets is a fatal error — the installer
-never silently substitutes another version.
-
-See `install.sh --help` for all options (`--action upgrade|repair|reinstall|
-uninstall`, `--admin-user`, `--no-start`, `--purge`, `--dry-run`, ...).
-
-Manual alternative (no bootstrap): download
-`openfy-vVERSION-linux-amd64.tar.gz` (x86-64) or
-`openfy-vVERSION-linux-arm64.tar.gz` (ARM64) plus `SHA256SUMS` from the
-[Releases page](https://github.com/NethminaYasas/Openfy/releases), then:
-
-```bash
-sha256sum -c --ignore-missing SHA256SUMS   # every downloaded file must report OK
-tar -xzf openfy-vVERSION-linux-amd64.tar.gz
-cd openfy-vVERSION-linux-amd64
-sudo ./install.sh
-```
-
-For local access, visit `http://localhost:8000`. For remote access, use a
-TLS-terminating reverse proxy and visit its `https://` URL — do not expose
-port 8000 directly to remote clients. Sign in with your admin credential in
-the Auth Hash field.
-
-Full guide — wizard options, non-interactive flags, configuration, systemd
-service commands, credential rotation, upgrades, repair, safe uninstall,
-data locations, backups, troubleshooting:
-[`docs/LINUX_INSTALL.md`](docs/LINUX_INSTALL.md).
-
 ## Installation
 
-### Option A — Bare-metal Linux without Docker (recommended)
+### Linux (recommended)
 
-Use the one-line installer above. No Docker, no Node.js. App lives in
-`/opt/openfy`, config in `/etc/openfy/openfy.env`, data in
-`/var/lib/openfy/` (database, music, downloads, artwork) — config and data
-survive updates, repairs, reinstalls, and normal uninstalls.
-
-### Option B — Docker, published image
-
-No build needed. Pin a released version (see the
-[Releases page](https://github.com/NethminaYasas/Openfy/releases)):
+On a fresh Ubuntu or Debian server (x86-64 or ARM64), run this in a **root
+Bash shell** (`sudo -i` if needed). Requires `curl` and internet access:
 
 ```bash
-cp .env.example .env   # fill in your values
-OPENFY_VERSION=1.4.2 docker compose -f docker-compose.prod.yml up -d
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
 ```
 
-Images: `ghcr.io/nethminayasas/openfy:1.4.2` (also `:1.4`, `:1`, `:latest`).
-Prefer an explicit version in production; `latest` moves on every stable
-release and prereleases (e.g. `1.5.0-rc.1`) never touch the stable aliases.
-Multi-arch: `linux/amd64` and `linux/arm64`.
+Follow the prompts to install the latest stable release. The installer sets
+up dependencies and the systemd service, verifies the release checksum, and
+generates your admin credential. **Save the credential shown at the end**
+and use it in the **Auth Hash** sign-in field (default username: `admin`).
 
-### Option C — Docker from source (development)
+To install a specific published version, append its tag:
 
 ```bash
-cp .env.example .env   # fill in your values
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v0.1.0
+```
+
+Replace `v0.1.0` with the release you want. Without a version, the installer
+offers the latest stable release.
+
+To manage or update your installation later:
+
+```bash
+sudo openfy
+```
+
+See the [Linux installation guide](docs/LINUX_INSTALL.md) for specific
+versions, automation, configuration, backups, and uninstall instructions.
+
+### Docker
+
+Install Docker with the Compose plugin, then run this in Bash:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install-docker.sh)
+```
+
+Open **http://localhost:8000** and sign in as `admin` with the **Auth Hash**
+printed by the installer. It creates `openfy/` with your config and data;
+no host Python is needed.
+
+<details>
+<summary>Manual Docker setup (alternative)</summary>
+
+For a fresh installation, copy and run this block. It generates and saves
+your admin credential automatically:
+
+```bash
+umask 077
+mkdir -p openfy/data && cd openfy
+curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/docker-compose.quick.yml -o docker-compose.yml
+docker pull ghcr.io/nethminayasas/openfy:latest
+docker run --rm --network none --entrypoint python ghcr.io/nethminayasas/openfy:latest \
+  -c 'import secrets; print("OPENFY_ADMIN_USERNAME=admin\nOPENFY_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000\nOPENFY_ADMIN_HASH=of1_" + secrets.token_urlsafe(45))' > .env
+docker compose up -d --wait --wait-timeout 120
+cat .env
+```
+
+Save the `OPENFY_ADMIN_HASH` shown at the end and use it to sign in as `admin`.
+Use the update commands below for an existing installation.
+
+</details>
+
+<details>
+<summary>Docker files, updates, and settings</summary>
+
+Both methods use the published image `ghcr.io/nethminayasas/openfy:latest`
+and create the same layout:
+
+```text
+openfy/
+├── docker-compose.yml
+├── .env                # admin credential and settings
+└── data/               # database, music, downloads, artwork
+```
+
+From your `openfy` directory:
+
+```bash
+docker compose logs -f                              # logs
+docker compose pull && docker compose up -d --wait   # update
+docker compose down                                 # stop; keeps data
+```
+
+The setup script can also update an installation when rerun from the same
+parent directory. It preserves existing config, credentials, and data.
+Pass an installation path after the script command to choose its directory.
+
+Edit `.env` to change allowed origins or add `OPENFY_PORT=9000` or
+`OPENFY_VERSION=0.1.0`, then run `docker compose up -d`.
+Back up `data/` and `.env` before updating.
+
+</details>
+
+### Open Openfy
+
+Visit **http://localhost:8000** on the host. For remote access, use a
+TLS-terminating reverse proxy and set `OPENFY_ALLOWED_ORIGINS` to its
+`https://` URL. The Docker setup binds port 8000 to the host's loopback
+interface; a proxy running in another container needs its own network setup.
+
+### Docker from source (development)
+
+From a cloned repository:
+
+```bash
+cp .env.example .env
+# Set OPENFY_ADMIN_HASH in .env using: python scripts/generate_hash.py
 docker compose up --build -d
 ```
-### Configuration and admin credentials
-
-Copy `.env.example` to `.env` and fill in your values before starting
-(Docker/manual setups).
-
-```bash
-python scripts/generate_hash.py   # paste the of1_... value as OPENFY_ADMIN_HASH
-```
-
-Native installs generate the initial admin credential automatically and print
-it **once** — save it in a password manager; it cannot be recovered, only
-rotated:
-
-```bash
-sudo /opt/openfy/install.sh --rotate-credential   # explicit; prints the new secret once
-sudo systemctl restart openfy
-```
-
-Bare-metal installs keep their config at `/etc/openfy/openfy.env` (mode
-`640`) and data at `/var/lib/openfy/` (database, music, downloads, artwork)
-— both survive updates, repairs, reinstalls, and normal uninstalls. Upgrades
-never print or change existing credentials.
-
-### Upgrading
-
-- One-line installer: rerun it and choose **Upgrade**, or non-interactively:
-  `sudo bash install.sh --yes --action upgrade --version 1.5.0`.
-- Bare-metal: `sudo /opt/openfy/update.sh --latest` (verifies checksums,
-  backs up config + database, rolls back on failure).
-- Docker (prod): set `OPENFY_VERSION` to the new release and
-  `docker compose -f docker-compose.prod.yml up -d`.
-
-### Repair, reinstall, and uninstall
-
-- Repair damaged application files from a verified bundle (data/config
-  untouched): choose **Repair** in the installer wizard, or
-  `sudo bash install.sh --yes --action repair`. In-place
-  `sudo /opt/openfy/install.sh --repair --no-start` only fixes
-  ownership/permissions, venv, and systemd unit (it does not restore
-  application files).
-- Reinstall application files (keeps data + config, asks first):
-  via the wizard (verified bundle). In-place
-  `sudo /opt/openfy/install.sh --force` does not restore files.
-- Uninstall (keeps data + config by default):
-  `sudo /opt/openfy/uninstall.sh`; permanent data removal needs explicit
-  `--purge` plus a second confirmation. Back up `/var/lib/openfy/openfy.db`
-  and `/var/lib/openfy/music/` before destructive operations. Rollback after
-  a failed upgrade is automatic (previous files restored, backup retained
-  under `/var/backups/openfy/`); database formats only move forward, so keep
-  the pre-upgrade backup.
 
 ## Manual Setup
+
+Requires Python 3.11+ and `ffmpeg`.
 
 ```bash
 git clone https://github.com/NethminaYasas/Openfy.git

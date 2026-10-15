@@ -878,9 +878,9 @@ run_native_delegate() {
             return
         fi
         if [[ "${PORT_EXPLICIT}" == "true" ]]; then
-            OPENFY_ADMIN_USERNAME="${ADMIN_USER}" OPENFY_PORT="${OPENFY_PORT}" bash "${staged_dir}/install.sh" "${args[@]}"
+            OPENFY_CREDENTIAL_OUTPUT_FILE="${WORK_DIR}/admin-credential" OPENFY_ADMIN_USERNAME="${ADMIN_USER}" OPENFY_PORT="${OPENFY_PORT}" bash "${staged_dir}/install.sh" "${args[@]}"
         else
-            OPENFY_ADMIN_USERNAME="${ADMIN_USER}" bash "${staged_dir}/install.sh" "${args[@]}"
+            OPENFY_CREDENTIAL_OUTPUT_FILE="${WORK_DIR}/admin-credential" OPENFY_ADMIN_USERNAME="${ADMIN_USER}" bash "${staged_dir}/install.sh" "${args[@]}"
         fi
     fi
 }
@@ -894,7 +894,8 @@ run_rotate_credential_delegate() {
         return
     fi
     require_root_native
-    OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
+    [[ -n "${WORK_DIR}" ]] || new_workdir
+    OPENFY_CREDENTIAL_OUTPUT_FILE="${WORK_DIR}/admin-credential" OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
         bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || die "credential rotation failed."
 }
 
@@ -1103,6 +1104,22 @@ EOF
     echo "  Update: rerun this installer with --version <new> (data in the openfy_data volume is kept)."
 }
 
+print_deferred_credential() {
+    [[ -n "${WORK_DIR}" && -f "${WORK_DIR}/admin-credential" ]] || return 0
+    local username credential
+    {
+        IFS= read -r username
+        IFS= read -r credential
+    } < "${WORK_DIR}/admin-credential"
+    valid_credential "${credential}" || die "invalid generated credential handoff."
+    rm -f "${WORK_DIR}/admin-credential"
+    echo ""
+    echo "  ADMIN CREDENTIAL (generated now, shown ONCE — save it securely)"
+    echo "  User: ${username}"
+    echo "  Credential: ${credential}"
+    echo "  Sign in with this value in the Auth Hash field."
+}
+
 print_native_summary() {
     local version="$1"
     echo ""
@@ -1119,8 +1136,7 @@ print_native_summary() {
     echo "  Manage:  sudo openfy   (TUI: status, logs, update/downgrade, port, credentials, repair, uninstall)"
     echo ""
     echo "Sign in with your admin credential in the Auth Hash field."
-    echo "If a credential was generated during this install, it was printed ONCE above —"
-    echo "save it now; it cannot be recovered, only rotated (see docs/LINUX_INSTALL.md)."
+    echo "Existing credentials are preserved unless you explicitly rotate them."
 }
 
 # ------------------------------------------------- main
@@ -1147,6 +1163,7 @@ main() {
         [[ "${METHOD}" != "docker" ]] || die "--rotate-credential requires a native installation."
         METHOD="native"
         run_rotate_credential_delegate
+        print_deferred_credential
         return
     fi
 
@@ -1290,6 +1307,7 @@ main() {
                 log "Already at version ${RESOLVED_VERSION}; nothing to do."
                 if [[ "${ROTATE_CREDENTIAL}" == "true" ]]; then
                     run_rotate_credential_delegate
+                    print_deferred_credential
                 fi
                 return
             fi
@@ -1347,6 +1365,7 @@ main() {
     fi
 
     print_native_summary "${RESOLVED_VERSION}"
+    print_deferred_credential
 }
 
 if [[ -z "${BASH_SOURCE[0]:-}" ]]; then

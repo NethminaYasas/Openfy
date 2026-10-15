@@ -19,6 +19,23 @@ archive for your CPU plus `SHA256SUMS`, **verifies the checksum before
 executing anything from the bundle**, then delegates to the verified
 bundle's installer:
 
+Run in a **root Bash shell** (`sudo -i` if needed), with `curl` installed:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh)
+```
+
+To install a specific published version, append its tag:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh) v0.1.0
+```
+
+Replace `v0.1.0` with the release you want. Without a version, the installer
+offers the latest stable release.
+
+For a downloaded copy or a specific version:
+
 ```bash
 # Latest stable release (interactive wizard; native installs need a root shell):
 curl -fsSL https://raw.githubusercontent.com/NethminaYasas/Openfy/main/install.sh -o install.sh && sudo bash install.sh
@@ -56,7 +73,7 @@ linux-amd64|linux-arm64`, `--no-install-deps`, `--no-generate-credential`,
 Full list: `bash install.sh --help`.
 
 On a fresh install the wizard asks for the admin username (default `admin`)
-and generates the initial admin credential automatically (printed **once** —
+and generates the initial admin credential automatically (printed **once** at the end of a successful install —
 save it in a password manager). Existing installs are detected and offered
 **Upgrade / Repair / Reinstall / Uninstall**; upgrades use the bundle's
 `update.sh` (config + database backup, rollback on failure), repairs
@@ -273,6 +290,21 @@ in a safe place.
   `sudo journalctl -u openfy -n 100`. Common causes: unset `OPENFY_ADMIN_HASH`
   is fine (server still starts), but a bad `OPENFY_DATABASE_URL` or a port
   already in use is not.
+- `pydantic-core` / PyO3 build fails on Python 3.14, or SQLAlchemy fails
+  while importing `typing.Union`: older releases pin dependencies that do
+  not support Python 3.14. The bootstrap downloads a published release archive
+  even when run from a repository checkout; changing the checkout does not
+  change an already published archive. For an installation that failed during
+  dependency setup, update its local pins and repair in place (keeps config and
+  data):
+
+  ```bash
+  sudo sed -i -e 's/^pydantic==2\.9\.2$/pydantic==2.12.5/' -e 's/^SQLAlchemy==2\.0\.36$/SQLAlchemy==2.0.54/' /opt/openfy/requirements.txt
+  sudo /opt/openfy/install.sh --repair
+  ```
+
+  Future installs and upgrades need a release containing these updated
+  requirements; reinstalling an older release restores its old pins.
 - `Python 3.x is too old`: install Python 3.11+ and rerun `install.sh`
   (it repairs the install without touching data/config).
 - `bundle arch ... does not match host`: you downloaded the wrong archive.
