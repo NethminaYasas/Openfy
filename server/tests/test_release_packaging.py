@@ -248,7 +248,7 @@ def test_release_workflow_wiring():
     assert "release" in triggers
     assert "published" in triggers["release"].get("types", [])
     jobs = doc["jobs"]
-    assert set(["resolve", "test", "docker-verify", "docker-publish", "linux", "attach"]) <= set(jobs)
+    assert set(["resolve", "test", "docker-verify", "docker-publish", "linux", "attach", "promote"]) <= set(jobs)
     # Exact tag commit everywhere, never main.
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "github.ref" in text
@@ -256,6 +256,37 @@ def test_release_workflow_wiring():
     assert "prerelease" in text.lower()
     # Least privilege: default read-only, publish jobs escalate explicitly.
     assert doc.get("permissions", {}).get("contents") == "read"
+
+
+def test_stable_aliases_promote_only_after_attach():
+    doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
+    jobs = doc["jobs"]
+    promote = jobs["promote"]
+    # Aliases move only after the versioned image, bundles, and SBOM publish.
+    assert "attach" in promote["needs"]
+    assert "docker-publish" in promote["needs"]
+    assert "is_prerelease" in promote.get("if", "")
+    run = "\n".join(str(s.get("run", "")) for s in promote["steps"])
+    assert "imagetools create" in run
+    assert "alias_tags" in run
+    # Phase 1 publishes the exact version tag only.
+    publish = next(
+        s for s in jobs["docker-publish"]["steps"]
+        if "exact version only" in str(s.get("name", "")).lower()
+    )
+    assert "needs.resolve.outputs.version" in publish["run"]
+    assert "alias_tags" not in publish["run"]
+
+
+def test_sbom_release_upload_owned_by_attach():
+    doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
+    sbom = next(
+        s for s in doc["jobs"]["docker-publish"]["steps"]
+        if str(s.get("name", "")).startswith("Generate SBOM")
+    )
+    # The action defaults upload-release-assets to true on release events;
+    # publication must stay in the attach job (controlled filenames).
+    assert sbom["with"].get("upload-release-assets") is False
 
 
 def test_prod_compose_uses_pinned_ghcr_image():
@@ -268,6 +299,9 @@ def test_prod_compose_uses_pinned_ghcr_image():
     assert "openfy_data:/data" in svc["volumes"]
     assert "8000:8000" in svc["ports"]
     assert svc.get("healthcheck")
+    # Operator-supplied origins win; localhost is only the fallback.
+    origins = next(e for e in svc.get("environment", []) if "OPENFY_ALLOWED_ORIGINS" in str(e))
+    assert "${OPENFY_ALLOWED_ORIGINS:-" in origins
 
 
 def test_dockerfile_has_oci_labels_and_healthcheck():

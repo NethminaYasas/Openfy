@@ -1,5 +1,5 @@
 #!/bin/bash
-# Openfy bare-metal installer for systemd-based Linux (Ubuntu/Debian 우선).
+# Openfy bare-metal installer for systemd-based Linux (Ubuntu/Debian preferred).
 # No Docker required.
 #
 # Typical use (from the extracted release archive):

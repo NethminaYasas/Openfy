@@ -177,7 +177,7 @@ else
     echo "[openfy-update] No database file found yet (fresh install); skipping DB backup."
 fi
 # Snapshot current application files for rollback (code only, never data).
-tar -czf "${BACKUP_DIR}/app-files-backup.tar.gz" -C "${APP_DIR}" app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json 2>/dev/null || true
+tar -czf "${BACKUP_DIR}/app-files-backup.tar.gz" -C "${APP_DIR}" app client spotify_scraper spotify_search.py requirements.txt generate_hash.py openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh 2>/dev/null || true
 
 # --- Extract + validate the new bundle before touching the live install ---
 tar -xzf "${ARCHIVE_PATH}" -C "${WORK}"
@@ -213,7 +213,10 @@ cp "${EXTRACTED}/generate_hash.py" "${APP_DIR}/generate_hash.py.new" && \
 cp "${EXTRACTED}/requirements.txt" "${APP_DIR}/requirements.txt.new" && \
 cp "${EXTRACTED}/openfy.service" "${APP_DIR}/openfy.service.new" && \
 cp "${EXTRACTED}/VERSION.json" "${APP_DIR}/VERSION.json.new" && \
-cp "${EXTRACTED}/install.sh" "${EXTRACTED}/start.sh" "${EXTRACTED}/update.sh" "${EXTRACTED}/uninstall.sh" "${APP_DIR}/"
+cp "${EXTRACTED}/install.sh" "${APP_DIR}/install.sh.new" && \
+cp "${EXTRACTED}/start.sh" "${APP_DIR}/start.sh.new" && \
+cp "${EXTRACTED}/update.sh" "${APP_DIR}/update.sh.new" && \
+cp "${EXTRACTED}/uninstall.sh" "${APP_DIR}/uninstall.sh.new"
 SWAP_OK=$?
 set -e
 if [[ "${SWAP_OK}" -ne 0 ]]; then
@@ -227,9 +230,11 @@ for entry in app client spotify_scraper; do
     [[ -e "${APP_DIR}/${entry}" ]] && mv "${APP_DIR}/${entry}" "${APP_DIR}/${entry}.old"
     mv "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
-for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json; do
+for entry in spotify_search.py generate_hash.py requirements.txt openfy.service VERSION.json install.sh start.sh update.sh uninstall.sh; do
     mv -f "${APP_DIR}/${entry}.new" "${APP_DIR}/${entry}"
 done
+# Renames are atomic: the running update.sh keeps reading its original inode
+# while the directory entry switches to the new file.
 
 SERVICE_USER="$(stat -c %U "${DATA_DIR}" 2>/dev/null || echo openfy)"
 "${APP_DIR}/venv/bin/python" -m pip install -r "${APP_DIR}/requirements.txt" \

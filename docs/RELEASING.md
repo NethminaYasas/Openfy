@@ -31,7 +31,10 @@ and the installation section in `README.md`.
 
 For stable `v1.4.2`:
 
-- GHCR `ghcr.io/nethminayasas/openfy:1.4.2`, `:1.4`, `:1`, `:latest`
+- GHCR `ghcr.io/nethminayasas/openfy:1.4.2` is pushed first; the mutable
+  aliases `:1.4`, `:1`, `:latest` are promoted to it only after the Linux
+  bundles and SBOM are attached and verified (separate `promote` step, no
+  rebuild — a late failure can never move them).
   (multi-arch `linux/amd64` + `linux/arm64`, with SBOM + provenance
   attestations; OCI `version`/`revision`/`source`/`licenses` labels).
 - Release assets: `openfy-v1.4.2-linux-amd64.tar.gz`,
@@ -43,13 +46,22 @@ plus that version's bundles — stable aliases are untouched.
 
 ## If the run fails
 
-- The workflow is **safe to rerun**: one concurrency group per tag prevents
-  overlapping publishes; `gh release upload --clobber` converges assets
-  instead of duplicating them; re-pushing an unchanged image digest is a
-  no-op. Fix the cause, then **Re-run failed jobs** (or re-run all jobs).
-- A failed run never moves stable aliases: `docker-publish` requires the
-  smoke test, and `attach` requires everything.
-- Check the job summary: tag-validation errors name the exact rule violated.
+Distinguish *what* failed before deciding how to recover:
+
+- **`resolve` rejects the tag or prerelease setting** (invalid tag like
+  `v1.4`, or a `-rc.N` tag without the pre-release checkbox, or vice
+  versa): rerunning cannot help — the same ref fails identically. Publish a
+  corrected release instead (delete the bad release/tag if already created,
+  then create a new tag such as `v1.4.2` or tick the pre-release box).
+  The job message names the exact rule violated.
+- **Any later failure** (tests, Docker build/smoke test, bundle packaging,
+  push, asset upload): the workflow is **safe to rerun** on the original ref
+  and commit — one concurrency group per tag prevents overlapping publishes;
+  `gh release upload --clobber` converges assets instead of duplicating them;
+  re-pushing an unchanged image digest is a no-op. Fix the cause, then
+  **Re-run failed jobs** (or re-run all jobs).
+- A failed run never moves stable aliases: the `promote` step runs only after
+  the versioned image, bundles, SBOM, and their verification all succeed.
 
 ## Repository settings required (one-time manual setup)
 
