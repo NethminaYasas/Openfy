@@ -338,7 +338,7 @@ print_credential_notice() {
         else
             echo "  NO ADMIN CREDENTIAL IS CONFIGURED"
         fi
-        echo "  OPENFY_ADMIN_HASH is empty (--no-generate-credential was used)."
+        echo "  OPENFY_ADMIN_HASH is empty in ${ENV_FILE}."
         echo "  Generate one and store it, then restart the service:"
         echo "    sudo ${APP_DIR}/venv/bin/python ${APP_DIR}/generate_hash.py"
         echo "    (paste the printed value into ${ENV_FILE} as OPENFY_ADMIN_HASH)"
@@ -440,14 +440,19 @@ create_dirs() {
 install_config() {
     PENDING_ADMIN_CREDENTIAL=""
     CONFIG_STATE=""
+    local admin_hash=""
     if [[ -f "${ENV_FILE}" ]]; then
         log "Existing config ${ENV_FILE} preserved (not overwritten; credentials untouched and never printed)."
         chown root:"${SERVICE_USER}" "${ENV_FILE}"
         chmod 640 "${ENV_FILE}"
-        CONFIG_STATE="preserved"
+        admin_hash="$(grep -E '^OPENFY_ADMIN_HASH=' "${ENV_FILE}" | cut -d= -f2- || true)"
+        if [[ -n "${admin_hash}" ]]; then
+            CONFIG_STATE="preserved"
+        else
+            CONFIG_STATE="empty"
+        fi
         return
     fi
-    local admin_hash=""
     local generated="false"
     if [[ -n "${OPENFY_ADMIN_HASH_VALUE:-}" ]]; then
         valid_credential "${OPENFY_ADMIN_HASH_VALUE}" \

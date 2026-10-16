@@ -5,6 +5,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANAGER = REPO_ROOT / "scripts" / "linux" / "openfy"
 
@@ -114,3 +116,34 @@ def test_manager_sourcing_has_no_side_effects():
     )
     assert proc.returncode == 0, proc.stderr
     assert "sourced-ok" in proc.stdout
+
+
+@pytest.mark.parametrize("active", [True, False])
+@pytest.mark.parametrize("healthy", [True, False])
+def test_rotation_confirms_health_before_reporting_live(tmp_path, active, healthy):
+    installer = tmp_path / "install.sh"
+    installer.write_text("#!/bin/bash\necho ROTATED\n", encoding="utf-8")
+    installer.chmod(0o755)
+    (tmp_path / "openfy.service").write_text("ExecStart=python -m uvicorn app.main:app --port 9123\n")
+    proc = subprocess.run(
+        [_need_bash(), "-c", f"""source "{MANAGER.as_posix()}"
+APP_DIR="{tmp_path.as_posix()}"
+UNIT_FILE="${{APP_DIR}}/openfy.service"
+require_root() {{ return 0; }}
+systemctl() {{ return {0 if active else 1}; }}
+python3() {{ echo "PROBE:$*"; return {0 if healthy else 1}; }}
+cmd_rotate
+"""], capture_output=True, text=True, timeout=30,
+    )
+    assert "ROTATED" in proc.stdout
+    assert ("New credential is live" in proc.stdout) == (active and healthy)
+    if active:
+        assert "http://localhost:9123/health" in proc.stdout
+        if healthy:
+            assert proc.returncode == 0, proc.stderr
+            assert proc.stdout.index("PROBE:") < proc.stdout.index("New credential is live")
+        else:
+            assert proc.returncode != 0
+            assert "not responding" in proc.stderr
+    else:
+        assert "PROBE:" not in proc.stdout

@@ -308,7 +308,13 @@ cmd_rotate() {
     fi
     bash "${APP_DIR}/install.sh" --rotate-credential
     if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
-        log_ok "New credential is live ('${SERVICE_NAME}' restarted automatically)."
+        local port
+        port="$(current_port)"
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            log_ok "New credential is live ('${SERVICE_NAME}' restarted automatically)."
+        else
+            die "Service '${SERVICE_NAME}' is active, but the app is not responding at http://localhost:${port}/health. Check: sudo journalctl -u ${SERVICE_NAME} -n 100"
+        fi
     else
         log "Service '${SERVICE_NAME}' is not active; check: sudo systemctl status ${SERVICE_NAME}"
     fi

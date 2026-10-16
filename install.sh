@@ -1053,7 +1053,14 @@ run_rotate_credential_delegate() {
     require_root_native
     [[ -n "${WORK_DIR}" ]] || new_workdir
     OPENFY_CREDENTIAL_OUTPUT_FILE="${WORK_DIR}/admin-credential" OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
-        bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || die "credential rotation failed."
+        bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || {
+            if [[ -f "${WORK_DIR}/admin-credential" ]]; then
+                log "Save the new credential below; service readiness could not be verified."
+                log "Recover with: sudo systemctl restart ${OPENFY_SERVICE_NAME:-openfy} ; sudo journalctl -u ${OPENFY_SERVICE_NAME:-openfy} -n 100"
+                print_deferred_credential
+            fi
+            die "credential rotation failed."
+        }
 }
 
 run_uninstall_delegate() {

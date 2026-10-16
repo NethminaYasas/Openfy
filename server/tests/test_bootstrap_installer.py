@@ -861,6 +861,48 @@ main --yes --rotate-credential {'--admin-user requestedadmin' if explicit_userna
     assert env_file.read_text() == config.replace("of1_" + "b" * 60, "of1_" + "a" * 60)
 
 
+@pytest.mark.parametrize("failure", ["restart", "inactive", "health"])
+def test_bootstrap_rotation_failure_delivers_staged_credential(tmp_path, failure):
+    setup = _installed_rotation_script(tmp_path)
+    credential = "of1_" + "a" * 60
+    failed_command = {"restart": "restart", "inactive": "is-active", "health": "unused"}[failure]
+    (tmp_path / "app" / "install.sh").write_text(f"""{_bundle_prelude()}
+require_root() {{ return 0; }}
+create_user() {{ return 0; }}
+chown() {{ return 0; }}
+sleep() {{ return 0; }}
+systemctl() {{
+    [[ "$1" != "{failed_command}" ]]
+}}
+wait_for_app_health() {{ return {1 if failure == 'health' else 0}; }}
+generate_credential() {{ echo "{credential}"; }}
+main "$@"
+""", encoding="utf-8")
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    previous = "of1_" + "b" * 60
+    env_file = cfg / "openfy.env"
+    env_file.write_text(f"OPENFY_ADMIN_USERNAME=savedadmin\nOPENFY_ADMIN_HASH={previous}\n", encoding="utf-8")
+    work = tmp_path / "work"
+    proc = _bash_eval(_need_bash(), f"""{setup}
+WORK_DIR="{_m(work)}"
+mkdir -p "${{WORK_DIR}}"
+export OPENFY_SERVICE_NAME=test-openfy
+require_root_native() {{ return 0; }}
+main --yes --rotate-credential --admin-user testadmin
+""")
+    assert proc.returncode != 0
+    assert credential in env_file.read_text()
+    assert proc.stdout.count(credential) == 1
+    assert "  User: savedadmin\n" in proc.stdout
+    assert previous not in proc.stdout + proc.stderr
+    assert "new credential is live" not in proc.stdout.lower()
+    assert "sudo systemctl restart test-openfy" in proc.stdout
+    assert "sudo journalctl -u test-openfy -n 100" in proc.stdout
+    assert "credential rotation failed" in proc.stderr
+    assert not (work / "admin-credential").exists()
+
+
 @pytest.mark.parametrize("failure", ["missing_install", "missing_script", "nonroot", "docker", "delegate"])
 def test_rotation_only_refuses_invalid_native_requests(tmp_path, failure):
     setup = _installed_rotation_script(tmp_path)
@@ -1194,7 +1236,8 @@ def test_docs_document_one_line_installer():
 # ------------------------------------------------------- missing credentials
 
 
-def test_bundle_preserved_config_prints_rotate_hint_without_leaking(tmp_path):
+@pytest.mark.parametrize("secret", ["", "of1_" + "b" * 60])
+def test_bundle_preserved_config_prints_rotate_hint_without_leaking(tmp_path, secret):
     """A finished install that kept an existing config must say so loudly.
 
     Regression test: previously the install completed with no credential
@@ -1203,11 +1246,8 @@ def test_bundle_preserved_config_prints_rotate_hint_without_leaking(tmp_path):
     bash = _need_bash()
     cfg = tmp_path / "cfg"
     cfg.mkdir()
-    secret = "of1_" + "b" * 60
-    (cfg / "openfy.env").write_text(
-        f"OPENFY_ADMIN_USERNAME=savedadmin\nOPENFY_ADMIN_HASH={secret}\n",
-        encoding="utf-8",
-    )
+    config = f"OPENFY_ADMIN_USERNAME=savedadmin\nOPENFY_ADMIN_HASH={secret}\n"
+    (cfg / "openfy.env").write_text(config, encoding="utf-8")
     script = f"""{_func_stub("chown", "return 0")}
 {_bundle_prelude()}
 APP_DIR="{_m(tmp_path / 'app')}"
@@ -1223,7 +1263,14 @@ echo "$OUT"
     proc = _run_bash(bash, script)
     assert proc.returncode == 0, proc.stderr
     assert "HINT_OK" in proc.stdout, proc.stdout
-    assert secret not in proc.stdout
+    assert (cfg / "openfy.env").read_text() == config
+    if secret:
+        assert secret not in proc.stdout
+        assert "existing admin credential was kept" in proc.stdout
+        assert "NO ADMIN CREDENTIAL IS CONFIGURED" not in proc.stdout
+    else:
+        assert "NO ADMIN CREDENTIAL IS CONFIGURED" in proc.stdout
+        assert "existing admin credential was kept" not in proc.stdout
     assert "of1_" not in proc.stdout
 
 
