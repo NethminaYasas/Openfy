@@ -325,6 +325,47 @@ def _require_user(db: Session, x_auth_hash: str | None) -> User:
     return user
 
 
+# Characters stripped for punctuation-tolerant search (e.g. "dont" matches "Don't").
+# Covers ASCII apostrophe plus common Unicode variants seen in track metadata.
+_SEARCH_STRIP_CHARS = ("'", "\u2019", "\u2018", "`", "\u00b4", "\u02bc", "\u02b9", "\u201b")
+
+
+def _normalize_search_text(value: str) -> str:
+    for ch in _SEARCH_STRIP_CHARS:
+        value = value.replace(ch, "")
+    return value
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _normalized_column(col):
+    """SQL expression of a text column with apostrophe-like chars stripped."""
+    expr = col
+    for ch in _SEARCH_STRIP_CHARS:
+        expr = func.replace(expr, ch, "")
+    return expr
+
+
+def _fuzzy_ilike(column, raw_pattern: str, normalized_pattern: str | None):
+    """Match either the raw column or the punctuation-stripped column."""
+    if not normalized_pattern:
+        return column.ilike(raw_pattern, escape="\\")
+    return column.ilike(raw_pattern, escape="\\") | _normalized_column(column).ilike(
+        normalized_pattern, escape="\\"
+    )
+
+
+def _search_patterns(q: str) -> tuple[str, str | None]:
+    """Build (raw LIKE pattern, normalized LIKE pattern) for a user query."""
+    cleaned = q.strip()
+    raw_pattern = f"%{_escape_like(cleaned)}%"
+    normalized = _normalize_search_text(cleaned)
+    normalized_pattern = f"%{_escape_like(normalized)}%" if normalized else None
+    return raw_pattern, normalized_pattern
+
+
 # Configure CORS with secure defaults
 _allowed_origins_raw = getattr(settings, 'allowed_origins', 'http://localhost:8000')
 _allowed_origins = [origin.strip() for origin in _allowed_origins_raw.split(",") if origin.strip()]
@@ -1966,21 +2007,31 @@ def search(
     db: Session = Depends(get_db),
 ):
     _require_user(db, x_auth_hash)
-    pattern = f"%{q}%"
+    if not q.strip():
+        return {"tracks": [], "artists": []}
+    raw_pattern, normalized_pattern = _search_patterns(q)
 
     track_stmt = (
         select(Track)
         .options(selectinload(Track.artists))
         .join(Album, isouter=True)
         .where(
-            (Track.title.ilike(pattern))
-            | (Track.artists.any(Artist.name.ilike(pattern)))
-            | (Album.title.ilike(pattern))
+            (_fuzzy_ilike(Track.title, raw_pattern, normalized_pattern))
+            | (
+                Track.artists.any(
+                    _fuzzy_ilike(Artist.name, raw_pattern, normalized_pattern)
+                )
+            )
+            | (_fuzzy_ilike(Album.title, raw_pattern, normalized_pattern))
         )
     )
     tracks = db.execute(track_stmt.limit(limit)).scalars().all()
 
-    artist_stmt = select(Artist).where(Artist.name.ilike(pattern)).limit(limit)
+    artist_stmt = (
+        select(Artist)
+        .where(_fuzzy_ilike(Artist.name, raw_pattern, normalized_pattern))
+        .limit(limit)
+    )
     artists = db.execute(artist_stmt).scalars().all()
 
     return {"tracks": tracks, "artists": artists}
@@ -3907,8 +3958,9 @@ def list_all_users(
         .order_by(User.created_at.desc())
         .limit(50)
     )
-    if q:
-        stmt = stmt.where(User.name.ilike(f"%{q}%"))
+    if q and q.strip():
+        raw_pattern, normalized_pattern = _search_patterns(q)
+        stmt = stmt.where(_fuzzy_ilike(User.name, raw_pattern, normalized_pattern))
 
     results = db.execute(stmt).all()
     result = []
@@ -3975,11 +4027,16 @@ def list_all_tracks(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     stmt = select(Track, User).join(User, Track.user_hash == User.auth_hash, isouter=True).options(selectinload(Track.artists))
-    if q:
+    if q and q.strip():
+        raw_pattern, normalized_pattern = _search_patterns(q)
         stmt = stmt.join(Album, isouter=True).where(
-            (Track.title.ilike(f"%{q}%"))
-            | (Track.artists.any(Artist.name.ilike(f"%{q}%")))
-            | (Album.title.ilike(f"%{q}%"))
+            (_fuzzy_ilike(Track.title, raw_pattern, normalized_pattern))
+            | (
+                Track.artists.any(
+                    _fuzzy_ilike(Artist.name, raw_pattern, normalized_pattern)
+                )
+            )
+            | (_fuzzy_ilike(Album.title, raw_pattern, normalized_pattern))
         )
     stmt = stmt.order_by(Track.created_at.desc()).limit(50)
 
@@ -4061,8 +4118,9 @@ def list_albums_admin(
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     stmt = select(Album).options(selectinload(Album.artist))
-    if q:
-        stmt = stmt.where(Album.title.ilike(f"%{q}%"))
+    if q and q.strip():
+        raw_pattern, normalized_pattern = _search_patterns(q)
+        stmt = stmt.where(_fuzzy_ilike(Album.title, raw_pattern, normalized_pattern))
 
     albums = db.execute(stmt).scalars().all()
 
