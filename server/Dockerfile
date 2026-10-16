@@ -1,4 +1,36 @@
+FROM python:3.11-slim AS dependencies
+
+# Git is needed only for the SpotiFLAC dependency and its update check.
+# Prefer binary wheels for native dependencies on both runner architectures.
+ENV PIP_PREFER_BINARY=1
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/* \
+  && python -m venv /opt/venv
+
+ENV PATH="/opt/venv/bin:${PATH}"
+WORKDIR /build
+COPY server/requirements.txt /build/requirements.txt
+COPY scripts/check_spotiflac_update.sh /build/check_spotiflac_update.sh
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt \
+  && bash /build/check_spotiflac_update.sh \
+  && find /opt/venv -name '__pycache__' -type d -exec rm -rf {} + \
+  && find /opt/venv -name '*.pyc' -delete
+
 FROM python:3.11-slim
+
+# Only runtime OS packages and installed Python files enter the final image.
+# Keep dependency layers above release metadata and application source so
+# changing a release tag or source file can reuse them.
+WORKDIR /app
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
+
+COPY --from=dependencies /opt/venv /opt/venv
+COPY server/requirements.txt /app/requirements.txt
+ENV PATH="/opt/venv/bin:${PATH}"
 
 # Release metadata, injected by the release workflow (--build-arg).
 # Defaults keep local `docker build` / `docker compose up --build` working.
@@ -15,29 +47,13 @@ LABEL org.opencontainers.image.title="Openfy" \
       org.opencontainers.image.created="${OPENFY_CREATED}" \
       org.opencontainers.image.licenses="GPL-3.0-only"
 
-WORKDIR /app
-
-COPY server/requirements.txt /app/requirements.txt
-COPY scripts/check_spotiflac_update.sh /tmp/check_spotiflac_update.sh
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends git curl ffmpeg \
-  && pip install --no-cache-dir -r requirements.txt \
-  && bash /tmp/check_spotiflac_update.sh \
-  && rm /tmp/check_spotiflac_update.sh \
-  && apt-get purge -y git curl perl git-man liberror-perl \
-  && apt-get autoremove -y \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/* /root/.cache/* /tmp/* \
-  && find /usr/local/lib/python3.11/site-packages -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null; find /usr/local/lib/python3.11/site-packages -name '*.pyc' -delete
-
 COPY server/app /app/app
 COPY server/spotify_search.py /app/spotify_search.py
 COPY client /app/client
 COPY server/.env.example /app/.env
 
 # Copy SpotifyScraper for artist image fetching
-COPY server/spotify_scraper /usr/local/lib/python3.11/site-packages/spotify_scraper
+COPY server/spotify_scraper /opt/venv/lib/python3.11/site-packages/spotify_scraper
 
 ENV OPENFY_ENV=prod
 ENV PYTHONDONTWRITEBYTECODE=1

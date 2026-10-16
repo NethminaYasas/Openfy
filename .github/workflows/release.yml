@@ -13,9 +13,9 @@ name: Release
 # --clobber` makes asset publication idempotent; pushing an unchanged image
 # digest to GHCR is a no-op.
 #
-# Two-phase image publication: docker-publish pushes ONLY the exact version
+# Two-phase image publication: merge pushes ONLY the exact version
 # tag. The mutable stable aliases (minor, major, latest) are promoted by the
-# promote job, which runs only after docker-publish, linux, AND attach
+# promote job, which runs only after merge, linux, AND attach
 # (bundles + SBOM published and verified) all succeed — a late failure can
 # never leave stable aliases pointing at an incompletely published release.
 # Prereleases have no aliases to promote.
@@ -25,10 +25,9 @@ name: Release
 # publication filenames and checksums.
 #
 # Architecture note: linux/amd64 images are build- AND smoke-tested on native
-# runners. linux/arm64 is BUILT (Buildx + QEMU) but smoke-tested only to the
-# extent CI emulation permits; it is never claimed as runtime-tested beyond
-# the build. The Python-source Linux bundles are arch-independent (native
-# wheels resolve at install time) and labelled per arch.
+# runners. linux/arm64 is built on a native ARM runner, but is not
+# runtime smoke-tested. The Python-source Linux bundles are arch-independent
+# (native wheels resolve at install time) and labelled per arch.
 
 on:
   release:
@@ -275,25 +274,17 @@ jobs:
           docker inspect openfy:verify --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' | grep -q '${{ needs.resolve.outputs.version }}'
           echo "PASS: OCI version label matches release"
 
-  # ----------------------------------------------------------- docker-publish
-  docker-publish:
-    name: Publish multi-arch image to GHCR
-    runs-on: ubuntu-latest
+  # ---------------------------------------------------------- docker-prepare
+  docker-prepare:
+    name: Check for an already published release image
+    runs-on: ubuntu-24.04
     needs: [resolve, test, docker-verify]
     permissions:
       contents: read
-      packages: write
-      attestations: write
-      id-token: write
+      packages: read
+    outputs:
+      reuse: ${{ steps.reuse.outputs.reuse }}
     steps:
-      - name: Check out the exact release tag commit
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Set up QEMU (arm64 emulation for build)
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -320,16 +311,123 @@ jobs:
           if docker pull --quiet "${REF}" >/dev/null 2>&1; then
             REV="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${REF}" 2>/dev/null || true)"
             VER="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${REF}" 2>/dev/null || true)"
-            if [[ "${REV}" == "${EXPECTED_SHA}" && "${VER}" == "${VERSION}" ]]; then
+            if [[ "${REV}" == "${EXPECTED_SHA}" && "${VER}" == "${VERSION}" ]] \
+              && docker buildx imagetools inspect --raw "${REF}" | jq -e '
+                any(.manifests[]; .platform.os == "linux" and .platform.architecture == "amd64") and
+                any(.manifests[]; .platform.os == "linux" and .platform.architecture == "arm64")
+              ' >/dev/null; then
               echo "Reusing already-published ${REF} (revision verified); skipping rebuild."
               REUSE="true"
             else
-              echo "Existing ${REF} carries unexpected labels (revision=${REV:-none} version=${VER:-none}); rebuilding it."
+              echo "Existing ${REF} carries unexpected labels or missing platforms (revision=${REV:-none} version=${VER:-none}); rebuilding it."
             fi
           else
             echo "Version tag not published yet; building."
           fi
           echo "reuse=${REUSE}" >> "${GITHUB_OUTPUT}"
+
+  # ----------------------------------------------------------- docker-publish
+  docker-publish:
+    name: Publish image to GHCR (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    needs: [resolve, docker-prepare]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the exact release tag commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record image creation time
+        id: created
+        shell: bash
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build + push one native platform by digest
+        id: push
+        if: needs.docker-prepare.outputs.reuse != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            OPENFY_VERSION=${{ needs.resolve.outputs.version }}
+            OPENFY_REVISION=${{ needs.resolve.outputs.sha }}
+            OPENFY_CREATED=${{ steps.created.outputs.value }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          provenance: true
+          sbom: true
+
+      - name: Export image digest
+        if: needs.docker-prepare.outputs.reuse != 'true'
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "${DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "::error::Invalid image digest."; exit 1; }
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload image digest
+        if: needs.docker-prepare.outputs.reuse != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------- merge
+  merge:
+    name: Merge multi-arch image and generate release SBOM
+    runs-on: ubuntu-24.04
+    needs: [resolve, docker-prepare, docker-publish]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download image digests
+        if: needs.docker-prepare.outputs.reuse != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
 
       - name: Compute push tag (exact version only)
         id: tags
@@ -341,26 +439,27 @@ jobs:
           OUT="ghcr.io/nethminayasas/openfy:${{ needs.resolve.outputs.version }}"
           echo "Pushing tag: ${OUT}"
           echo "list=${OUT}" >> "${GITHUB_OUTPUT}"
-          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_OUTPUT}"
 
-      - name: Build + push (linux/amd64, linux/arm64)
-        id: push
-        if: steps.reuse.outputs.reuse != 'true'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: server/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.tags.outputs.list }}
-          build-args: |
-            OPENFY_VERSION=${{ needs.resolve.outputs.version }}
-            OPENFY_REVISION=${{ needs.resolve.outputs.sha }}
-            OPENFY_CREATED=${{ steps.tags.outputs.created }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+      - name: Merge digests into the exact version tag
+        if: needs.docker-prepare.outputs.reuse != 'true'
+        shell: bash
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}
+          TAG: ${{ steps.tags.outputs.list }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          DIGESTS=(*)
+          [[ "${#DIGESTS[@]}" -eq 2 ]] || { echo "::error::Expected two image digests."; exit 1; }
+          SOURCES=()
+          for digest in "${DIGESTS[@]}"; do
+            [[ "${digest}" =~ ^[a-f0-9]{64}$ ]] || { echo "::error::Invalid digest artifact."; exit 1; }
+            SOURCES+=("${IMAGE}@sha256:${digest}")
+          done
+          # Each source is the platform index including its SBOM/provenance
+          # descriptors; merging the indexes preserves those attestations.
+          docker buildx imagetools create --tag "${TAG}" "${SOURCES[@]}"
 
       - name: Generate SBOM (SPDX) for release assets
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -379,6 +478,18 @@ jobs:
           name: sbom
           path: openfy-v${{ needs.resolve.outputs.version }}-sbom.spdx.json
           if-no-files-found: error
+
+      - name: Verify both platforms in the published manifest
+        shell: bash
+        env:
+          TAG: ${{ steps.tags.outputs.list }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${TAG}"
+          docker buildx imagetools inspect --raw "${TAG}" | jq -e '
+            any(.manifests[]; .platform.os == "linux" and .platform.architecture == "amd64") and
+            any(.manifests[]; .platform.os == "linux" and .platform.architecture == "arm64")
+          '
 
   # -------------------------------------------------------------------- linux
   linux:
@@ -417,7 +528,7 @@ jobs:
   attach:
     name: Attach assets + verify publication
     runs-on: ubuntu-latest
-    needs: [resolve, docker-publish, linux]
+    needs: [resolve, merge, linux]
     permissions:
       contents: write
       packages: read
@@ -486,7 +597,7 @@ jobs:
   promote:
     name: Promote stable aliases
     runs-on: ubuntu-latest
-    needs: [resolve, docker-publish, attach]
+    needs: [resolve, merge, attach]
     # Stable aliases move only after the versioned image, Linux bundles, and
     # SBOM are all published and verified. Prereleases have no aliases.
     if: needs.resolve.outputs.is_prerelease == 'false'
