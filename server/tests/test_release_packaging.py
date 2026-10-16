@@ -5,6 +5,7 @@ lists, installer safety properties, workflow wiring). They never touch
 system paths, Docker, or the network, so they run on any CI runner.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -295,11 +296,30 @@ def test_release_workflow_wiring():
     assert "release" in triggers
     assert "published" in triggers["release"].get("types", [])
     jobs = doc["jobs"]
-    assert set(["resolve", "test", "docker-verify", "docker-publish", "linux", "attach", "promote"]) <= set(jobs)
+    assert set(["resolve", "test", "docker-verify", "docker-prepare", "docker-publish", "merge", "linux", "attach", "promote"]) <= set(jobs)
     # Exact tag commit everywhere, never main.
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "github.ref" in text
-    assert "linux/amd64,linux/arm64" in text
+    build = jobs["docker-publish"]
+    assert build["runs-on"] == "${{ matrix.runner }}"
+    assert {(m["platform"], m["runner"]) for m in build["strategy"]["matrix"]["include"]} == {
+        ("linux/amd64", "ubuntu-24.04"), ("linux/arm64", "ubuntu-24.04-arm"),
+    }
+    push = next(step["with"] for step in build["steps"] if step.get("id") == "push")
+    assert push["platforms"] == "${{ matrix.platform }}"
+    assert "push-by-digest=true,name-canonical=true,push=true" in push["outputs"]
+    assert "tags" not in push
+    assert push["cache-from"] == "type=gha,scope=${{ matrix.platform }}"
+    assert push["cache-to"] == "type=gha,mode=max,scope=${{ matrix.platform }}"
+    assert push["provenance"] is True and push["sbom"] is True
+    assert "setup-qemu-action" not in text
+    assert {"resolve", "test", "docker-verify"} <= set(jobs["docker-prepare"]["needs"])
+    assert "docker-prepare" in build["needs"]
+    assert "docker-publish" in jobs["merge"]["needs"]
+    assert "merge" in jobs["attach"]["needs"]
+    assert {job for job, config in jobs.items() if config.get("permissions", {}).get("packages") == "write"} == {
+        "docker-publish", "merge", "promote",
+    }
     assert "prerelease" in text.lower()
     # Least privilege: default read-only, publish jobs escalate explicitly.
     assert doc.get("permissions", {}).get("contents") == "read"
@@ -312,7 +332,7 @@ def test_stable_aliases_promote_only_after_attach():
     promote = jobs["promote"]
     # Aliases move only after the versioned image, bundles, and SBOM publish.
     assert "attach" in promote["needs"]
-    assert "docker-publish" in promote["needs"]
+    assert "merge" in promote["needs"]
     assert "is_prerelease" in promote.get("if", "")
     run = "\n".join(str(s.get("run", "")) for s in promote["steps"])
     assert "imagetools create" in run
@@ -330,7 +350,7 @@ def test_stable_aliases_promote_only_after_attach():
     assert "index:org.opencontainers.image.version" in run
     # Phase 1 publishes the exact version tag only.
     publish = next(
-        s for s in jobs["docker-publish"]["steps"]
+        s for s in jobs["merge"]["steps"]
         if "exact version only" in str(s.get("name", "")).lower()
     )
     assert "needs.resolve.outputs.version" in publish["run"]
@@ -352,7 +372,7 @@ def test_sbom_release_upload_owned_by_attach():
     _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
     sbom = next(
-        s for s in doc["jobs"]["docker-publish"]["steps"]
+        s for s in doc["jobs"]["merge"]["steps"]
         if str(s.get("name", "")).startswith("Generate SBOM")
     )
     # The action defaults upload-release-assets to true on release events;
@@ -364,12 +384,72 @@ def test_rerun_reuses_verified_published_image():
     _need_yaml()
     doc = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text())
     publish = doc["jobs"]["docker-publish"]["steps"]
-    reuse = next(s for s in publish if s.get("id") == "reuse")
+    reuse = next(s for s in doc["jobs"]["docker-prepare"]["steps"] if s.get("id") == "reuse")
     assert "org.opencontainers.image.revision" in reuse["run"]
     build = next(s for s in publish if s.get("id") == "push")
     assert "reuse" in str(build.get("if", ""))
     # Unpublished versions still flow through the normal build.
     assert "not published yet" in reuse["run"]
+    # Both the digest download and merge must skip together on a verified rerun.
+    merge = doc["jobs"]["merge"]["steps"]
+    for step in merge:
+        if "Download image digests" == step.get("name") or "imagetools create" in step.get("run", ""):
+            assert "reuse" in step["if"]
+
+
+@pytest.mark.parametrize("digests,success", [
+    (["a" * 64, "b" * 64], True),
+    ([], False),
+    (["a" * 64], False),
+    (["a" * 64, "b" * 64, "c" * 64], False),
+    (["a" * 64, "invalid"], False),
+])
+def test_digest_merge_validates_artifacts_before_publishing(tmp_path, digests, success):
+    _need_yaml()
+    doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
+    step = next(s for s in doc["jobs"]["merge"]["steps"] if "imagetools create" in s.get("run", ""))
+    work = tmp_path / "digests"
+    work.mkdir()
+    for digest in digests:
+        (work / digest).touch()
+    commands = tmp_path / "commands"
+    docker = tmp_path / "docker"
+    docker.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$COMMANDS"\n')
+    docker.chmod(0o755)
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}", COMMANDS=str(commands),
+               IMAGE="ghcr.io/nethminayasas/openfy", TAG="ghcr.io/nethminayasas/openfy:1.5.0-rc.1")
+    result = subprocess.run(["bash", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True)
+    assert (result.returncode == 0) is success, result.stderr
+    if success:
+        assert commands.read_text().splitlines() == [
+            "buildx", "imagetools", "create", "--tag", env["TAG"],
+            *[f"{env['IMAGE']}@sha256:{digest}" for digest in digests],
+        ]
+    else:
+        assert not commands.exists(), "Malformed or incomplete artifacts must not be published"
+
+
+@pytest.mark.parametrize("platforms,success", [
+    (["amd64", "arm64"], True), (["amd64"], False), (["arm64"], False), ([], False),
+])
+def test_manifest_verification_requires_both_linux_platforms(tmp_path, platforms, success):
+    _need_yaml()
+    if not shutil.which("jq"):
+        pytest.skip("jq is required by the release runner")
+    import json
+
+    doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
+    step = doc["jobs"]["merge"]["steps"][-1]
+    manifest = {"manifests": [
+        {"platform": {"os": "linux", "architecture": platform}} for platform in platforms
+    ] + [{"platform": {"os": "unknown", "architecture": "unknown"}}]}
+    docker = tmp_path / "docker"
+    docker.write_text('#!/bin/bash\nprintf "%s\\n" "$MANIFEST"\n')
+    docker.chmod(0o755)
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}", MANIFEST=json.dumps(manifest),
+               TAG="ghcr.io/nethminayasas/openfy:1.5.0-rc.1")
+    result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
+    assert (result.returncode == 0) is success, result.stderr
 
 
 def test_ci_workflow_is_read_only():
