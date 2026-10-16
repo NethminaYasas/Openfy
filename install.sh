@@ -99,12 +99,107 @@ NO_INSTALL_DEPS="false"
 PURGE="false"
 DRY_RUN="false"
 
-# ------------------------------------------------------------------ logging
+# ------------------------------------------------------------------ UI / logging
+# Color-aware, pipe-safe output helpers. Colors are enabled only when stdout
+# is a TTY, NO_COLOR is unset, and TERM is not "dumb" - so piped output,
+# logs, and tests always see the plain "[openfy] ..." text unchanged.
+# Data-output functions (normalize_version_input, detect_arch, ask_choice's
+# stdout answer, ...) never emit color codes.
+
+_ui_has_color="false"
+_ui_reset=""; _ui_bold=""; _ui_dim=""; _ui_red=""; _ui_green=""
+_ui_yellow=""; _ui_blue=""; _ui_cyan=""; _ui_magenta=""
+
+_ui_init() {
+    _ui_has_color="false"
+    _ui_reset=""; _ui_bold=""; _ui_dim=""; _ui_red=""; _ui_green=""
+    _ui_yellow=""; _ui_blue=""; _ui_cyan=""; _ui_magenta=""
+    if [[ -n "${NO_COLOR:-}" ]]; then return 0; fi
+    if [[ "${TERM:-}" == "dumb" ]]; then return 0; fi
+    if [[ -t 1 ]] && [[ -t 2 ]]; then
+        _ui_reset=$'\e[0m'; _ui_bold=$'\e[1m'; _ui_dim=$'\e[2m'
+        _ui_red=$'\e[31m'; _ui_green=$'\e[32m'; _ui_yellow=$'\e[33m'
+        _ui_blue=$'\e[34m'; _ui_cyan=$'\e[36m'; _ui_magenta=$'\e[35m'
+        _ui_has_color="true"
+    fi
+}
+_ui_init
 
 log() { echo "[openfy] $*"; }
-step() { echo ""; echo "==> $*"; }
-warn() { echo "[openfy] WARNING: $*" >&2; }
-die() { echo "[openfy] ERROR: $*" >&2; exit 1; }
+log_ok() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s[openfy]%s %sOK%s %s\n' "${_ui_blue}" "${_ui_reset}" "${_ui_green}" "${_ui_reset}" "$*"
+    else
+        echo "[openfy] $*"
+    fi
+}
+step() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '\n%s%s=== %s ===%s\n' "${_ui_bold}" "${_ui_cyan}" "$*" "${_ui_reset}"
+    else
+        echo ""; echo "==> $*"
+    fi
+}
+warn() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s[openfy] WARNING:%s %s\n' "${_ui_yellow}" "${_ui_reset}" "$*" >&2
+    else
+        echo "[openfy] WARNING: $*" >&2
+    fi
+}
+die() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s[openfy] ERROR:%s %s\n' "${_ui_red}" "${_ui_reset}" "$*" >&2
+    else
+        echo "[openfy] ERROR: $*" >&2
+    fi
+    exit 1
+}
+
+_ui_hr() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_dim}" "----------------------------------------" "${_ui_reset}" >&2
+    else
+        echo "----------------------------------------" >&2
+    fi
+}
+
+_ui_section() {
+    # Dim group label for summary output (TTY only; plain text otherwise).
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_dim}" "$*" "${_ui_reset}"
+    else
+        printf '%s\n' "$*"
+    fi
+}
+
+_ui_headline() {
+    # Bold green success headline (TTY only; plain text otherwise).
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s%s\n' "${_ui_bold}" "${_ui_green}" "$*" "${_ui_reset}"
+    else
+        printf '%s\n' "$*"
+    fi
+}
+
+_ui_banner() {
+    # Compact banner for interactive terminals only; never on pipes/tests.
+    if [[ "${_ui_has_color}" != "true" ]]; then return 0; fi
+    {
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '  /$$$$$$                                 /$$$$$$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" ' /$$__  $$                               /$$__  $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  \ $$  /$$$$$$   /$$$$$$  /$$$$$$$ | $$  \__//$$   /$$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  | $$ /$$__  $$ /$$__  $$| $$__  $$| $$$$   | $$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  | $$| $$  \ $$| $$$$$$$$| $$  \ $$| $$_/   | $$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  | $$| $$  | $$| $$_____/| $$  | $$| $$     | $$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '|  $$$$$$/| $$$$$$$/|  $$$$$$$| $$  | $$| $$     |  $$$$$$$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" ' \______/ | $$____/  \_______/|__/  |__/|__/      \____  $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '          | $$                                    /$$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '          | $$                                   |  $$$$$$/' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '          |__/                                    \______/' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_dim}" '                  self-hosted music server' "${_ui_reset}"
+    } >&2
+}
 
 cleanup() {
     local status=$?
@@ -558,7 +653,7 @@ download_release() {
     http_download "${base}/${archive}" "${destdir}/${archive}"
     log "Downloading SHA256SUMS for verification."
     http_download "${base}/SHA256SUMS" "${destdir}/SHA256SUMS"
-    log "Download complete."
+    log_ok "Download complete."
 }
 
 # verify_download <destdir> <archive> : checksum MUST pass; no fallbacks.
@@ -607,7 +702,7 @@ if h.hexdigest().lower() != want.lower():
 print("checksum OK")
 EOF
     fi
-    log "Checksum verified."
+    log_ok "Checksum verified."
 }
 
 # extract_and_validate <destdir> <archive> <version> <arch> : extracts to a
@@ -670,36 +765,63 @@ detect_existing_install() {
 is_interactive() { [[ -t 0 ]]; }
 
 # ask_choice <prompt> <default> <opt1> <opt2> ... : numbered menu, prints choice.
+# Menu goes to stderr; the chosen number goes to stdout (command-substitution safe).
 ask_choice() {
     local prompt="$1" default="$2"
     shift 2
     local i opt ans
-    echo "${prompt}" >&2
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '\n%s%s %s%s\n' "${_ui_bold}" "${_ui_cyan}" "${prompt}" "${_ui_reset}" >&2
+    else
+        echo "${prompt}" >&2
+    fi
     i=1
     for opt in "$@"; do
         if [[ "${i}" == "${default}" ]]; then
-            echo "  ${i}) ${opt} (default)" >&2
+            if [[ "${_ui_has_color}" == "true" ]]; then
+                printf '  %s%s)%s %s %s(default)%s\n' "${_ui_green}" "${i}" "${_ui_reset}" "${opt}" "${_ui_dim}" "${_ui_reset}" >&2
+            else
+                echo "  ${i}) ${opt} (default)" >&2
+            fi
         else
-            echo "  ${i}) ${opt}" >&2
+            if [[ "${_ui_has_color}" == "true" ]]; then
+                printf '  %s%s)%s %s\n' "${_ui_dim}" "${i}" "${_ui_reset}" "${opt}" >&2
+            else
+                echo "  ${i}) ${opt}" >&2
+            fi
         fi
         i=$((i + 1))
     done
     while true; do
         ans=""
-        read -r -p "Enter choice [${default}]: " ans || true
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%sEnter choice [%s]%s ' "${_ui_bold}" "${default}" "${_ui_reset}" >&2
+            read -r ans || true
+        else
+            read -r -p "Enter choice [${default}]: " ans || true
+        fi
         [[ -z "${ans}" ]] && ans="${default}"
         if [[ "${ans}" =~ ^[0-9]+$ ]] && [[ "${ans}" -ge 1 ]] && [[ "${ans}" -lt "$i" ]]; then
             printf '%s\n' "${ans}"
             return
         fi
-        echo "Invalid choice. Enter a number between 1 and $((i - 1))." >&2
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%sInvalid choice. Enter a number between 1 and %s.%s\n' "${_ui_red}" "$((i - 1))" "${_ui_reset}" >&2
+        else
+            echo "Invalid choice. Enter a number between 1 and $((i - 1))." >&2
+        fi
     done
 }
 
 # ask_value <prompt> <default> : free input with default, prints value.
 ask_value() {
     local prompt="$1" default="$2" ans
-    read -r -p "${prompt} [${default}]: " ans || true
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s %s[%s]%s: ' "${_ui_bold}" "${prompt}" "${_ui_reset}" "${_ui_dim}" "${default}" "${_ui_reset}" >&2
+        read -r ans || true
+    else
+        read -r -p "${prompt} [${default}]: " ans || true
+    fi
     [[ -z "${ans}" ]] && ans="${default}"
     printf '%s\n' "${ans}"
 }
@@ -707,19 +829,42 @@ ask_value() {
 ask_yes_no() {
     local prompt="$1" default="$2" ans
     while true; do
-        read -r -p "${prompt} " ans || true
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%s%s%s ' "${_ui_bold}" "${prompt}" "${_ui_reset}" >&2
+            read -r ans || true
+        else
+            read -r -p "${prompt} " ans || true
+        fi
         [[ -z "${ans}" ]] && ans="${default}"
         case "${ans}" in
             y|Y|yes|YES) return 0 ;;
             n|N|no|NO) return 1 ;;
-            *) echo "Please answer y or n." >&2 ;;
+            *)
+                if [[ "${_ui_has_color}" == "true" ]]; then
+                    printf '%sPlease answer y or n.%s\n' "${_ui_yellow}" "${_ui_reset}" >&2
+                else
+                    echo "Please answer y or n." >&2
+                fi
+                ;;
         esac
     done
 }
 
+_ui_wizard_step() {
+    # _ui_wizard_step <n> <total> <title> : dim "Step n/total" + bold title.
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '\n%s[Step %s/%s]%s %s%s%s\n' "${_ui_dim}" "$1" "$2" "${_ui_reset}" "${_ui_bold}" "$3" "${_ui_reset}" >&2
+    else
+        echo "" >&2
+        echo "--- Step $1/$2: $3 ---" >&2
+    fi
+}
+
 run_wizard() {
+    _ui_banner
     step "Openfy installation wizard"
     # 1. Method.
+    _ui_wizard_step 1 6 "Installation method"
     if [[ -z "${METHOD}" ]]; then
         local c
         c="$(ask_choice "How should Openfy be installed?" "1" \
@@ -727,11 +872,12 @@ run_wizard() {
             "Docker container (published GHCR image)")"
         if [[ "${c}" == "1" ]]; then METHOD="native"; else METHOD="docker"; fi
     fi
-    log "Method: ${METHOD}."
+    log_ok "Method: ${METHOD}."
     if [[ "${METHOD}" == "native" && "${DRY_RUN}" != "true" ]]; then
         require_root_native
     fi
     # 2. Version.
+    _ui_wizard_step 2 6 "Version"
     if [[ -z "${REQUESTED_VERSION_RAW}" && "${WANT_LATEST}" != "true" ]]; then
         local c
         c="$(ask_choice "Which version should be installed?" "1" \
@@ -760,6 +906,7 @@ run_wizard() {
         fi
     fi
     # 3. Existing installation.
+    _ui_wizard_step 3 6 "Existing installation"
     detect_existing_install
     if [[ "${METHOD}" == "native" && -n "${INSTALLED_VERSION}" && "${ACTION}" == "auto" ]]; then
         echo "Existing installation found: version ${INSTALLED_VERSION} at ${APP_DIR}." >&2
@@ -778,8 +925,13 @@ run_wizard() {
             4) ACTION="uninstall" ;;
             *) die "aborted by user; nothing changed." ;;
         esac
+    elif [[ -n "${INSTALLED_VERSION}" ]]; then
+        log "Existing installation: version ${INSTALLED_VERSION} at ${APP_DIR}."
+    else
+        log "No existing installation found - fresh install."
     fi
     # 4. Admin account (fresh native installs only; upgrades never touch it).
+    _ui_wizard_step 4 6 "Admin account"
     if [[ "${METHOD}" == "native" && -z "${INSTALLED_VERSION}" ]]; then
         ADMIN_USER="$(ask_value "Admin username" "${ADMIN_USER}")"
         [[ "${ADMIN_USER}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || die "invalid admin username '${ADMIN_USER}'."
@@ -794,6 +946,7 @@ run_wizard() {
         fi
     fi
     # 5. Service port (native service port / Docker host mapping).
+    _ui_wizard_step 5 6 "Service port"
     if [[ "${METHOD}" == "native" || "${METHOD}" == "docker" ]]; then
         local default_port="${OPENFY_PORT}"
         if [[ "${PORT_EXPLICIT}" != "true" ]]; then
@@ -821,6 +974,7 @@ run_wizard() {
         done
     fi
     # 6. Dependencies.
+    _ui_wizard_step 6 6 "System packages & confirmation"
     if [[ "${METHOD}" == "native" && "${NO_INSTALL_DEPS}" != "true" ]]; then
         if ask_yes_no "Install required system packages automatically (python3, ffmpeg, ...)? [Y/n]" "y"; then
             NO_INSTALL_DEPS="false"
@@ -829,8 +983,11 @@ run_wizard() {
         fi
     fi
     # 7. Summary + confirm.
-    echo "" >&2
+    _ui_hr
     echo "Plan: method=${METHOD} action=${ACTION:-install} version=${REQUESTED_VERSION_RAW:-latest-stable} arch=$(detect_arch) port=${OPENFY_PORT}" >&2
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_dim}" "Review the plan above. Nothing has changed yet." "${_ui_reset}" >&2
+    fi
     if [[ "${DRY_RUN}" == "true" ]]; then
         return
     fi
@@ -896,7 +1053,14 @@ run_rotate_credential_delegate() {
     require_root_native
     [[ -n "${WORK_DIR}" ]] || new_workdir
     OPENFY_CREDENTIAL_OUTPUT_FILE="${WORK_DIR}/admin-credential" OPENFY_INSTALL_DIR="${APP_DIR}" OPENFY_DATA_DIR_OVERRIDE="${DATA_DIR}" OPENFY_CONFIG_DIR="${CONFIG_DIR}" \
-        bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || die "credential rotation failed."
+        bash "${APP_DIR}/install.sh" --rotate-credential --admin-user "${ADMIN_USER}" || {
+            if [[ -f "${WORK_DIR}/admin-credential" ]]; then
+                log "Save the new credential below; service readiness could not be verified."
+                log "Recover with: sudo systemctl restart ${OPENFY_SERVICE_NAME:-openfy} ; sudo journalctl -u ${OPENFY_SERVICE_NAME:-openfy} -n 100"
+                print_deferred_credential
+            fi
+            die "credential rotation failed."
+        }
 }
 
 run_uninstall_delegate() {
@@ -999,6 +1163,9 @@ EOF
         chmod 600 "${env_file}"
     else
         log "Existing Docker env ${env_file} preserved (credentials untouched)."
+        log "If you have lost the admin credential, set a new OPENFY_ADMIN_HASH in ${env_file}"
+        log "(generate one with: python3 -c 'import secrets; print(\"of1_\" + secrets.token_urlsafe(45))')"
+        log "and rerun this installer to recreate the container with the new value."
     fi
     local cname="${OPENFY_CONTAINER_NAME:-openfy}"
     local backup_cname="${cname}-openfy-prev"
@@ -1055,12 +1222,16 @@ EOF
         return
     fi
     local attempt=0
+    log "Waiting for Openfy to become healthy (up to 60s)..."
     while [[ "${attempt}" -lt 30 ]]; do
         if docker_health_ok "${OPENFY_PORT}"; then
-            log "Openfy (Docker) is healthy at http://localhost:${OPENFY_PORT}/health."
+            log_ok "Openfy (Docker) is healthy at http://localhost:${OPENFY_PORT}/health."
             break
         fi
         attempt=$((attempt + 1))
+        if (( attempt % 5 == 0 )); then
+            log "Still waiting... (${attempt}/30 checks, http://localhost:${OPENFY_PORT}/health)"
+        fi
         sleep 2
         if [[ "${attempt}" -eq 30 ]]; then
             if [[ "${had_existing}" == "true" ]]; then
@@ -1088,20 +1259,41 @@ EOF
         docker rm "${backup_cname}" >/dev/null 2>&1 || true
     fi
     echo ""
-    echo "Openfy v${version} is running (Docker image ${image})."
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_green}" "----------------------------------------" "${_ui_reset}"
+    else
+        echo "----------------------------------------"
+    fi
+    _ui_headline "Openfy v${version} is running (Docker image ${image})."
+    echo ""
+    _ui_section "  Where things live"
     echo "  URL:      http://<server-ip>:${OPENFY_PORT}"
     echo "  Env file: ${env_file}  (volume: openfy_data)"
+    echo ""
     if [[ -n "${credential}" ]]; then
+        echo "=================================================================="
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%s%s%s%s\n' "${_ui_bold}" "${_ui_green}" "  ADMIN CREDENTIAL (generated now, shown ONCE - save it securely)" "${_ui_reset}"
+        else
+            echo "  ADMIN CREDENTIAL (generated now, shown ONCE - save it securely)"
+        fi
         echo "  Admin user: ${ADMIN_USER}"
-        echo "  Admin credential (generated NOW, shown ONCE — save it securely):"
-        echo "    ${credential}"
+        echo "  Admin credential: ${credential}"
         echo "  Sign in with this credential in the Auth Hash field. It cannot be recovered if lost;"
         echo "  rotate it by editing ${env_file} (OPENFY_ADMIN_HASH), then recreate the container (rerun this installer with --method docker --version ${version}); 'docker restart' does NOT reload the env file."
+        echo "=================================================================="
+        echo ""
     else
         echo "  Credentials preserved (existing ${env_file} untouched)."
     fi
+    _ui_section "  Manage the container"
     echo "  Logs:   docker logs -f ${cname}"
     echo "  Update: rerun this installer with --version <new> (data in the openfy_data volume is kept)."
+    echo ""
+    _ui_section "  Next steps"
+    echo "    1. Open the app: http://<server-ip>:${OPENFY_PORT}"
+    echo "    2. Sign in with your admin credential in the Auth Hash field."
+    echo ""
 }
 
 print_deferred_credential() {
@@ -1114,26 +1306,73 @@ print_deferred_credential() {
     valid_credential "${credential}" || die "invalid generated credential handoff."
     rm -f "${WORK_DIR}/admin-credential"
     echo ""
-    echo "  ADMIN CREDENTIAL (generated now, shown ONCE — save it securely)"
+    echo "=================================================================="
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s%s\n' "${_ui_bold}" "${_ui_green}" "  ADMIN CREDENTIAL (generated now, shown ONCE - save it securely)" "${_ui_reset}"
+    else
+        echo "  ADMIN CREDENTIAL (generated now, shown ONCE - save it securely)"
+    fi
     echo "  User: ${username}"
     echo "  Credential: ${credential}"
     echo "  Sign in with this value in the Auth Hash field."
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_dim}" "  It cannot be recovered if lost; rotate it with: sudo openfy rotate-credential" "${_ui_reset}"
+    else
+        echo "  It cannot be recovered if lost; rotate it with: sudo openfy rotate-credential"
+    fi
+    echo "=================================================================="
+    echo ""
+}
+
+print_missing_credential_warning() {
+    # Loud end-of-install guidance for fresh installs that produced no new
+    # credential (pre-existing config was preserved, or generation was
+    # disabled). Never prints any secret.
+    echo ""
+    echo "=================================================================="
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s%s\n' "${_ui_bold}" "${_ui_yellow}" "  NO NEW ADMIN CREDENTIAL WAS GENERATED" "${_ui_reset}"
+    else
+        echo "  NO NEW ADMIN CREDENTIAL WAS GENERATED"
+    fi
+    echo "  The existing ${ENV_FILE} was preserved (credentials are only"
+    echo "  shown once, when first generated), or credential generation was"
+    echo "  disabled for this install."
+    echo "  If you do not know the current admin credential, create a new"
+    echo "  one (the service restarts automatically to apply it; printed"
+    echo "  ONCE - save it securely):"
+    echo "    sudo openfy rotate-credential"
+    echo "=================================================================="
+    echo ""
 }
 
 print_native_summary() {
     local version="$1"
     echo ""
-    echo "Openfy v${version} installation complete."
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_green}" "----------------------------------------" "${_ui_reset}"
+    else
+        echo "----------------------------------------"
+    fi
+    _ui_headline "Openfy v${version} installation complete."
+    echo ""
+    _ui_section "  Where things live"
     echo "  App:     ${APP_DIR}"
     echo "  Config:  ${ENV_FILE}"
     echo "  Data:    ${DATA_DIR}  (database, music, downloads, artwork)"
     echo "  URL:     http://<server-ip>:${OPENFY_PORT}"
+    echo ""
+    _ui_section "  Manage the server"
     echo "  Status:  sudo systemctl status openfy"
     echo "  Logs:    sudo journalctl -u openfy -f"
     echo "  Restart: sudo systemctl restart openfy"
     echo "  Update:  sudo ${APP_DIR}/update.sh --latest   (or rerun this installer)"
     echo "  Remove:  sudo ${APP_DIR}/uninstall.sh         (keeps data + config)"
     echo "  Manage:  sudo openfy   (TUI: status, logs, update/downgrade, port, credentials, repair, uninstall)"
+    echo ""
+    _ui_section "  Next steps"
+    echo "    1. Open the app: http://<server-ip>:${OPENFY_PORT}"
+    echo "    2. Manage it anytime: sudo openfy"
     echo ""
     echo "Sign in with your admin credential in the Auth Hash field."
     echo "Existing credentials are preserved unless you explicitly rotate them."
@@ -1365,7 +1604,14 @@ main() {
     fi
 
     print_native_summary "${RESOLVED_VERSION}"
-    print_deferred_credential
+    if [[ -f "${WORK_DIR}/admin-credential" ]]; then
+        print_deferred_credential
+    elif [[ "${mode}" == "install" ]]; then
+        # Fresh install but no new credential (pre-existing config was
+        # preserved, or generation was disabled): say so loudly instead of
+        # silently leaving the operator locked out.
+        print_missing_credential_warning
+    fi
 }
 
 if [[ -z "${BASH_SOURCE[0]:-}" ]]; then

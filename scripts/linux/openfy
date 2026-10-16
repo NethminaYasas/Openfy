@@ -31,7 +31,84 @@ SERVICE_NAME="${OPENFY_SERVICE_NAME:-openfy}"
 SYSTEMD_DIR="${OPENFY_SYSTEMD_DIR:-/etc/systemd/system}"
 UNIT_FILE="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
 
+# ------------------------------------------------- UI helpers
+# Colors only on interactive terminals (NO_COLOR / dumb / piped => plain).
+_ui_has_color="false"
+_ui_reset=""; _ui_bold=""; _ui_dim=""; _ui_red=""; _ui_green=""
+_ui_yellow=""; _ui_blue=""; _ui_cyan=""
+
+_ui_init() {
+    _ui_has_color="false"
+    _ui_reset=""; _ui_bold=""; _ui_dim=""; _ui_red=""; _ui_green=""
+    _ui_yellow=""; _ui_blue=""; _ui_cyan=""
+    if [[ -n "${NO_COLOR:-}" ]]; then return 0; fi
+    if [[ "${TERM:-}" == "dumb" ]]; then return 0; fi
+    if [[ -t 1 ]] && [[ -t 2 ]]; then
+        _ui_reset=$'\e[0m'; _ui_bold=$'\e[1m'; _ui_dim=$'\e[2m'
+        _ui_red=$'\e[31m'; _ui_green=$'\e[32m'; _ui_yellow=$'\e[33m'
+        _ui_blue=$'\e[34m'; _ui_cyan=$'\e[36m'
+        _ui_has_color="true"
+    fi
+}
+_ui_init
+
+_ui_hr() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s\n' "${_ui_dim}" "----------------------------------------" "${_ui_reset}"
+    else
+        echo "----------------------------------------"
+    fi
+}
+
+_ui_title() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '\n%s%s%s%s\n' "${_ui_bold}" "${_ui_cyan}" "$*" "${_ui_reset}"
+    else
+        printf '\n== %s ==\n' "$*"
+    fi
+}
+
+_ui_pause() {
+    # Pause between menu actions so output stays readable (interactive only).
+    if [[ -t 0 ]] && [[ -t 1 ]]; then
+        read -r -p "Press Enter to continue... " _dummy || true
+    fi
+}
+
+_ui_banner() {
+    # Big banner for interactive terminals only; never on pipes.
+    if [[ "${_ui_has_color}" != "true" ]]; then return 0; fi
+    {
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '  /$$$$$$                                 /$$$$$$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" ' /$$__  $$                               /$$__  $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  \ $$  /$$$$$$   /$$$$$$  /$$$$$$$ | $$  \__//$$   /$$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  | $$ /$$__  $$ /$$__  $$| $$__  $$| $$$$   | $$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  | $$| $$  \ $$| $$$$$$$$| $$  \ $$| $$_/   | $$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '| $$  | $$| $$  | $$| $$_____/| $$  | $$| $$     | $$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '|  $$$$$$/| $$$$$$$/|  $$$$$$$| $$  | $$| $$     |  $$$$$$$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" ' \______/ | $$____/  \_______/|__/  |__/|__/      \____  $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '          | $$                                    /$$  | $$' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '          | $$                                   |  $$$$$$/' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_bold}${_ui_cyan}" '          |__/                                    \______/' "${_ui_reset}"
+        printf '%s%s%s\n' "${_ui_dim}" '              self-hosted music server - service manager' "${_ui_reset}"
+    } >&2
+}
+
 log() { echo "[openfy] $*"; }
+log_ok() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s[openfy]%s %sOK%s %s\n' "${_ui_blue}" "${_ui_reset}" "${_ui_green}" "${_ui_reset}" "$*"
+    else
+        echo "[openfy] $*"
+    fi
+}
+warn() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s[openfy] WARNING:%s %s\n' "${_ui_yellow}" "${_ui_reset}" "$*" >&2
+    else
+        echo "[openfy] WARNING: $*" >&2
+    fi
+}
 die() { echo "[openfy] ERROR: $*" >&2; exit 1; }
 
 valid_port() {
@@ -70,21 +147,64 @@ current_port() {
 }
 
 cmd_status() {
-    local ver port
+    local ver port svc_state health
     ver="$(installed_version)"
     port="$(current_port)"
+    svc_state="unknown"
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+            svc_state="active"
+        else
+            svc_state="inactive"
+        fi
+    fi
+    health="unknown"
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            health="healthy"
+        else
+            health="not responding"
+        fi
+    fi
+    _ui_hr
     echo "Openfy ${ver} — service '${SERVICE_NAME}', port ${port}"
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        local svc_color health_color
+        case "${svc_state}" in
+            active) svc_color="${_ui_green}" ;;
+            inactive) svc_color="${_ui_red}" ;;
+            *) svc_color="${_ui_yellow}" ;;
+        esac
+        case "${health}" in
+            healthy) health_color="${_ui_green}" ;;
+            "not responding") health_color="${_ui_red}" ;;
+            *) health_color="${_ui_yellow}" ;;
+        esac
+        printf '  %s%-9s%s %s%s%s (%s)\n' "${_ui_dim}" "Service:" "${_ui_reset}" \
+            "${svc_color}" "${svc_state}" "${_ui_reset}" "${SERVICE_NAME}.service"
+        printf '  %s%-9s%s %s%s%s (%s)\n' "${_ui_dim}" "Health:" "${_ui_reset}" \
+            "${health_color}" "${health}" "${_ui_reset}" "http://localhost:${port}/health"
+        printf '  %s%-9s%s %s\n' "${_ui_dim}" "URL:" "${_ui_reset}" "http://<server-ip>:${port}"
+        printf '  %s%-9s%s %s\n' "${_ui_dim}" "App:" "${_ui_reset}" "${APP_DIR}"
+        printf '  %s%-9s%s %s\n' "${_ui_dim}" "Config:" "${_ui_reset}" "${ENV_FILE}"
+        printf '  %s%-9s%s %s\n' "${_ui_dim}" "Data:" "${_ui_reset}" "${DATA_DIR}"
+        printf '%s  --- systemctl status %s ---%s\n' "${_ui_dim}" "${SERVICE_NAME}" "${_ui_reset}"
+    else
+        echo "Service: ${svc_state}  |  Health: ${health}"
+        printf '  %-9s %s\n' "URL:" "http://<server-ip>:${port}"
+        printf '  %-9s %s\n' "App:" "${APP_DIR}"
+        printf '  %-9s %s\n' "Config:" "${ENV_FILE}"
+        printf '  %-9s %s\n' "Data:" "${DATA_DIR}"
+    fi
     if command -v systemctl >/dev/null 2>&1; then
         systemctl status "${SERVICE_NAME}" --no-pager 2>/dev/null || true
     else
         echo "systemctl not available."
     fi
-    if command -v python3 >/dev/null 2>&1; then
-        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
-            echo "Health: OK at http://localhost:${port}/health"
-        else
-            echo "Health: NOT RESPONDING at http://localhost:${port}/health"
-        fi
+    if [[ "${health}" == "healthy" ]]; then
+        echo "Health: OK at http://localhost:${port}/health"
+    elif [[ "${health}" != "unknown" ]]; then
+        echo "Health: NOT RESPONDING at http://localhost:${port}/health"
     fi
 }
 
@@ -99,8 +219,16 @@ cmd_logs() {
     done
     [[ "${lines}" =~ ^[0-9]+$ ]] || die "invalid -n '${lines}'."
     if [[ "${follow}" == "true" ]]; then
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%s  Following logs for %s (Ctrl+C to stop)...%s\n' \
+                "${_ui_dim}" "${SERVICE_NAME}" "${_ui_reset}"
+        fi
         journalctl -u "${SERVICE_NAME}" -f
     else
+        if [[ "${_ui_has_color}" == "true" ]]; then
+            printf '%s  Last %s lines for %s:%s\n' \
+                "${_ui_dim}" "${lines}" "${SERVICE_NAME}" "${_ui_reset}"
+        fi
         journalctl -u "${SERVICE_NAME}" -n "${lines}" --no-pager 2>/dev/null \
             || systemctl status "${SERVICE_NAME}" --no-pager 2>/dev/null || true
     fi
@@ -109,10 +237,14 @@ cmd_logs() {
 cmd_service() {
     require_root
     local action="$1"
+    log "Running: systemctl ${action} ${SERVICE_NAME} ..."
     systemctl "${action}" "${SERVICE_NAME}"
     if [[ "${action}" != "stop" ]]; then
         sleep 2
         cmd_status | head -n 12 || true
+        log_ok "Service ${action}ed."
+    else
+        log_ok "Service stopped."
     fi
 }
 
@@ -175,7 +307,17 @@ cmd_rotate() {
         die "no installer at ${APP_DIR}/install.sh; repair the installation first."
     fi
     bash "${APP_DIR}/install.sh" --rotate-credential
-    log "Restart the service to apply: sudo systemctl restart ${SERVICE_NAME}"
+    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+        local port
+        port="$(current_port)"
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            log_ok "New credential is live ('${SERVICE_NAME}' restarted automatically)."
+        else
+            die "Service '${SERVICE_NAME}' is active, but the app is not responding at http://localhost:${port}/health. Check: sudo journalctl -u ${SERVICE_NAME} -n 100"
+        fi
+    else
+        log "Service '${SERVICE_NAME}' is not active; check: sudo systemctl status ${SERVICE_NAME}"
+    fi
 }
 
 cmd_username() {
@@ -222,55 +364,221 @@ cmd_uninstall() {
 
 usage() {
     sed -n '2,30p' "${BASH_SOURCE[0]}"
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        local c="${_ui_green}" d="${_ui_dim}" r="${_ui_reset}" b="${_ui_bold}"
+        printf '\n  %sCommands:%s\n' "${b}" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "status" "${r}" "${d}" "show service + health" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "logs [--follow] [-n N]" "${r}" "${d}" "view logs (default: last 100 lines)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "start | stop | restart" "${r}" "${d}" "control the service (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "update --latest" "${r}" "${d}" "upgrade to latest stable (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "update --version X.Y.Z" "${r}" "${d}" "upgrade or downgrade (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "port PORT" "${r}" "${d}" "change service port (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "rotate-credential" "${r}" "${d}" "print a new admin credential once (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "set-username NAME" "${r}" "${d}" "change admin username (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "repair" "${r}" "${d}" "fix perms/venv/unit in place (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "uninstall [--purge]" "${r}" "${d}" "remove app (keeps data + config unless --purge)" "${r}"
+        printf '\n  Run with no arguments for the interactive menu:  %ssudo openfy%s\n' "${b}" "${r}"
+    else
+        cat <<'EOF'
+
+Commands:
+  status                      show service + health
+  logs [--follow] [-n N]       view logs (default: last 100 lines)
+  start | stop | restart       control the service (needs root)
+  update --latest             upgrade to latest stable (needs root)
+  update --version X.Y.Z      upgrade or downgrade (needs root)
+  port PORT                   change service port (needs root)
+  rotate-credential           print a new admin credential once (needs root)
+  set-username NAME           change admin username (needs root)
+  repair                      fix perms/venv/unit in place (needs root)
+  uninstall [--purge]         remove app (keeps data + config unless --purge)
+
+Run with no arguments for the interactive menu:  sudo openfy
+EOF
+    fi
+}
+
+# _ui_ask <var> <prompt> : styled prompt (bold on TTY), reads one line.
+# Returns 1 on EOF so callers can exit instead of looping forever.
+_ui_ask() {
+    local _var="$1" _prompt="$2" _ans
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s%s%s ' "${_ui_bold}" "${_prompt}" "${_ui_reset}"
+        read -r _ans || return 1
+    else
+        read -r -p "${_prompt} " _ans || return 1
+    fi
+    printf -v "${_var}" '%s' "${_ans}"
+}
+
+_ui_error() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '%s  Error: %s%s\n' "${_ui_red}" "$*" "${_ui_reset}"
+    else
+        printf '  Error: %s\n' "$*"
+    fi
+}
+
+_menu_dashboard() {
+    local ver port svc health svc_color health_color
+    ver="$(installed_version)"
+    port="$(current_port)"
+    svc="unknown"
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then svc="active"; else svc="inactive"; fi
+    fi
+    health="unknown"
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            health="healthy"
+        else
+            health="not responding"
+        fi
+    fi
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        case "${svc}" in
+            active) svc_color="${_ui_green}" ;;
+            inactive) svc_color="${_ui_red}" ;;
+            *) svc_color="${_ui_yellow}" ;;
+        esac
+        case "${health}" in
+            healthy) health_color="${_ui_green}" ;;
+            "not responding") health_color="${_ui_red}" ;;
+            *) health_color="${_ui_yellow}" ;;
+        esac
+        printf '  %sOpenfy v%s%s  %s(port %s | %s)%s\n' \
+            "${_ui_bold}" "${ver}" "${_ui_reset}" "${_ui_dim}" "${port}" "${SERVICE_NAME}" "${_ui_reset}"
+        printf '  service: %s%-14s%s  health: %s%s%s\n' \
+            "${svc_color}" "${svc}" "${_ui_reset}" "${health_color}" "${health}" "${_ui_reset}"
+        printf '  %surl: http://localhost:%s%s\n' "${_ui_dim}" "${port}" "${_ui_reset}"
+    else
+        echo "== Openfy manager (v${ver}, port ${port}, ${SERVICE_NAME}: ${svc}, health: ${health}) =="
+        echo "   url: http://localhost:${port}"
+    fi
+}
+
+_menu_section() {
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        printf '  %s%s%s\n' "${_ui_bold}" "$*" "${_ui_reset}"
+    else
+        printf '  %s\n' "$*"
+    fi
+}
+
+_menu_row() {
+    # _menu_row <num> <label> <hint> : aligned columns, hints dimmed on TTY.
+    if [[ "${_ui_has_color}" == "true" ]]; then
+        if [[ -n "$3" ]]; then
+            printf '    %s%2s)%s %-28s %s%s%s\n' \
+                "${_ui_green}" "$1" "${_ui_reset}" "$2" "${_ui_dim}" "$3" "${_ui_reset}"
+        else
+            printf '    %s%2s)%s %s\n' "${_ui_green}" "$1" "${_ui_reset}" "$2"
+        fi
+    else
+        if [[ -n "$3" ]]; then
+            printf '    %2s) %-28s (%s)\n' "$1" "$2" "$3"
+        else
+            printf '    %2s) %s\n' "$1" "$2"
+        fi
+    fi
 }
 
 menu() {
+    _ui_banner
+    local menu_error=""
     while true; do
         echo ""
-        echo "== Openfy manager ($(installed_version), port $(current_port)) =="
-        echo "  1) Status"
-        echo "  2) Logs (last 100)"
-        echo "  3) Follow logs"
-        echo "  4) Restart service"
-        echo "  5) Update to latest stable"
-        echo "  6) Install a specific version (upgrade or downgrade)"
-        echo "  7) Change port"
-        echo "  8) Rotate admin credential (prints once)"
-        echo "  9) Change admin username"
-        echo " 10) Repair (perms/venv/unit; not app files)"
-        echo " 11) Uninstall"
-        echo "  0) Exit"
+        _menu_dashboard
+        _ui_hr
+        _menu_section "Monitor"
+        _menu_row 1 "Status" "service + health"
+        _menu_row 2 "Logs" "last 100 lines"
+        _menu_row 3 "Follow logs" "live tail, Ctrl+C stops"
+        _menu_section "Service"
+        _menu_row 4 "Restart service" "needs root"
+        _menu_row 5 "Update to latest stable" "needs root"
+        _menu_row 6 "Install a specific version" "upgrade / downgrade"
+        _menu_section "Settings"
+        _menu_row 7 "Change port" "needs root"
+        _menu_row 8 "Rotate admin credential" "prints once"
+        _menu_row 9 "Change admin username" "needs root"
+        _menu_section "Maintenance"
+        _menu_row 10 "Repair" "perms / venv / unit"
+        _menu_row 11 "Uninstall" "keeps data unless --purge"
+        _menu_row 0 "Exit" ""
+        _ui_hr
+        if [[ -n "${menu_error}" ]]; then
+            _ui_error "${menu_error}"
+            menu_error=""
+        fi
         local choice=""
-        read -r -p "Choose [0-11]: " choice || return 0
+        if ! _ui_ask choice "openfy> Choose [0-11]:"; then
+            echo ""
+            return 0
+        fi
         case "${choice}" in
-            1) cmd_status ;;
-            2) cmd_logs ;;
+            1) cmd_status; _ui_pause ;;
+            2) cmd_logs; _ui_pause ;;
             3) cmd_logs --follow ;;
-            4) cmd_service restart ;;
-            5) cmd_update --latest ;;
+            4) cmd_service restart; _ui_pause ;;
+            5) cmd_update --latest; _ui_pause ;;
             6)
                 local v=""
-                read -r -p "Version (e.g. 1.4.2, older versions downgrade): " v || return 0
-                [[ -n "${v}" ]] || { echo "Enter a version."; continue; }
+                if ! _ui_ask v "Version (e.g. 1.4.2, older versions downgrade):"; then
+                    echo ""
+                    return 0
+                fi
+                if [[ -z "${v}" ]]; then
+                    menu_error="Enter a version (e.g. 1.4.2)."
+                    continue
+                fi
+                if [[ ! "${v}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha)\.[0-9]+)?$ ]]; then
+                    menu_error="Invalid version '${v}' (expected e.g. 1.4.2)."
+                    continue
+                fi
                 cmd_update --version "${v}"
+                _ui_pause
                 ;;
             7)
                 local p=""
-                read -r -p "New port [$(current_port)]: " p || return 0
-                [[ -n "${p}" ]] || { echo "Enter a port."; continue; }
+                if ! _ui_ask p "New port [$(current_port)]:"; then
+                    echo ""
+                    return 0
+                fi
+                if [[ -z "${p}" ]]; then
+                    menu_error="Enter a port (1-65535, no leading zeros)."
+                    continue
+                fi
+                if ! valid_port "${p}"; then
+                    menu_error="Invalid port '${p}' (must be 1-65535, no leading zeros)."
+                    continue
+                fi
                 cmd_port "${p}"
+                _ui_pause
                 ;;
-            8) cmd_rotate ;;
+            8) cmd_rotate; _ui_pause ;;
             9)
                 local u=""
-                read -r -p "New admin username: " u || return 0
-                [[ -n "${u}" ]] || { echo "Enter a username."; continue; }
+                if ! _ui_ask u "New admin username:"; then
+                    echo ""
+                    return 0
+                fi
+                if [[ -z "${u}" ]]; then
+                    menu_error="Enter a username."
+                    continue
+                fi
+                if ! valid_username "${u}"; then
+                    menu_error="Invalid username '${u}' (letters, digits, . _ -; max 64 chars)."
+                    continue
+                fi
                 cmd_username "${u}"
+                _ui_pause
                 ;;
-            10) cmd_repair ;;
-            11) cmd_uninstall ;;
-            0) echo "Bye."; return 0 ;;
-            *) echo "Invalid choice." ;;
+            10) cmd_repair; _ui_pause ;;
+            11) cmd_uninstall; _ui_pause ;;
+            0|q|Q|quit|exit) echo "Bye."; return 0 ;;
+            "") menu_error="Enter a number between 0 and 11." ;;
+            *) menu_error="Invalid choice '${choice}'. Enter a number between 0 and 11." ;;
         esac
     done
 }
