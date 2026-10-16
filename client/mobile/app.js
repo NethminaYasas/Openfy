@@ -510,14 +510,22 @@ async function initApp() {
         if (state.currentUser.is_admin) {
             $('profile-dropdown-admin').style.display = 'flex';
         }
+        delete profileImg.dataset.fallback;
         profileImg.src = withBase('/users/' + state.currentUser.id + '/avatar');
         profileImg.onload = function() {
             profileIcon.style.display = 'none';
             profileImg.style.display = 'block';
         };
         profileImg.onerror = function() {
-            profileImg.style.display = 'none';
-            profileIcon.style.display = 'flex';
+            if (profileImg.dataset.fallback) {
+                profileImg.style.display = 'none';
+                profileIcon.style.display = 'flex';
+                return;
+            }
+            profileImg.dataset.fallback = 'default';
+            profileImg.src = withBase('/static/images/user.png');
+            profileIcon.style.display = 'none';
+            profileImg.style.display = 'block';
         };
     }
     const [mostPlayed, allTracks, allPlaylists] = await Promise.all([

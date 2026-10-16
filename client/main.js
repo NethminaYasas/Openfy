@@ -134,10 +134,15 @@ function updateUserAvatarDisplay(avatarPath, user = null) {
     img.className = "user-avatar-sm";
     userIcon.appendChild(img);
   } else {
-    // Revert to default FA icon
-    userIcon.classList.remove("user-avatar-mode");
-    userIcon.classList.add("fa-solid", "fa-user");
+    // No custom avatar — show the default user image
+    userIcon.classList.add("user-avatar-mode");
+    userIcon.classList.remove("fa-solid", "fa-user");
     userIcon.innerHTML = "";
+    const img = document.createElement("img");
+    img.src = withBase("/static/images/user.png");
+    img.alt = "Default avatar";
+    img.className = "user-avatar-sm";
+    userIcon.appendChild(img);
   }
 }
 
