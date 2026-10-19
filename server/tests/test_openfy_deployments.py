@@ -45,6 +45,15 @@ def _compose_file(tmp_path):
     return compose
 
 
+def _compose_with_env_port(tmp_path):
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        'services:\n  openfy:\n    ports:\n      - "${OPENFY_PORT:-8000}:8000"\n',
+        encoding="utf-8",
+    )
+    return compose
+
+
 _DOCKER_STUB = """
 docker() {
     echo "DOCKER:$*" >> "$REC"
@@ -527,3 +536,96 @@ echo "start-rc=$?"
     assert "start-rc=0" in proc.stdout
     mode = stat.S_IMODE(data.stat().st_mode)
     assert mode == 0o700, f"data dir mode is {oct(mode)}"
+
+
+def test_docker_start_uses_openfy_port_from_env_file(tmp_path):
+    compose = _compose_with_env_port(tmp_path)
+    (tmp_path / ".env").write_text("OPENFY_PORT=9000\n", encoding="utf-8")
+    rec = tmp_path / "docker-record.txt"
+    snippet = f"""
+source "{MANAGER.as_posix()}"
+export OPENFY_COMPOSE_FILE="{_posix(compose)}"
+unset OPENFY_PORT
+REC="{_posix(rec)}"
+: > "$REC"
+FAKE_RUNNING=0
+FAKE_ANY=0
+{_DOCKER_STUB}
+docker_start
+echo "start-rc=$?"
+docker_status
+"""
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "start-rc=0" in proc.stdout
+    assert "healthy at http://127.0.0.1:9000/health" in proc.stdout
+    assert "URL: http://localhost:9000" in proc.stdout
+
+
+def test_docker_port_precedence(tmp_path):
+    compose = _compose_with_env_port(tmp_path)
+    (tmp_path / ".env").write_text("OPENFY_PORT=9000\n", encoding="utf-8")
+    rec = tmp_path / "docker-record.txt"
+    snippet = f"""
+source "{MANAGER.as_posix()}"
+export OPENFY_COMPOSE_FILE="{_posix(compose)}"
+REC="{_posix(rec)}"
+: > "$REC"
+FAKE_RUNNING=0
+FAKE_ANY=0
+{_DOCKER_STUB}
+export OPENFY_PORT=9010
+docker_start
+echo "env-rc=$?"
+docker_start --port 9020
+echo "flag-rc=$?"
+"""
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "env-rc=0" in proc.stdout
+    assert "flag-rc=0" in proc.stdout
+    assert "healthy at http://127.0.0.1:9010/health" in proc.stdout
+    assert "healthy at http://127.0.0.1:9020/health" in proc.stdout
+
+
+def test_docker_hardcoded_compose_port_ignores_openfy_port(tmp_path):
+    compose = _compose_file(tmp_path)
+    (tmp_path / ".env").write_text("OPENFY_PORT=9000\n", encoding="utf-8")
+    rec = tmp_path / "docker-record.txt"
+    snippet = f"""
+source "{MANAGER.as_posix()}"
+export OPENFY_COMPOSE_FILE="{_posix(compose)}"
+unset OPENFY_PORT
+REC="{_posix(rec)}"
+: > "$REC"
+FAKE_RUNNING=0
+FAKE_ANY=0
+{_DOCKER_STUB}
+docker_status
+"""
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "URL: http://localhost:8000" in proc.stdout
+    assert "9000" not in proc.stdout
+
+
+def test_control_forwards_port_to_docker_only_when_explicit(tmp_path):
+    compose = _compose_with_env_port(tmp_path)
+    snippet = f"""
+source "{MANAGER.as_posix()}"
+export OPENFY_COMPOSE_FILE="{_posix(compose)}"
+docker_start() {{ echo "DSTART:$*"; }}
+docker_restart() {{ echo "DRESTART:$*"; }}
+docker_status() {{ echo "DSTATUS:$*"; }}
+cmd_control start --docker
+cmd_control status --docker
+cmd_control status --docker --port 9100
+cmd_control restart --docker --port 9100
+"""
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    assert "DSTART:--host 0.0.0.0" in lines
+    assert "DSTATUS:" in lines
+    assert "DSTATUS:--port 9100" in lines
+    assert "DRESTART:--host 0.0.0.0 --port 9100" in lines

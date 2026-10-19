@@ -466,8 +466,35 @@ _docker_wait_healthy() {
     return 1
 }
 
+_docker_default_port() {
+    # _docker_default_port <compose-file>
+    # Default health/status port for Docker mode: OPENFY_PORT from the shell
+    # environment, else from the .env beside the compose file, but only when the
+    # compose file maps the host port through OPENFY_PORT. Custom compose files
+    # that hardcode their port keep 8000; pass --port to override.
+    local file="$1" p="${OPENFY_PORT:-}" env_file
+    if grep -q -- 'OPENFY_PORT' "${file}" 2>/dev/null; then
+        if [[ -z "${p}" ]]; then
+            env_file="$(dirname -- "${file}")/.env"
+            if [[ -f "${env_file}" ]]; then
+                p="$(sed -n 's/^OPENFY_PORT=//p' "${env_file}" | tail -n 1)"
+                p="${p%$'\r'}"
+                p="${p%\"}"; p="${p#\"}"
+                p="${p%\'}"; p="${p#\'}"
+            fi
+        fi
+    else
+        p=""
+    fi
+    if valid_port "${p:-}"; then
+        printf '%s' "${p}"
+    else
+        printf '8000'
+    fi
+}
+
 docker_start() {
-    local file host="0.0.0.0" port="8000" timeout="${OPENFY_START_TIMEOUT:-30}"
+    local file host="0.0.0.0" port="" timeout="${OPENFY_START_TIMEOUT:-30}"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --host) host="${2:?--host requires a value}"; shift 2 ;;
@@ -476,9 +503,11 @@ docker_start() {
             *) die "unknown start option '$1'. Use: openfy start [--host H] [--port P] [--timeout S]" ;;
         esac
     done
-    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    [[ -z "${port}" ]] || valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
     [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
     file="$(resolve_compose_file)"
+    port="${port:-$(_docker_default_port "${file}")}"
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
     _require_docker
     _require_compose_file "${file}"
     if [[ -n "$(_compose_ps "${file}" --status running -q)" ]]; then
@@ -515,7 +544,7 @@ docker_stop() {
 }
 
 docker_restart() {
-    local file host="0.0.0.0" port="8000" timeout="${OPENFY_START_TIMEOUT:-30}"
+    local file host="0.0.0.0" port="" timeout="${OPENFY_START_TIMEOUT:-30}"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --host) host="${2:?--host requires a value}"; shift 2 ;;
@@ -524,9 +553,11 @@ docker_restart() {
             *) die "unknown restart option '$1'. Use: openfy restart [--host H] [--port P] [--timeout S]" ;;
         esac
     done
-    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    [[ -z "${port}" ]] || valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
     [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
     file="$(resolve_compose_file)"
+    port="${port:-$(_docker_default_port "${file}")}"
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
     _require_docker
     _require_compose_file "${file}"
     if [[ -z "$(_compose_ps "${file}" -a -q)" ]]; then
@@ -544,16 +575,17 @@ docker_restart() {
 }
 
 docker_status() {
-    local port="8000"
+    local port=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --port) port="${2:?--port requires a value}"; shift 2 ;;
             *) die "unknown status option '$1'. Use: openfy status" ;;
         esac
     done
-    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    [[ -z "${port}" ]] || valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
     local file
     file="$(resolve_compose_file)"
+    port="${port:-$(_docker_default_port "${file}")}"
     _require_docker
     _require_compose_file "${file}"
     if [[ -n "$(_compose_ps "${file}" --status running -q)" ]]; then
@@ -913,7 +945,8 @@ cmd_control() {
         docker)
             case "${action}" in
                 start|restart)
-                    local docker_args=(--host "${host}" --port "${port}")
+                    local docker_args=(--host "${host}")
+                    [[ "${port_set}" == "true" ]] && docker_args+=(--port "${port}")
                     [[ -n "${timeout}" ]] && docker_args+=(--timeout "${timeout}")
                     if [[ "${action}" == "start" ]]; then
                         docker_start "${docker_args[@]}"
@@ -922,7 +955,13 @@ cmd_control() {
                     fi
                     ;;
                 stop) docker_stop ;;
-                *) docker_status --port "${port}" ;;
+                *)
+                    if [[ "${port_set}" == "true" ]]; then
+                        docker_status --port "${port}"
+                    else
+                        docker_status
+                    fi
+                    ;;
             esac
             ;;
         manual)

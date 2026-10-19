@@ -177,8 +177,11 @@ file + `docker`, then a repo checkout — or you can force one with `--systemd`,
 first. Docker control uses `docker compose up -d` when no containers exist and
 `docker compose start` otherwise, and always stops with `docker compose stop`
 (containers and volumes are kept — never `docker compose down`, and images are
-never rebuilt implicitly). Manual control launches `uvicorn app.main:app` from
-`server/` in the background:
+never rebuilt implicitly). When `--port` is omitted in Docker mode, health
+checks and `status` use `OPENFY_PORT` from the shell environment or the `.env`
+beside the compose file (default 8000; compose files that hardcode their port
+keep 8000). Manual control launches `uvicorn app.main:app` from `server/` in
+the background:
 
 ```bash
 openfy start --manual --host 0.0.0.0 --port 8000
@@ -187,7 +190,9 @@ openfy stop --manual --timeout 12
 
 `sudo` is only needed for systemd mode. Docker mode needs access to the Docker
 daemon instead — typically by adding your user to the `docker` group rather
-than using `sudo`. Manual mode runs entirely as the invoking user; never run
+than using `sudo`. Be aware that on standard rootful Docker installs, `docker`
+group membership is root-equivalent; if you need an unprivileged daemon, use
+rootless Docker. Manual mode runs entirely as the invoking user; never run
 it as root, or Uvicorn (including the `0.0.0.0` bind above) inherits root.
 
 Manual mode logs to `data/openfy.log` with a PID file at `data/openfy.pid`
