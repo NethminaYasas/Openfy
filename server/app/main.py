@@ -86,6 +86,7 @@ from .settings import ADMIN_TOKEN_PATTERN, settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
+from .services.invites import REGISTRATION_MODES
 
 mimetypes.add_type("font/woff2", ".woff2")
 mimetypes.add_type("font/woff", ".woff")
@@ -109,6 +110,7 @@ _MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024
 last_track_update = 0
 MANUAL_AUDIO_UPLOAD_SETTING_KEY = "manual_audio_upload_enabled"
 PLAYLIST_IMPORT_SETTING_KEY = "playlist_import_enabled"
+REGISTRATION_MODE_SETTING_KEY = "registration_mode"
 
 
 def update_track_timestamp():
@@ -146,6 +148,41 @@ def _set_app_setting_bool(db: Session, key: str, value: bool) -> bool:
         row.value = raw
     db.commit()
     return value
+
+
+def _get_app_setting(db: Session, key: str, default: str | None = None) -> str | None:
+    row = db.get(AppSetting, key)
+    if not row:
+        return default
+    return row.value
+
+
+def _set_app_setting(db: Session, key: str, value: str) -> str:
+    row = db.get(AppSetting, key)
+    if not row:
+        row = AppSetting(key=key, value=value)
+        db.add(row)
+    else:
+        row.value = value
+    db.commit()
+    return value
+
+
+def _get_registration_mode(db: Session) -> str:
+    value = _get_app_setting(db, REGISTRATION_MODE_SETTING_KEY)
+    if value is not None:
+        normalized = value.strip().lower()
+        if normalized in REGISTRATION_MODES:
+            return normalized
+    return settings.registration_mode
+
+
+def _set_registration_mode(db: Session, mode: str) -> str:
+    normalized = str(mode).strip().lower()
+    if normalized not in REGISTRATION_MODES:
+        raise ValueError(f"registration mode must be one of: {', '.join(REGISTRATION_MODES)}")
+    _set_app_setting(db, REGISTRATION_MODE_SETTING_KEY, normalized)
+    return normalized
 
 
 def rate_limit(max_requests: int, window_seconds: int = 60):
@@ -654,6 +691,12 @@ def _startup():
                 )
                 conn.commit()
 
+            if "invite_code_id" not in ucols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN invite_code_id VARCHAR(32)")
+                )
+                conn.commit()
+
             conn.execute(
                 text(
                     "CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(128) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
@@ -666,6 +709,13 @@ def _startup():
                 {"key": MANUAL_AUDIO_UPLOAD_SETTING_KEY},
             )
             conn.commit()
+
+            registration_db = SessionLocal()
+            try:
+                if _get_app_setting(registration_db, REGISTRATION_MODE_SETTING_KEY) is None:
+                    _set_app_setting(registration_db, REGISTRATION_MODE_SETTING_KEY, settings.registration_mode)
+            finally:
+                registration_db.close()
 
             # Clean up orphaned playlist_tracks that reference missing tracks or playlists
             with engine.connect() as conn2:
