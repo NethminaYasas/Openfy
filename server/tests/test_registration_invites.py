@@ -1,12 +1,15 @@
 """Coverage for registration modes, invite codes, and runtime mode switching."""
 
+import json
+import logging
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app import main
@@ -38,11 +41,16 @@ def _config(tmp_path, *, mode=None, admin_hash=ADMIN_HASH, admin_username="admin
 
 
 def _wire(tmp_path, monkeypatch, config):
-    engine = create_engine(config.database_url, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        config.database_url,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
 
     @event.listens_for(engine, "connect")
-    def enable_foreign_keys(connection, _):
+    def configure_sqlite(connection, _):
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA busy_timeout = 30000")
 
     sessions = sessionmaker(bind=engine, autoflush=False)
     Base.metadata.create_all(engine)
@@ -96,6 +104,21 @@ def _invite_use_count(env, invite_id):
 def _user_exists(env, name):
     with env.sessions() as db:
         return db.execute(select(User).where(User.name == name)).scalar_one_or_none() is not None
+
+
+def _user_count(env, names):
+    with env.sessions() as db:
+        return db.execute(
+            select(func.count()).select_from(User).where(User.name.in_(names))
+        ).scalar_one()
+
+
+def _invites_by_id(env):
+    response = env.client.get("/admin/invites", headers=_admin_headers(env))
+    assert response.status_code == 200
+    return response.json()["invites"], {
+        invite["id"]: invite for invite in response.json()["invites"]
+    }
 
 
 def _signup(env, name, code=None):
@@ -182,6 +205,33 @@ def test_single_use_invite_allows_exactly_one_signup(invites_env):
     assert _user_exists(env, "race-first")
     assert not _user_exists(env, "race-second")
     assert _invite_use_count(env, invite_id) == 1
+
+
+def test_concurrent_single_use_invite_allows_exactly_one_signup(invites_env):
+    env = invites_env
+    invite_id, code = _make_invite(env, max_uses=1)
+    names = [f"concurrent-{index}" for index in range(6)]
+
+    def attempt(name):
+        client = TestClient(main.app)
+        try:
+            return client.post(
+                "/auth/signup", json={"name": name, "invite_code": code}
+            )
+        finally:
+            client.close()
+
+    with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        responses = list(pool.map(attempt, names))
+
+    statuses = [response.status_code for response in responses]
+    assert statuses.count(200) == 1, statuses
+    assert all(status == 400 for status in statuses if status != 200), statuses
+    for response in responses:
+        if response.status_code == 400:
+            assert response.json() == {"detail": INVALID_CODE_DETAIL}
+    assert _invite_use_count(env, invite_id) == 1
+    assert _user_count(env, names) == 1
 
 
 def test_duplicate_username_rolls_back_invite_consumption(invites_env):
@@ -346,3 +396,95 @@ def test_existing_db_mode_wins_over_env_value(wired_env, monkeypatch):
     with wired_env.sessions() as db:
         assert main._get_app_setting(db, main.REGISTRATION_MODE_SETTING_KEY) == "invite"
         assert main._get_registration_mode(db) == "invite"
+
+
+def test_admin_invite_list_redacts_hashes_and_plaintext(invites_env):
+    env = invites_env
+    created = env.client.post(
+        "/admin/invites", json={"max_uses": 1}, headers=_admin_headers(env)
+    )
+    assert created.status_code == 200
+    plaintext = created.json()["code"]
+    invite_id = created.json()["id"]
+
+    response = env.client.get("/admin/invites", headers=_admin_headers(env))
+    assert response.status_code == 200
+    raw = json.dumps(response.json())
+    assert "code_hash" not in raw
+    assert '"code"' not in raw
+    assert plaintext not in raw
+
+    invite = next(
+        item for item in response.json()["invites"] if item["id"] == invite_id
+    )
+    assert "code_hash" not in invite
+    assert "code" not in invite
+    assert invite["code_prefix"] == plaintext[:8]
+
+
+def test_mode_change_logs_admin_and_transition(invites_env, caplog):
+    env = invites_env
+    caplog.set_level(logging.INFO, logger="app.main")
+
+    response = env.client.put(
+        "/admin/registration-mode", json={"mode": "open"}, headers=_admin_headers(env)
+    )
+    assert response.status_code == 200
+
+    messages = [
+        record.getMessage() for record in caplog.records if record.name == "app.main"
+    ]
+    assert "registration mode changed by admin: invite -> open" in messages
+
+
+def test_revoke_unknown_id_404_and_double_revoke_is_idempotent(invites_env):
+    env = invites_env
+    unknown = env.client.delete(
+        "/admin/invites/does-not-exist", headers=_admin_headers(env)
+    )
+    assert unknown.status_code == 404
+
+    invite_id, _ = _make_invite(env)
+    first = env.client.delete(f"/admin/invites/{invite_id}", headers=_admin_headers(env))
+    second = env.client.delete(f"/admin/invites/{invite_id}", headers=_admin_headers(env))
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == {"status": "revoked", "invite_id": invite_id}
+    assert second.json() == {"status": "revoked", "invite_id": invite_id}
+
+
+def test_invite_status_labels(invites_env):
+    env = invites_env
+    invite_id, code = _make_invite(env, max_uses=2)
+
+    assert _signup(env, "status-first", code=code).status_code == 200
+    assert _invites_by_id(env)[1][invite_id]["status"] == "active"
+    assert _invites_by_id(env)[1][invite_id]["use_count"] == 1
+
+    assert _signup(env, "status-second", code=code).status_code == 200
+    assert _invites_by_id(env)[1][invite_id]["status"] == "used"
+    assert _invites_by_id(env)[1][invite_id]["use_count"] == 2
+
+    with env.sessions() as db:
+        invite = db.get(InviteCode, invite_id)
+        invite.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
+        db.commit()
+    assert _invites_by_id(env)[1][invite_id]["status"] == "expired"
+
+    assert (
+        env.client.delete(f"/admin/invites/{invite_id}", headers=_admin_headers(env)).status_code
+        == 200
+    )
+    assert _invites_by_id(env)[1][invite_id]["status"] == "revoked"
+
+
+def test_registration_mode_rate_limit_does_not_block_signup(invites_env):
+    env = invites_env
+    for _ in range(30):
+        assert env.client.get("/auth/registration-mode").status_code == 200
+    assert env.client.get("/auth/registration-mode").status_code == 429
+
+    invite_id, code = _make_invite(env)
+    response = _signup(env, "after-mode-limit", code=code)
+    assert response.status_code == 200
+    assert _invite_use_count(env, invite_id) == 1

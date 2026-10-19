@@ -724,12 +724,13 @@ def _startup():
             )
             conn.commit()
 
-            registration_db = SessionLocal()
-            try:
-                if _get_app_setting(registration_db, REGISTRATION_MODE_SETTING_KEY) is None:
-                    _set_app_setting(registration_db, REGISTRATION_MODE_SETTING_KEY, settings.registration_mode)
-            finally:
-                registration_db.close()
+            conn.execute(
+                text(
+                    "INSERT OR IGNORE INTO app_settings(key, value, updated_at) VALUES (:key, :value, CURRENT_TIMESTAMP)"
+                ),
+                {"key": REGISTRATION_MODE_SETTING_KEY, "value": settings.registration_mode},
+            )
+            conn.commit()
 
             # Clean up orphaned playlist_tracks that reference missing tracks or playlists
             with engine.connect() as conn2:
