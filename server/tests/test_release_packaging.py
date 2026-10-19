@@ -218,12 +218,29 @@ def test_installer_requires_python_311_and_checks_arch():
     assert "systemd" in content.lower()
 
 
-def test_uninstaller_preserves_data_by_default():
+def test_uninstaller_wipes_everything_by_default():
     content = (REPO_ROOT / "scripts" / "linux" / "uninstall.sh").read_text()
-    assert "--purge" in content
-    assert "PRESERVED" in content or "Preserved" in content
-    # Destructive paths require explicit flags, not the default run.
+    # A plain uninstall removes data, config (admin credential) and backups;
+    # keeping them is an explicit opt-in.
+    assert "Preserved" in content
+    for flag in ["--keep-data", "--keep-config", "--keep-backups", "--keep-service-user"]:
+        assert flag in content, f"missing opt-out flag {flag}"
+    # Destructive paths are still confirmed, and system paths are refused.
     assert "confirm" in content.lower()
+    assert "looks like a system path" in content
+    # The obsolete destructive flags are accepted but ignored.
+    assert "--purge" in content
+
+
+def test_uninstaller_removes_the_admin_credential():
+    content = (REPO_ROOT / "scripts" / "linux" / "uninstall.sh").read_text()
+    # The configuration directory holds the admin credential: a plain
+    # uninstall must delete it, not just mention it.
+    assert '"configuration"' in content
+    assert "admin credential" in content
+    # Update backups contain copies of the credential and the database.
+    assert '"update backups"' in content
+    assert "userdel" in content
 
 
 def test_systemd_unit_requirements():

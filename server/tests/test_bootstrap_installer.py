@@ -65,13 +65,13 @@ def _need_bash():
     return bash
 
 
-def _run_bash(bash, script, env=None, timeout=120):
+def _run_bash(bash, script, env=None, timeout=120, stdin=None):
     merged = dict(os.environ)
     if env:
         merged.update(env)
     return subprocess.run(
         [bash, "-c", script], capture_output=True, text=True,
-        timeout=timeout, env=merged, cwd=str(REPO_ROOT),
+        timeout=timeout, env=merged, cwd=str(REPO_ROOT), input=stdin,
     )
 
 
@@ -1192,6 +1192,113 @@ def test_docker_uninstall_dry_run():
         bash, f'"{BOOTSTRAP.as_posix()}" --yes --dry-run --method docker --action uninstall')
     assert proc.returncode == 0, proc.stderr
     assert "DRY RUN" in proc.stdout
+
+
+_DOCKER_MOCK = """docker() {
+  case "$1" in
+    ps) echo "openfy" ;;
+    inspect)
+      case "$*" in
+        *Mounts*) echo "openfy_data" ;;
+        *) echo "ghcr.io/nethminayasas/openfy:1.2.3" ;;
+      esac ;;
+    stop|rm) return 0 ;;
+    volume)
+      case "$2" in
+        ls) echo "openfy_data" ;;
+        rm) echo "volume rm $3" >> "$DOCKER_LOG" ;;
+      esac ;;
+    images) echo "ghcr.io/nethminayasas/openfy:1.2.3" ;;
+    rmi) echo "rmi $2" >> "$DOCKER_LOG" ;;
+  esac
+  return 0
+}
+"""
+
+
+def test_docker_uninstall_removes_volume_and_admin_credential(tmp_path):
+    # A Docker uninstall must not leave the volume (database, music) or the
+    # .env with the admin credential behind.
+    bash = _need_bash()
+    docker_dir = tmp_path / "openfy-docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(
+        "OPENFY_ADMIN_USERNAME=admin\nOPENFY_ADMIN_HASH=of1_credential\n", encoding="utf-8"
+    )
+    log = tmp_path / "docker.log"
+    script = (
+        f'{_DOCKER_MOCK}\nsource "{BOOTSTRAP.as_posix()}"\n'
+        'ASSUME_YES="true"\nrun_docker_uninstall\n'
+    )
+    proc = _run_bash(
+        bash, script,
+        env={"OPENFY_DOCKER_DIR": _m(docker_dir), "DOCKER_LOG": _m(log)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not (docker_dir / ".env").exists(), "the admin credential survived the uninstall"
+    assert not docker_dir.exists(), "the Docker config directory survived"
+    assert "volume rm openfy_data" in log.read_text(encoding="utf-8")
+    assert "rmi ghcr.io/nethminayasas/openfy:1.2.3" in log.read_text(encoding="utf-8")
+
+
+def test_docker_uninstall_asks_before_deleting(tmp_path):
+    # Without --yes the Docker uninstall must ask and change nothing.
+    bash = _need_bash()
+    docker_dir = tmp_path / "openfy-docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text("OPENFY_ADMIN_HASH=of1_credential\n", encoding="utf-8")
+    log = tmp_path / "docker.log"
+    script = f'{_DOCKER_MOCK}\nsource "{BOOTSTRAP.as_posix()}"\nrun_docker_uninstall\n'
+    proc = _run_bash(
+        bash, script,
+        env={"OPENFY_DOCKER_DIR": _m(docker_dir), "DOCKER_LOG": _m(log)},
+        stdin="n\n",
+    )
+    assert proc.returncode != 0
+    assert "aborted" in proc.stderr.lower()
+    assert (docker_dir / ".env").exists(), "the credential must survive an aborted uninstall"
+    assert not log.exists() or "volume rm" not in log.read_text(encoding="utf-8")
+
+
+def test_docker_uninstall_keeps_unrelated_files_in_the_config_dir(tmp_path):
+    # The Docker config directory may be a user-owned location: only the
+    # files the installer created may be removed.
+    bash = _need_bash()
+    docker_dir = tmp_path / "openfy-docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text("OPENFY_ADMIN_HASH=of1_credential\n", encoding="utf-8")
+    (docker_dir / "notes.txt").write_text("mine\n", encoding="utf-8")
+    log = tmp_path / "docker.log"
+    script = (
+        f'{_DOCKER_MOCK}\nsource "{BOOTSTRAP.as_posix()}"\n'
+        'ASSUME_YES="true"\nrun_docker_uninstall\n'
+    )
+    proc = _run_bash(
+        bash, script,
+        env={"OPENFY_DOCKER_DIR": _m(docker_dir), "DOCKER_LOG": _m(log)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not (docker_dir / ".env").exists(), "the admin credential survived the uninstall"
+    assert (docker_dir / "notes.txt").exists(), "an unrelated file was deleted"
+
+
+def test_docker_uninstall_can_keep_the_volume(tmp_path):
+    bash = _need_bash()
+    docker_dir = tmp_path / "openfy-docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text("OPENFY_ADMIN_HASH=of1_credential\n", encoding="utf-8")
+    log = tmp_path / "docker.log"
+    script = (
+        f'{_DOCKER_MOCK}\nsource "{BOOTSTRAP.as_posix()}"\n'
+        'ASSUME_YES="true"\nKEEP_DATA="true"\nKEEP_CONFIG="true"\nrun_docker_uninstall\n'
+    )
+    proc = _run_bash(
+        bash, script,
+        env={"OPENFY_DOCKER_DIR": _m(docker_dir), "DOCKER_LOG": _m(log)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (docker_dir / ".env").exists(), "--keep-config must preserve the credential"
+    assert "volume rm" not in log.read_text(encoding="utf-8")
 
 
 def test_explicit_prerelease_needs_opt_in_noninteractive(tmp_path):
