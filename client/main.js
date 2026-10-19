@@ -783,7 +783,7 @@ function initEventListeners() {
         } else {
           showAuthStatus("signup-status", "Signup failed. Check your invite code and try again.", "error");
         }
-      } else if (submittedCode) {
+      } else if (submittedCode && /Invalid invite code/.test(err.message || "")) {
         showAuthStatus("signup-status", "Registration is now open — please try again without a code.", "error");
       } else {
         showAuthStatus("signup-status", err.message || "Sign up failed.", "error");

@@ -216,7 +216,7 @@ signupBtn.addEventListener('click', async () => {
             } else {
                 signupStatus.textContent = 'Signup failed. Check your invite code and try again.';
             }
-        } else if (submittedCode) {
+        } else if (submittedCode && /Invalid invite code/.test(e.message || '')) {
             signupStatus.textContent = 'Registration is now open — please try again without a code.';
         } else {
             signupStatus.textContent = e.message || 'Sign up failed';
