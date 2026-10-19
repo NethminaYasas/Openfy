@@ -710,7 +710,11 @@ manual_start() {
     if [[ -f "${pidfile}" ]]; then
         oldpid="$(tr -d '[:space:]' < "${pidfile}" || true)"
         if _process_identity_ok "${oldpid}"; then
-            _write_endpoint "${endpointfile}" "${host}" "${port}"
+            # Preserve the endpoint of the already-running server; do not
+            # overwrite it with this call's defaults (host/port).
+            if [[ ! -f "${endpointfile}" ]]; then
+                _write_endpoint "${endpointfile}" "${host}" "${port}"
+            fi
             log "Openfy is already running (PID ${oldpid})."
             return 0
         fi

@@ -208,7 +208,10 @@ signupBtn.addEventListener('click', async () => {
             if (signupInviteCode) signupInviteCode.required = prevRequired;
             signupStatus.textContent = e.message || 'Sign up failed';
         } else if (refreshedMode === 'invite') {
-            if (!submittedCode) {
+            const inviteRejected = /Invalid invite code/.test(e.message || '');
+            if (!inviteRejected) {
+                signupStatus.textContent = e.message || 'Sign up failed';
+            } else if (!submittedCode) {
                 signupStatus.textContent = 'Registration now requires an invite code. Enter one and try again.';
             } else {
                 signupStatus.textContent = 'Signup failed. Check your invite code and try again.';

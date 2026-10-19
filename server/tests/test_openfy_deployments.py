@@ -196,6 +196,28 @@ echo "start-rc=$?"
     assert "SPAWNED" not in rec.read_text(encoding="utf-8")
 
 
+def test_manual_start_already_running_preserves_endpoint(tmp_path, repo):
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    endpoint = data / "openfy.endpoint"
+    endpoint.write_text("127.0.0.1 9123\n", encoding="utf-8")
+    extra = """
+_manual_spawn() { echo "SPAWNED" >> "$REC"; echo 111; }
+manual_start
+echo "start-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=0,
+        ps_cmd="python3 -m uvicorn app.main:app --host 127.0.0.1 --port 9123",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "already running" in proc.stdout
+    assert "start-rc=0" in proc.stdout
+    assert endpoint.read_text(encoding="utf-8").strip() == "127.0.0.1 9123"
+    assert "SPAWNED" not in rec.read_text(encoding="utf-8")
+
+
 def test_manual_start_clears_foreign_pid_and_launches(tmp_path, repo):
     extra = """
 _manual_spawn() { echo "SPAWNED" >> "$REC"; echo 777; }

@@ -775,7 +775,10 @@ function initEventListeners() {
         if (inviteInput) inviteInput.required = prevRequired;
         showAuthStatus("signup-status", err.message || "Sign up failed.", "error");
       } else if (refreshedMode === "invite") {
-        if (!submittedCode) {
+        var inviteRejected = /Invalid invite code/.test(err.message || "");
+        if (!inviteRejected) {
+          showAuthStatus("signup-status", err.message || "Sign up failed.", "error");
+        } else if (!submittedCode) {
           showAuthStatus("signup-status", "Registration now requires an invite code. Enter one and try again.", "error");
         } else {
           showAuthStatus("signup-status", "Signup failed. Check your invite code and try again.", "error");
