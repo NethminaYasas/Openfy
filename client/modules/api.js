@@ -322,9 +322,17 @@ export async function tryAutoLogin() {
   return null;
 }
 
-export async function signUp(name) {
-  var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
+export async function signUp(name, inviteCode) {
+  var body = { name: name.trim() };
+  var code = typeof inviteCode === "string" ? inviteCode.trim() : "";
+  if (code) body.invite_code = code;
+  var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return user;
+}
+
+export async function getRegistrationMode() {
+  var data = await api("/auth/registration-mode");
+  return data && data.mode;
 }
 
 export async function signIn(hash) {

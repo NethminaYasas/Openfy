@@ -1,5 +1,5 @@
 import { state, setAuth, clearAuth, updateUser, withBase } from './modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, followArtist, unfollowArtist, updateAlbumShuffle, updateAlbumPin, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, refreshManualUploadSetting, loadPlaylists as apiLoadPlaylists, updateRegularPlaylistTrackCache, savePlayerState, signUp, signIn, getRegistrationMode, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, addTrackToPlaylist, removeTrackFromPlaylist, renamePlaylist, deletePlaylist, followPlaylist, unfollowPlaylist, followAlbum, unfollowAlbum, followArtist, unfollowArtist, updateAlbumShuffle, updateAlbumPin, togglePlaylistPin, togglePlaylistVisibility, togglePlaylistShuffle, downloadFromLink, pollJobStatus, runSearch, runSpotifySearch, uploadAvatar, getArtist, setAuthenticatedImage } from './modules/api.js';
 import { escapeHtml, formatDuration, getArtistDisplay, formatTotalDuration, createPlaylistIconSvg, drawCanvas, clearCanvas, seededColor, queueArtworkUrl, positionRemovalMenu, buildMosaicFallback } from './modules/utils.js';
 import { initGradient, destroyGradient, emitTrackChanged } from './modules/gradient-manager.js';
 import { saveIntendedUrl, getAndClearIntendedUrl } from './modules/auth.js';
@@ -73,6 +73,44 @@ function clearAuthStatus(elementId) {
   if (!el) return;
   el.textContent = "";
   el.className = "auth-status";
+}
+
+// Registration mode (public signup gate)
+let registrationMode = null;
+
+function applyRegistrationModeUI(mode) {
+  const field = document.getElementById("signup-invite-field");
+  const input = document.getElementById("signup-invite-code");
+  if (!field || !input) return;
+  if (mode === "invite") {
+    field.style.display = "block";
+    input.required = true;
+  } else if (mode === "open") {
+    field.style.display = "none";
+    input.required = false;
+  } else {
+    // Unknown mode (fetch failed): show the field as optional — worst case it is unnecessary.
+    field.style.display = "block";
+    input.required = false;
+  }
+}
+
+async function refreshRegistrationMode() {
+  try {
+    const mode = await getRegistrationMode();
+    registrationMode = (mode === "invite" || mode === "open") ? mode : null;
+  } catch (err) {
+    registrationMode = null;
+  }
+  applyRegistrationModeUI(registrationMode);
+  return registrationMode;
+}
+
+function prefillInviteCodeFromUrl() {
+  const input = document.getElementById("signup-invite-code");
+  if (!input || input.value) return;
+  const code = new URLSearchParams(window.location.search).get("invite");
+  if (code && code.trim()) input.value = code.trim();
 }
 
 function updateUserAvatarDisplay(avatarPath, user = null) {
@@ -155,6 +193,9 @@ document.addEventListener('DOMContentLoaded', async function() {
   initKeyboardControls();
   
   initResizeObserver();
+
+  prefillInviteCodeFromUrl();
+  refreshRegistrationMode();
 
   // Navigate to URL AFTER authentication so admin status is known
   if (!state.authHash) {
@@ -699,13 +740,20 @@ function initEventListeners() {
   document.getElementById("signup-btn").addEventListener("click", async function() {
     var name = document.getElementById("signup-name").value.trim();
     if (!name) { showAuthStatus("signup-status", "Please enter a username.", "error"); return; }
+
+    var inviteInput = document.getElementById("signup-invite-code");
+    var inviteCode = inviteInput ? inviteInput.value.trim() : "";
+    if (registrationMode === "invite" && !inviteCode) {
+      showAuthStatus("signup-status", "Please enter an invite code.", "error"); return;
+    }
+    if (registrationMode === "open") inviteCode = "";
     
     var btn = document.getElementById("signup-btn");
     setButtonLoading(btn, true);
     clearAuthStatus("signup-status");
     
     try {
-      var user = await signUp(name);
+      var user = await signUp(name, inviteCode);
       setAuth(user.auth_hash, user);
       document.getElementById("signin-hash").value = "";
       updateAdminButtonVisibility();
@@ -715,7 +763,18 @@ function initEventListeners() {
       await refreshManualUploadSetting();
       applyManualUploadUI(state.manualAudioUploadEnabled);
       if (window.refreshLibraryState) window.refreshLibraryState();
-    } catch (err) { showAuthStatus("signup-status", err.message || "Sign up failed.", "error"); }
+    } catch (err) {
+      if (inviteCode) {
+        await refreshRegistrationMode();
+        if (registrationMode === "open") {
+          showAuthStatus("signup-status", "Registration is now open — please try again without a code.", "error");
+        } else {
+          showAuthStatus("signup-status", "Signup failed. Check your invite code and try again.", "error");
+        }
+      } else {
+        showAuthStatus("signup-status", err.message || "Sign up failed.", "error");
+      }
+    }
     finally { setButtonLoading(btn, false); }
   });
 

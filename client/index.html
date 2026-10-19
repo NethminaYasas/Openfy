@@ -37,6 +37,13 @@
                     <i class="fa-solid fa-user input-icon"></i>
                     <input type="text" id="signup-name" placeholder="Choose a username" autocomplete="off" />
                 </div>
+                <div id="signup-invite-field" style="display:none; width:100%;">
+                    <label for="signup-invite-code" style="display:block; width:100%; text-align:left; font-size:0.75rem; color:#727272; margin:0 0 0.5rem 0.25rem;">Invite code required — ask an admin for one</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-ticket input-icon"></i>
+                        <input type="text" id="signup-invite-code" placeholder="Invite code" autocomplete="off" autocapitalize="off" spellcheck="false" />
+                    </div>
+                </div>
                 <button class="auth-btn auth-btn-outline" id="signup-btn">
                     <span class="btn-text">Sign Up</span>
                     <span class="btn-loader" style="display:none;"><i class="fa-solid fa-spinner fa-spin"></i></span>

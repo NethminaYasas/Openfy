@@ -1,6 +1,6 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, removeTrackFromPlaylist, loadTrackPlaylists, runSearch, getArtist, getTrackStreamUrl, savePlayerState, followPlaylist, followAlbum, followArtist, unfollowPlaylist, unfollowAlbum, unfollowArtist, updateRegularPlaylistTrackCache, togglePlaylistShuffle, updateAlbumShuffle, checkIfLiked as apiCheckIfLiked, loadAdminRegistrationMode, updateAdminRegistrationMode, createInvite, loadInvites, revokeInvite } from '../modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, getRegistrationMode, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, removeTrackFromPlaylist, loadTrackPlaylists, runSearch, getArtist, getTrackStreamUrl, savePlayerState, followPlaylist, followAlbum, followArtist, unfollowPlaylist, unfollowAlbum, unfollowArtist, updateRegularPlaylistTrackCache, togglePlaylistShuffle, updateAlbumShuffle, checkIfLiked as apiCheckIfLiked, loadAdminRegistrationMode, updateAdminRegistrationMode, createInvite, loadInvites, revokeInvite } from '../modules/api.js';
 import { formatDuration, getArtistDisplay, extractVibrantColors, seededColor } from '../modules/utils.js';
 import { loadRecentSearches, addRecentSearch, removeRecentSearch } from '../modules/recent-searches.js';
 import { queueSetList, queueJumpTo, queueInsert, queueSave, queueGet, queueLength, queueCurrentIndex, queueCurrentTrack, queueReorder as _queueReorder, setRenderCallback } from '../modules/queue-manager.js';
@@ -111,6 +111,43 @@ const signupStatus = $('signup-status');
 const showSignup = $('show-signup');
 const showSignin = $('show-signin');
 const backToSignin = $('back-to-signin');
+const signupInviteField = $('signup-invite-field');
+const signupInviteCode = $('signup-invite-code');
+
+// Public signup registration mode (distinct from admin mobileRegistrationMode)
+let signupRegistrationMode = null;
+
+function applySignupInviteModeUI(mode) {
+    if (!signupInviteField || !signupInviteCode) return;
+    if (mode === 'invite') {
+        signupInviteField.style.display = 'block';
+        signupInviteCode.required = true;
+    } else if (mode === 'open') {
+        signupInviteField.style.display = 'none';
+        signupInviteCode.required = false;
+    } else {
+        // Unknown mode (fetch failed): show the field as optional — worst case it is unnecessary.
+        signupInviteField.style.display = 'block';
+        signupInviteCode.required = false;
+    }
+}
+
+async function refreshRegistrationMode() {
+    try {
+        const mode = await getRegistrationMode();
+        signupRegistrationMode = (mode === 'invite' || mode === 'open') ? mode : null;
+    } catch (e) {
+        signupRegistrationMode = null;
+    }
+    applySignupInviteModeUI(signupRegistrationMode);
+    return signupRegistrationMode;
+}
+
+function prefillInviteCodeFromUrl() {
+    if (!signupInviteCode || signupInviteCode.value) return;
+    const code = new URLSearchParams(window.location.search).get('invite');
+    if (code && code.trim()) signupInviteCode.value = code.trim();
+}
 
 showSignup.addEventListener('click', e => {
     e.preventDefault();
@@ -147,16 +184,31 @@ signinBtn.addEventListener('click', async () => {
 signupBtn.addEventListener('click', async () => {
     const name = signupName.value.trim();
     if (!name) return;
+    let inviteCode = signupInviteCode ? signupInviteCode.value.trim() : '';
+    if (signupRegistrationMode === 'invite' && !inviteCode) {
+        signupStatus.textContent = 'Please enter an invite code.';
+        return;
+    }
+    if (signupRegistrationMode === 'open') inviteCode = '';
     signupBtn.disabled = true;
     signupBtn.querySelector('.btn-text').textContent = 'Signing up...';
     try {
-        const user = await signUp(name);
+        const user = await signUp(name, inviteCode);
         setAuth(user.auth_hash, user);
         signinHash.value = '';
         await initApp();
         signupStatus.textContent = '';
     } catch (e) {
-        signupStatus.textContent = e.message || 'Sign up failed';
+        if (inviteCode) {
+            await refreshRegistrationMode();
+            if (signupRegistrationMode === 'open') {
+                signupStatus.textContent = 'Registration is now open — please try again without a code.';
+            } else {
+                signupStatus.textContent = 'Signup failed. Check your invite code and try again.';
+            }
+        } else {
+            signupStatus.textContent = e.message || 'Sign up failed';
+        }
     }
     signupBtn.disabled = false;
     signupBtn.querySelector('.btn-text').textContent = 'Sign Up';
@@ -2971,6 +3023,8 @@ $('mobile-invite-reveal-dismiss').addEventListener('click', () => {
 
 // ─── Bootstrap ──────────────────────────────────────
 async function bootstrap() {
+    prefillInviteCodeFromUrl();
+    refreshRegistrationMode();
     if (!state.authHash) {
         authOverlay.style.display = 'flex';
         return;
