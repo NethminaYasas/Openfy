@@ -1,5 +1,7 @@
 """Tests for scripts/linux/openfy deployment modes (systemd/docker/manual)."""
 
+import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -53,6 +55,7 @@ docker() {
     esac
     return 0
 }
+python3() { return 0; }
 """
 
 
@@ -145,6 +148,14 @@ fake_python() {{ return 0; }}
 
 def test_manual_stop_cleans_stale_pid_and_start_proceeds(tmp_path, repo):
     extra = f"""
+kill() {{
+    echo "KILL:$*" >> "$REC"
+    local joined=" $* "
+    case "$joined" in
+        *" -0 987654 "*) return 1 ;;
+    esac
+    return 0
+}}
 _manual_spawn() {{ echo 4242; }}
 manual_stop
 echo "stop-rc=$?"
@@ -354,3 +365,143 @@ echo "rc=$?"
     assert proc.returncode == 0, proc.stderr
     assert "[openfy] Deployment mode: docker" in proc.stdout
     assert "rc=0" in proc.stdout
+
+
+def test_manual_start_fails_when_launched_pid_is_dead(tmp_path, repo):
+    extra = """
+_manual_spawn() { echo 333333; }
+manual_start --host 127.0.0.1 --port 9111 --timeout 2
+echo "start-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=1, ps_cmd="unrelated-process",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode != 0
+    combined = proc.stdout + proc.stderr
+    assert "exited during startup" in combined
+    assert "last 20 lines" in combined
+    assert "Openfy started" not in proc.stdout
+    assert not pidfile.exists()
+
+
+def test_docker_start_health_timeout_exits_nonzero(tmp_path):
+    compose = _compose_file(tmp_path)
+    rec = tmp_path / "docker-record.txt"
+    snippet = f"""
+source "{MANAGER.as_posix()}"
+export OPENFY_COMPOSE_FILE="{_posix(compose)}"
+REC="{_posix(rec)}"
+: > "$REC"
+FAKE_RUNNING=0
+FAKE_ANY=0
+{_DOCKER_STUB}
+python3() {{ return 1; }}
+docker_start --timeout 1
+echo "rc=$?"
+"""
+    proc = _run_snippet(snippet)
+    assert proc.returncode != 0
+    assert "did not become healthy" in proc.stderr
+    assert "logs --tail=100" in proc.stderr
+    assert "rc=0" not in proc.stdout
+
+
+def test_manual_endpoint_persisted_and_used_by_status(tmp_path, repo):
+    data = tmp_path / "data"
+    endpoint = data / "openfy.endpoint"
+    extra = f"""
+rm -f "{_posix(data / 'openfy.pid')}"
+_manual_spawn() {{ echo 555; }}
+manual_start --host 127.0.0.1 --port 9123
+echo "start-rc=$?"
+echo "endpoint=$(cat "{_posix(endpoint)}")"
+manual_status
+echo "status-rc=$?"
+_alive_calls=0
+_pid_alive() {{ _alive_calls=$((_alive_calls + 1)); [[ ${{_alive_calls}} -le 1 ]]; }}
+manual_stop
+echo "stop-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=0,
+        ps_cmd="python3 -m uvicorn app.main:app --host 127.0.0.1 --port 9123",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "start-rc=0" in proc.stdout
+    assert "endpoint=127.0.0.1 9123" in proc.stdout
+    assert "URL: http://127.0.0.1:9123" in proc.stdout
+    assert "Health: healthy at http://127.0.0.1:9123/health" in proc.stdout
+    assert "stop-rc=0" in proc.stdout
+    assert not endpoint.exists()
+    assert not pidfile.exists()
+
+
+def test_manual_stop_refuses_kill_when_identity_changes(tmp_path, repo):
+    extra = """
+_identity_calls=0
+_process_identity_ok() { _identity_calls=$((_identity_calls + 1)); [[ ${_identity_calls} -eq 1 ]]; }
+_pid_alive() { return 0; }
+manual_stop --timeout 0
+echo "stop-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=0, ps_cmd="",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode != 0
+    assert "refusing to send SIGKILL" in proc.stderr
+    assert pidfile.exists()
+    recorded = rec.read_text(encoding="utf-8")
+    assert "-TERM 987654" in recorded
+    assert "-KILL" not in recorded
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_manual_start_secures_log_pid_and_endpoint(tmp_path, repo):
+    data = tmp_path / "data"
+    extra = f"""
+rm -f "{_posix(data / 'openfy.pid')}"
+_manual_spawn() {{ echo 556; }}
+manual_start --port 9110
+echo "start-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=0,
+        ps_cmd="python3 -m uvicorn app.main:app --host 0.0.0.0 --port 9110",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "start-rc=0" in proc.stdout
+    assert "http://127.0.0.1:9110" in proc.stdout
+    assert (data / "openfy.endpoint").read_text(encoding="utf-8").strip() == "0.0.0.0 9110"
+    for name in ("openfy.log", "openfy.pid", "openfy.endpoint"):
+        mode = stat.S_IMODE((data / name).stat().st_mode)
+        assert mode == 0o600, f"{name} mode is {oct(mode)}"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_manual_start_creates_data_dir_private(tmp_path, repo):
+    data = tmp_path / "fresh-data"
+    rec = tmp_path / "record-fresh.txt"
+    snippet = f"""
+source "{MANAGER.as_posix()}"
+export OPENFY_REPO_ROOT="{_posix(repo)}"
+export OPENFY_DATA_DIR="{_posix(data)}"
+export OPENFY_PYTHON=fake_python
+REC="{_posix(rec)}"
+: > "$REC"
+kill() {{ echo "KILL:$*" >> "$REC"; return 0; }}
+ps() {{ echo "python3 -m uvicorn app.main:app"; }}
+python3() {{ return 0; }}
+fake_python() {{ return 0; }}
+_manual_spawn() {{ echo 557; }}
+manual_start --port 9112
+echo "start-rc=$?"
+"""
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "start-rc=0" in proc.stdout
+    mode = stat.S_IMODE(data.stat().st_mode)
+    assert mode == 0o700, f"data dir mode is {oct(mode)}"
