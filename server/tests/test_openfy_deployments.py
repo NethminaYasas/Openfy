@@ -469,6 +469,29 @@ echo "stop-rc=$?"
     assert not pidfile.exists()
 
 
+def test_manual_status_explicit_port_beats_saved_endpoint(tmp_path, repo):
+    data = tmp_path / "data"
+    endpoint = data / "openfy.endpoint"
+    extra = f"""
+printf '127.0.0.1 9123\\n' > "{_posix(endpoint)}"
+manual_status
+echo "default-rc=$?"
+manual_status --port 9200
+echo "explicit-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=0,
+        ps_cmd="python3 -m uvicorn app.main:app --host 127.0.0.1 --port 9123",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "default-rc=0" in proc.stdout
+    assert "explicit-rc=0" in proc.stdout
+    lines = proc.stdout.splitlines()
+    assert "URL: http://127.0.0.1:9123" in lines
+    assert "URL: http://127.0.0.1:9200" in lines
+
+
 def test_manual_stop_refuses_kill_when_identity_changes(tmp_path, repo):
     extra = """
 _identity_calls=0

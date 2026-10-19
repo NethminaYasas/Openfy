@@ -876,8 +876,10 @@ manual_status() {
     endpointfile="$(manual_endpoint_file "${root}")"
     if [[ -f "${endpointfile}" ]]; then
         read -r endpoint_host endpoint_port < "${endpointfile}" || true
-        if [[ -n "${endpoint_host:-}" ]] && valid_port "${endpoint_port:-}"; then
+        if [[ -n "${endpoint_host:-}" ]]; then
             host="${endpoint_host}"
+        fi
+        if [[ -z "${port}" ]] && valid_port "${endpoint_port:-}"; then
             port="${endpoint_port}"
         fi
     fi
