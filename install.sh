@@ -929,7 +929,8 @@ run_wizard() {
     detect_existing_install
     if [[ "${METHOD}" == "native" && -n "${INSTALLED_VERSION}" && "${ACTION}" == "auto" ]]; then
         echo "Existing installation found: version ${INSTALLED_VERSION} at ${APP_DIR}." >&2
-        echo "Configuration (${ENV_FILE}) and data (${DATA_DIR}) are always preserved." >&2
+        echo "Upgrade, repair and reinstall preserve the configuration (${ENV_FILE}) and the data (${DATA_DIR})." >&2
+        echo "An uninstall removes both (--keep-data / --keep-config preserve them)." >&2
         local c
         c="$(ask_choice "What should be done?" "1" \
             "Upgrade / change version (backs up config + database, rolls back on failure)" \
@@ -1430,7 +1431,7 @@ print_native_summary() {
     echo "  Logs:    sudo journalctl -u openfy -f"
     echo "  Restart: sudo systemctl restart openfy"
     echo "  Update:  sudo ${APP_DIR}/update.sh --latest   (or rerun this installer)"
-    echo "  Remove:  sudo ${APP_DIR}/uninstall.sh         (keeps data + config)"
+    echo "  Remove:  sudo ${APP_DIR}/uninstall.sh         (removes data + config; --keep-data/--keep-config to preserve)"
     echo "  Manage:  sudo openfy   (TUI: status, logs, update/downgrade, port, credentials, repair, uninstall)"
     echo ""
     _ui_section "  Next steps"
