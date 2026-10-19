@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     admin_username: str = ""
     admin_hash: str = ""
+    registration_mode: str = "invite"
 
     @field_validator("data_dir", "music_dir", "downloads_dir", "artwork_dir", mode="before")
     @classmethod
@@ -68,6 +69,14 @@ class Settings(BaseSettings):
                 "legacy password-derived hashes are no longer supported"
             )
         return value
+
+    @field_validator("registration_mode")
+    @classmethod
+    def validate_registration_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"open", "invite"}:
+            raise ValueError("registration_mode must be one of: open, invite")
+        return normalized
 
     spotiflac_cmd: str = "spotiflac"
     spotiflac_timeout_sec: int = 900

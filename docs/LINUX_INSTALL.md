@@ -169,6 +169,44 @@ sudo openfy repair
 sudo openfy uninstall
 ```
 
+`start`, `stop`, `restart`, and `status` are deployment-aware. With an
+installed systemd unit (the normal bare-metal case) they wrap `systemctl`. For
+other setups they auto-detect the style — systemd unit, then Docker Compose
+file + `docker`, then a repo checkout — or you can force one with `--systemd`,
+`--docker`, or `--manual` (or `OPENFY_DEPLOYMENT`); the chosen mode is printed
+first. Docker control uses `docker compose up -d` when no containers exist and
+`docker compose start` otherwise, and always stops with `docker compose stop`
+(containers and volumes are kept — never `docker compose down`, and images are
+never rebuilt implicitly). When `--port` is omitted in Docker mode, health
+checks and `status` use `OPENFY_PORT` from the shell environment or the `.env`
+beside the compose file (default 8000; compose files that hardcode their port
+keep 8000). Manual control launches `uvicorn app.main:app` from `server/` in
+the background:
+
+```bash
+openfy start --manual --host 0.0.0.0 --port 8000
+openfy stop --manual --timeout 12
+```
+
+`sudo` is only needed for systemd mode. Docker mode needs access to the Docker
+daemon instead — typically by adding your user to the `docker` group rather
+than using `sudo`. Be aware that on standard rootful Docker installs, `docker`
+group membership is root-equivalent; if you need an unprivileged daemon, use
+rootless Docker. Manual mode runs entirely as the invoking user; never run
+it as root, or Uvicorn (including the `0.0.0.0` bind above) inherits root.
+
+Manual mode logs to `data/openfy.log` with a PID file at `data/openfy.pid`
+under the checkout (override the directory with `OPENFY_DATA_DIR`; interpreter
+via `OPENFY_PYTHON`). `stop` sends SIGTERM, waits `--timeout` seconds
+(default 12, env `OPENFY_STOP_TIMEOUT`), and escalates to SIGKILL only if
+needed — after verifying the PID really belongs to the Openfy server. Stale
+PID files are cleared automatically. All subcommands are idempotent
+("already running" / "not running" both exit 0), `start` waits for `/health`
+before reporting success, and management commands never delete user data,
+music, artwork, or config — though `openfy start` may apply automatic schema
+migrations to the database on startup. `openfy status` reports the deployment
+mode, running state, PID/container state, URL, and health.
+
 To try things manually in the foreground (uses the installed virtualenv and
 config; warns if the systemd service already holds port 8000):
 

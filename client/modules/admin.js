@@ -1,5 +1,5 @@
-import { state } from './state.js';
-import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack, loadAlbumsList, deleteAlbum } from './api.js';
+import { state, withBase } from './state.js';
+import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack, loadAlbumsList, deleteAlbum, loadAdminRegistrationMode, updateAdminRegistrationMode, createInvite, loadInvites, revokeInvite } from './api.js';
 import { formatDuration, escapeHtml } from './utils.js';
 import { applyPlaylistImportUI, setActivePage } from './ui.js';
 
@@ -50,6 +50,298 @@ export async function loadAdminSettingsUI() {
     }
   } catch (err) {
     console.error("Failed to load admin settings:", err);
+  }
+  await loadRegistrationModeUI();
+}
+
+let currentRegistrationMode = null;
+
+export function applyRegistrationModeUI(mode) {
+  currentRegistrationMode = mode === "invite" ? "invite" : "open";
+
+  const description = document.getElementById("registration-mode-description");
+  const openBtn = document.getElementById("registration-mode-open");
+  const inviteBtn = document.getElementById("registration-mode-invite");
+  const hint = document.getElementById("invites-mode-hint");
+
+  if (description) {
+    description.textContent = currentRegistrationMode === "open"
+      ? "Current mode: Open — anyone can register without an invite."
+      : "Current mode: Invite-only — a valid invite code is required to register.";
+  }
+  if (openBtn) openBtn.classList.toggle("active", currentRegistrationMode === "open");
+  if (inviteBtn) inviteBtn.classList.toggle("active", currentRegistrationMode === "invite");
+  if (hint) hint.style.display = currentRegistrationMode === "open" ? "flex" : "none";
+}
+
+export async function loadRegistrationModeUI() {
+  if (!state.isAdmin) return;
+  try {
+    const data = await loadAdminRegistrationMode();
+    applyRegistrationModeUI(data && data.mode);
+  } catch (err) {
+    console.error("Failed to load registration mode:", err);
+  }
+}
+
+export async function updateRegistrationModeUI(mode) {
+  if (!state.isAdmin) return;
+  if (mode === currentRegistrationMode) return;
+  if (mode === "open") {
+    const confirmed = confirm("Anyone will be able to register without an invite. Continue?");
+    if (!confirmed) return;
+  }
+
+  const openBtn = document.getElementById("registration-mode-open");
+  const inviteBtn = document.getElementById("registration-mode-invite");
+  const statusEl = document.getElementById("registration-mode-status");
+  if (openBtn) openBtn.disabled = true;
+  if (inviteBtn) inviteBtn.disabled = true;
+  if (statusEl) statusEl.textContent = "Updating...";
+
+  try {
+    const data = await updateAdminRegistrationMode(mode);
+    applyRegistrationModeUI(data && data.mode);
+    if (statusEl) statusEl.textContent = "Registration mode updated.";
+  } catch (err) {
+    console.error("Failed to update registration mode:", err);
+    alert("Failed to update registration mode: " + err.message);
+    if (statusEl) statusEl.textContent = "";
+    if (currentRegistrationMode) applyRegistrationModeUI(currentRegistrationMode);
+  } finally {
+    if (openBtn) openBtn.disabled = false;
+    if (inviteBtn) inviteBtn.disabled = false;
+  }
+}
+
+function normalizeInviteStatus(status) {
+  return ["active", "used", "expired", "revoked"].includes(status) ? status : "expired";
+}
+
+function formatInviteDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString();
+}
+
+export async function loadInvitesListUI() {
+  const container = document.getElementById("invites-table-container");
+  const tableBody = document.getElementById("invites-table-body");
+  if (!container || !tableBody) return;
+
+  try {
+    const data = await loadInvites();
+    const invites = (data && data.invites) || [];
+    container.style.display = "block";
+    tableBody.innerHTML = "";
+
+    if (invites.length === 0) {
+      const row = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 9;
+      td.style.textAlign = "center";
+      td.textContent = "No invites yet";
+      row.appendChild(td);
+      tableBody.appendChild(row);
+      return;
+    }
+
+    invites.forEach(invite => {
+      const status = normalizeInviteStatus(invite.status);
+      const row = document.createElement("tr");
+
+      const prefixTd = document.createElement("td");
+      prefixTd.textContent = (invite.code_prefix || "") + "\u2026";
+
+      const noteTd = document.createElement("td");
+      noteTd.textContent = invite.note || "-";
+
+      const usesTd = document.createElement("td");
+      usesTd.textContent = String(invite.use_count || 0) + "/" + String(invite.max_uses || 1);
+
+      const statusTd = document.createElement("td");
+      const statusEl = document.createElement("span");
+      statusEl.className = "invite-status " + status;
+      statusEl.textContent = status;
+      statusTd.appendChild(statusEl);
+
+      const creatorTd = document.createElement("td");
+      creatorTd.textContent = invite.created_by || "-";
+
+      const createdTd = document.createElement("td");
+      createdTd.textContent = formatInviteDate(invite.created_at);
+
+      const expiresTd = document.createElement("td");
+      expiresTd.textContent = invite.expires_at ? formatInviteDate(invite.expires_at) : "Never";
+
+      const redeemersTd = document.createElement("td");
+      const redeemers = Array.isArray(invite.redeemers) ? invite.redeemers : [];
+      redeemersTd.textContent = redeemers.length ? redeemers.join(", ") : "-";
+
+      const actionsTd = document.createElement("td");
+      if (status === "active") {
+        const revokeBtn = document.createElement("button");
+        revokeBtn.className = "btn-delete";
+        revokeBtn.dataset.inviteId = invite.id || "";
+        revokeBtn.textContent = "Revoke";
+        actionsTd.appendChild(revokeBtn);
+      } else {
+        actionsTd.textContent = "-";
+      }
+
+      row.appendChild(prefixTd);
+      row.appendChild(noteTd);
+      row.appendChild(usesTd);
+      row.appendChild(statusTd);
+      row.appendChild(creatorTd);
+      row.appendChild(createdTd);
+      row.appendChild(expiresTd);
+      row.appendChild(redeemersTd);
+      row.appendChild(actionsTd);
+      tableBody.appendChild(row);
+    });
+
+    tableBody.querySelectorAll(".btn-delete").forEach(btn => {
+      btn.addEventListener("click", async function() {
+        const inviteId = this.dataset.inviteId;
+        const confirmed = confirm("Revoke this invite? Anyone holding the code will no longer be able to register with it.");
+        if (!confirmed) return;
+
+        this.disabled = true;
+        this.textContent = "Revoking...";
+
+        try {
+          await revokeInvite(inviteId);
+          alert("Invite revoked");
+          loadInvitesListUI();
+        } catch (err) {
+          alert("Failed to revoke invite: " + err.message);
+          this.disabled = false;
+          this.textContent = "Revoke";
+        }
+      });
+    });
+  } catch (err) {
+    console.error("Failed to load invites:", err);
+    tableBody.innerHTML = "";
+    const row = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 9;
+    td.style.textAlign = "center";
+    td.style.color = "#e74c3c";
+    td.textContent = "Error loading invites. Admin access required.";
+    row.appendChild(td);
+    tableBody.appendChild(row);
+  }
+}
+
+export async function createInviteFromForm() {
+  if (!state.isAdmin) return;
+
+  const maxUsesInput = document.getElementById("invite-max-uses");
+  const expiresInput = document.getElementById("invite-expires-days");
+  const noteInput = document.getElementById("invite-note");
+  const statusEl = document.getElementById("invite-create-status");
+  const createBtn = document.getElementById("invite-create-btn");
+
+  const payload = {};
+  const maxUses = parseInt(maxUsesInput && maxUsesInput.value, 10);
+  payload.max_uses = (!isNaN(maxUses) && maxUses > 0) ? maxUses : 1;
+  const days = parseInt(expiresInput && expiresInput.value, 10);
+  if (!isNaN(days) && days > 0) payload.expires_in_days = days;
+  const note = noteInput ? noteInput.value.trim() : "";
+  if (note) payload.note = note;
+
+  if (createBtn) {
+    createBtn.disabled = true;
+    createBtn.textContent = "Creating...";
+  }
+  if (statusEl) statusEl.textContent = "";
+
+  try {
+    const invite = await createInvite(payload);
+    if (invite && invite.code) showInviteReveal(invite.code);
+    if (maxUsesInput) maxUsesInput.value = "1";
+    if (expiresInput) expiresInput.value = "";
+    if (noteInput) noteInput.value = "";
+    if (statusEl) statusEl.textContent = "Invite created.";
+    loadInvitesListUI();
+  } catch (err) {
+    console.error("Failed to create invite:", err);
+    alert("Failed to create invite: " + err.message);
+  } finally {
+    if (createBtn) {
+      createBtn.disabled = false;
+      createBtn.textContent = "Create Invite";
+    }
+  }
+}
+
+export function showInviteReveal(code) {
+  const reveal = document.getElementById("invite-code-reveal");
+  const codeEl = document.getElementById("invite-code-text");
+  const linkEl = document.getElementById("invite-link-text");
+  if (!reveal || !codeEl || !linkEl) return;
+  codeEl.textContent = code;
+  linkEl.textContent = new URL(withBase("/?invite=" + encodeURIComponent(code)), location.origin).href;
+  reveal.style.display = "flex";
+}
+
+export function dismissInviteReveal() {
+  const reveal = document.getElementById("invite-code-reveal");
+  const codeEl = document.getElementById("invite-code-text");
+  const linkEl = document.getElementById("invite-link-text");
+  if (!reveal) return;
+  reveal.style.display = "none";
+  if (codeEl) codeEl.textContent = "";
+  if (linkEl) linkEl.textContent = "";
+}
+
+function copyInviteValue(el, btn) {
+  if (!el) return;
+  const text = el.textContent || "";
+  if (!text) return;
+
+  const succeeded = () => {
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  };
+
+  const legacyCopy = () => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(textarea);
+    return ok;
+  };
+
+  const manualFallback = () => {
+    const selection = window.getSelection && window.getSelection();
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    alert("Automatic copy failed. The text is selected — press Ctrl+C (Cmd+C on Mac) to copy it.");
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(succeeded).catch(() => {
+      if (legacyCopy()) succeeded(); else manualFallback();
+    });
+  } else if (legacyCopy()) {
+    succeeded();
+  } else {
+    manualFallback();
   }
 }
 
@@ -420,6 +712,17 @@ export function initAdminEventListeners() {
   const adminManualUploadToggle = document.getElementById("manual-upload-enabled-admin");
   const playlistImportToggle = document.getElementById("playlist-import-enabled-admin");
   const timezoneSelect = document.getElementById("server-timezone-select");
+
+  const viewInvitesBtn = document.getElementById("view-invites-btn");
+  const adminInvitesView = document.getElementById("admin-invites-view");
+  const adminInvitesBack = document.getElementById("admin-invites-back");
+  const invitesRefreshBtn = document.getElementById("invites-refresh-btn");
+  const inviteCreateBtn = document.getElementById("invite-create-btn");
+  const registrationModeOpenBtn = document.getElementById("registration-mode-open");
+  const registrationModeInviteBtn = document.getElementById("registration-mode-invite");
+  const inviteCodeCopyBtn = document.getElementById("invite-code-copy-btn");
+  const inviteLinkCopyBtn = document.getElementById("invite-link-copy-btn");
+  const inviteRevealDismissBtn = document.getElementById("invite-code-dismiss-btn");
   
   let searchTimeout = null;
   let librarySearchTimeout = null;
@@ -497,5 +800,44 @@ export function initAdminEventListeners() {
 
   timezoneSelect?.addEventListener("change", function() {
     updateTimezoneSetting(this);
+  });
+
+  viewInvitesBtn?.addEventListener("click", function() {
+    adminDashboard.style.display = "none";
+    adminInvitesView.style.display = "flex";
+    loadInvitesListUI();
+  });
+
+  adminInvitesBack?.addEventListener("click", function() {
+    adminInvitesView.style.display = "none";
+    adminDashboard.style.display = "block";
+  });
+
+  invitesRefreshBtn?.addEventListener("click", function() {
+    loadInvitesListUI();
+  });
+
+  inviteCreateBtn?.addEventListener("click", function() {
+    createInviteFromForm();
+  });
+
+  registrationModeOpenBtn?.addEventListener("click", function() {
+    updateRegistrationModeUI("open");
+  });
+
+  registrationModeInviteBtn?.addEventListener("click", function() {
+    updateRegistrationModeUI("invite");
+  });
+
+  inviteCodeCopyBtn?.addEventListener("click", function() {
+    copyInviteValue(document.getElementById("invite-code-text"), this);
+  });
+
+  inviteLinkCopyBtn?.addEventListener("click", function() {
+    copyInviteValue(document.getElementById("invite-link-text"), this);
+  });
+
+  inviteRevealDismissBtn?.addEventListener("click", function() {
+    dismissInviteReveal();
   });
 }

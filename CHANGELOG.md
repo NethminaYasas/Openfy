@@ -19,6 +19,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Docker healthcheck on `/health` endpoint
 - `restart: unless-stopped` policy in docker-compose.yml
 - Local SpotiFLAC package (`server/app/spotiflac_local/`) for custom Apple Music/Spotify downloader
+- **Registration modes**: server-wide `open`/`invite` registration mode stored in the database (`app_settings`) and switchable at runtime via the admin dashboard (desktop + mobile) or API — effective immediately, no restart; `OPENFY_REGISTRATION_MODE` only seeds the initial DB value
+- **Invite codes**: admins create codes with optional max uses (default 1), expiry in days, and a note; the plaintext code is returned exactly once and stored only as a SHA-256 hash. `GET /admin/invites` lists status (`active`/`used`/`expired`/`revoked`), uses, and redeemers; codes can be revoked. Redemption is atomic (race-safe) and rolls back if registration fails; invites survive mode switches, can be pre-generated while open, and signup links (`/?invite=CODE`) prefill the code
+- **Signup invite field**: desktop and mobile signup forms fetch the registration mode, require/show the invite field in invite mode, and prefill it from `?invite=CODE`
+- **Public registration endpoints**: `GET /auth/registration-mode` (returns only `{"mode"}`) and `POST /auth/invite/validate` (non-consuming validity check), both rate-limited
+- **`openfy start|stop|restart|status`**: deployment-aware server control for systemd, Docker Compose, and manual deployments — flags `--systemd`/`--docker`/`--manual` (or `OPENFY_DEPLOYMENT`), `--host`/`--port`/`--timeout`; Docker keeps containers and volumes (never `down`) and never rebuilds; manual mode runs `uvicorn` in the background with PID file + log, SIGTERM then SIGKILL, and verified process identity; all subcommands idempotent and never touch data
 
 ### Fixed
 - **Queue drag-and-drop reset bug**: Queue now persists correctly after reorder when track advances
@@ -32,6 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `print()` warning replaced with `logger.warning()` for duration mismatch
 
 ### Changed
+- **Invite-only registration by default (upgrade behavior change)**: registration is now gated by invite codes. On startup, if the database has no stored mode, it is seeded from `OPENFY_REGISTRATION_MODE` (**default `invite`**); after that the DB value wins and the env var is ignored. Existing deployments upgrading without a stored value therefore become invite-only (previously anyone could register). Workaround: set `OPENFY_REGISTRATION_MODE=open` before the first start after upgrading, or switch to Open in the admin dashboard.
 - SpotiFLAC upstream auto-updates to latest version (v0.7.0) during Docker build
 - Dockerfile no longer overwrites pip-installed SpotiFLAC with local copy
 - `requirements.txt` dependencies pinned (`requests==2.32.3`, minimum versions for `ytmusicapi`, `beautifulsoup4`, `yt-dlp`)

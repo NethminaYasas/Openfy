@@ -1,5 +1,5 @@
 #!/bin/bash
-# openfy — manage the bare-metal Openfy installation from one place.
+# openfy — manage the Openfy installation from one place.
 #
 # Interactive TUI (text menu, no extra dependencies):
 #   sudo openfy
@@ -7,7 +7,9 @@
 # Non-interactive (automation):
 #   sudo openfy status
 #   sudo openfy logs [--follow] [-n N]
-#   sudo openfy start|stop|restart
+#   sudo openfy start|stop|restart [--systemd|--docker|--manual]
+#   sudo openfy start|stop|restart [--host H] [--port P] [--timeout S]
+#       (--host/--port/--timeout are endpoint / health-wait options for all modes)
 #   sudo openfy update --latest
 #   sudo openfy update --version 1.5.0   (older versions downgrade)
 #   sudo openfy port 9000
@@ -17,9 +19,17 @@
 #   sudo openfy uninstall [--purge]
 #   openfy --help
 #
-# Status/logs work without root; everything else needs root.
-# Config (/etc/openfy/openfy.env) and data (/var/lib/openfy) are never
-# touched except by the action the user explicitly chose.
+# Deployment styles: systemd (auto when an installed unit exists), docker
+# compose (docker-compose.yml or OPENFY_COMPOSE_FILE), or manual (uvicorn
+# background process with a PID file in the data dir). Pick one with the
+# --systemd/--docker/--manual flags or OPENFY_DEPLOYMENT.
+#
+# Config (/etc/openfy/openfy.env), databases, music and artwork are never
+# touched except by the action the user explicitly chose. Status works
+# without root; service changes need root for systemd.
+#
+# Env: OPENFY_COMPOSE_FILE, OPENFY_REPO_ROOT, OPENFY_PYTHON,
+#      OPENFY_START_TIMEOUT (health wait, default 30s), OPENFY_STOP_TIMEOUT
 
 set -euo pipefail
 
@@ -234,18 +244,765 @@ cmd_logs() {
     fi
 }
 
+# ------------------------------------------------- health verification
+_health_probe_host() {
+    # Wildcard binds are not routable; probe loopback instead. Brackets are
+    # stripped so callers can re-add them for the URL.
+    local host="${1:-}" bare
+    case "${host}" in
+        0.0.0.0|"") printf '127.0.0.1\n' ;;
+        ::|"[::]") printf '::1\n' ;;
+        *)
+            bare="${host#[}"
+            bare="${bare%]}"
+            printf '%s\n' "${bare}"
+            ;;
+    esac
+}
+
+_base_url() {
+    local host port
+    host="$(_health_probe_host "$1")"
+    port="$2"
+    if [[ "${host}" == *:* ]]; then
+        printf 'http://[%s]:%s\n' "${host}" "${port}"
+    else
+        printf 'http://%s:%s\n' "${host}" "${port}"
+    fi
+}
+
+_health_url() { printf '%s/health\n' "$(_base_url "$1" "$2")"; }
+
+_health_ok() {
+    # _health_ok <host> <port> [request-timeout] — 0 healthy, 1 failed, 2 no probe tool.
+    local host port tmo url
+    host="$(_health_probe_host "$1")"
+    port="$2"
+    tmo="${3:-2}"
+    if [[ "${host}" == *:* ]]; then
+        url="http://[${host}]:${port}/health"
+    else
+        url="http://${host}:${port}/health"
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2]))' \
+            "${url}" "${tmo}" >/dev/null 2>&1
+        return $?
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsS --max-time "${tmo}" -o /dev/null "${url}" >/dev/null 2>&1
+        return $?
+    fi
+    return 2
+}
+
+_wait_for_health() {
+    # _wait_for_health <host> <port> <timeout> [pid]
+    # 0 healthy; 1 timeout or the PID died first; 2 no probe tool available.
+    local host="$1" port="$2" timeout="$3" pid="${4:-}" waited=0 probe
+    while [[ "${waited}" -lt "${timeout}" ]]; do
+        if [[ -n "${pid}" ]] && ! _pid_alive "${pid}"; then
+            return 1
+        fi
+        probe=0
+        _health_ok "${host}" "${port}" 2 || probe=$?
+        if [[ "${probe}" -eq 0 ]]; then
+            if [[ -z "${pid}" ]] || _pid_alive "${pid}"; then
+                return 0
+            fi
+            return 1
+        fi
+        if [[ "${probe}" -eq 2 ]]; then
+            return 2
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
 cmd_service() {
     require_root
-    local action="$1"
+    local action="$1"; shift
+    local host="0.0.0.0" port="" timeout="${OPENFY_START_TIMEOUT:-30}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host) host="${2:?--host requires a value}"; shift 2 ;;
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown service option '$1' for 'openfy ${action}'. Use: openfy --help" ;;
+        esac
+    done
+    [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    if [[ -z "${port}" ]]; then
+        port="$(current_port)"
+    fi
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
     log "Running: systemctl ${action} ${SERVICE_NAME} ..."
     systemctl "${action}" "${SERVICE_NAME}"
-    if [[ "${action}" != "stop" ]]; then
-        sleep 2
-        cmd_status | head -n 12 || true
-        log_ok "Service ${action}ed."
-    else
+    if [[ "${action}" == "stop" ]]; then
         log_ok "Service stopped."
+        return 0
     fi
+    local rc=0
+    _wait_for_health "${host}" "${port}" "${timeout}" || rc=$?
+    if [[ "${rc}" -eq 0 ]]; then
+        log_ok "Service ${action}ed; healthy at $(_health_url "${host}" "${port}")."
+        cmd_status | head -n 12 || true
+    elif [[ "${rc}" -eq 2 ]]; then
+        die "Service '${SERVICE_NAME}' ${action}ed, but no health probe is available (python3 or curl). Check: sudo journalctl -u ${SERVICE_NAME} -n 100"
+    else
+        die "Service '${SERVICE_NAME}' ${action}ed but is not healthy at $(_health_url "${host}" "${port}") after ${timeout}s. Check logs: sudo journalctl -u ${SERVICE_NAME} -n 100"
+    fi
+}
+
+# ------------------------------------------------- deployment detection
+_docker_available() { command -v docker >/dev/null 2>&1; }
+_systemctl_available() { command -v systemctl >/dev/null 2>&1; }
+_is_repo_checkout() { [[ -f "$1/server/app/main.py" ]]; }
+
+resolve_repo_root() {
+    # OPENFY_REPO_ROOT wins; then script dir/../.. when it is a checkout; else cwd.
+    if [[ -n "${OPENFY_REPO_ROOT:-}" ]]; then
+        printf '%s\n' "${OPENFY_REPO_ROOT}"
+        return 0
+    fi
+    local script_dir candidate
+    script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    candidate="$(cd -- "${script_dir}/../.." && pwd)"
+    if _is_repo_checkout "${candidate}"; then
+        printf '%s\n' "${candidate}"
+    else
+        pwd
+    fi
+}
+
+resolve_compose_file() {
+    # OPENFY_COMPOSE_FILE wins; else docker-compose.yml at the repo root.
+    if [[ -n "${OPENFY_COMPOSE_FILE:-}" ]]; then
+        printf '%s\n' "${OPENFY_COMPOSE_FILE}"
+    else
+        printf '%s/docker-compose.yml\n' "$(resolve_repo_root)"
+    fi
+}
+
+resolve_deployment_mode() {
+    # Precedence: explicit mode argument > OPENFY_DEPLOYMENT > auto-detection.
+    local explicit="${1:-}" mode
+    mode="${explicit:-${OPENFY_DEPLOYMENT:-}}"
+    if [[ -n "${mode}" ]]; then
+        case "${mode}" in
+            systemd|docker|manual) printf '%s\n' "${mode}"; return 0 ;;
+            *) die "invalid deployment mode '${mode}' (expected systemd, docker, or manual)." ;;
+        esac
+    fi
+    if [[ -f "${UNIT_FILE}" ]] && _systemctl_available; then
+        printf 'systemd\n'
+        return 0
+    fi
+    local compose
+    compose="$(resolve_compose_file)"
+    if [[ -f "${compose}" ]] && _docker_available; then
+        printf 'docker\n'
+        return 0
+    fi
+    if _is_repo_checkout "$(resolve_repo_root)"; then
+        printf 'manual\n'
+        return 0
+    fi
+    die "cannot detect a deployment: unit ${UNIT_FILE} missing, compose ${compose} missing, and no repo checkout with server/app/main.py. Use --systemd, --docker, or --manual."
+}
+
+# ------------------------------------------------- docker compose mode
+_require_docker() {
+    _docker_available || die "docker is not installed or not on PATH (required for docker deployment)."
+}
+
+_require_compose_file() {
+    [[ -f "$1" ]] || die "compose file '$1' not found (set OPENFY_COMPOSE_FILE or add docker-compose.yml)."
+}
+
+_compose_ps() {
+    # _compose_ps <file> <ps args...> — quiet listing, never fails the script.
+    local file="$1"; shift
+    docker compose -f "${file}" ps "$@" 2>/dev/null || true
+}
+
+_docker_container_health() {
+    # Prints a container health/state; 0 when a container is healthy (or running
+    # without a healthcheck), 1 when none qualifies.
+    local file="$1" ids id status
+    ids="$(_compose_ps "${file}" -q)"
+    [[ -n "${ids}" ]] || return 1
+    while IFS= read -r id; do
+        [[ -n "${id}" ]] || continue
+        status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${id}" 2>/dev/null || true)"
+        case "${status}" in
+            healthy|running) printf '%s\n' "${status}"; return 0 ;;
+        esac
+    done <<< "${ids}"
+    return 1
+}
+
+_docker_wait_healthy() {
+    # _docker_wait_healthy <compose-file> <host> <port> <timeout>
+    # Falls back to Docker's own health status when no HTTP probe tool exists.
+    local file="$1" host="$2" port="$3" timeout="$4" waited=0 probe status
+    while [[ "${waited}" -lt "${timeout}" ]]; do
+        probe=0
+        _health_ok "${host}" "${port}" 2 || probe=$?
+        if [[ "${probe}" -eq 0 ]]; then
+            return 0
+        fi
+        if [[ "${probe}" -eq 2 ]]; then
+            status="$(_docker_container_health "${file}")"
+            if [[ "${status}" == "healthy" || "${status}" == "running" ]]; then
+                return 0
+            fi
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+_docker_default_port() {
+    # _docker_default_port <compose-file>
+    # Default health/status port for Docker mode: OPENFY_PORT from the shell
+    # environment, else from the .env beside the compose file, but only when the
+    # compose file maps the host port through OPENFY_PORT. Custom compose files
+    # that hardcode their port keep 8000; pass --port to override.
+    local file="$1" p="${OPENFY_PORT:-}" env_file
+    if grep -q -- 'OPENFY_PORT' "${file}" 2>/dev/null; then
+        if [[ -z "${p}" ]]; then
+            env_file="$(dirname -- "${file}")/.env"
+            if [[ -f "${env_file}" ]]; then
+                p="$(sed -n 's/^OPENFY_PORT=//p' "${env_file}" | tail -n 1)"
+                p="${p%$'\r'}"
+                p="${p%\"}"; p="${p#\"}"
+                p="${p%\'}"; p="${p#\'}"
+            fi
+        fi
+    else
+        p=""
+    fi
+    if valid_port "${p:-}"; then
+        printf '%s' "${p}"
+    else
+        printf '8000'
+    fi
+}
+
+docker_start() {
+    local file host="0.0.0.0" port="" timeout="${OPENFY_START_TIMEOUT:-30}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host) host="${2:?--host requires a value}"; shift 2 ;;
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown start option '$1'. Use: openfy start [--host H] [--port P] [--timeout S]" ;;
+        esac
+    done
+    [[ -z "${port}" ]] || valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    file="$(resolve_compose_file)"
+    port="${port:-$(_docker_default_port "${file}")}"
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    _require_docker
+    _require_compose_file "${file}"
+    if [[ -n "$(_compose_ps "${file}" --status running -q)" ]]; then
+        log "Openfy is already running."
+        return 0
+    fi
+    if [[ -n "$(_compose_ps "${file}" -a -q)" ]]; then
+        log "Starting existing containers: docker compose -f ${file} start"
+        docker compose -f "${file}" start
+    else
+        log "Starting: docker compose -f ${file} up -d"
+        docker compose -f "${file}" up -d
+    fi
+    local rc=0
+    _docker_wait_healthy "${file}" "${host}" "${port}" "${timeout}" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        die "Docker deployment started but did not become healthy at $(_health_url "${host}" "${port}") within ${timeout}s. Check logs: docker compose -f ${file} logs --tail=100"
+    fi
+    log_ok "Docker deployment started and healthy at $(_health_url "${host}" "${port}") (data and volumes untouched)."
+}
+
+docker_stop() {
+    local file
+    file="$(resolve_compose_file)"
+    _require_docker
+    _require_compose_file "${file}"
+    if [[ -z "$(_compose_ps "${file}" --status running -q)" ]]; then
+        log "Openfy is not running."
+        return 0
+    fi
+    log "Stopping: docker compose -f ${file} stop"
+    docker compose -f "${file}" stop
+    log_ok "Docker deployment stopped (containers and volumes kept)."
+}
+
+docker_restart() {
+    local file host="0.0.0.0" port="" timeout="${OPENFY_START_TIMEOUT:-30}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host) host="${2:?--host requires a value}"; shift 2 ;;
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown restart option '$1'. Use: openfy restart [--host H] [--port P] [--timeout S]" ;;
+        esac
+    done
+    [[ -z "${port}" ]] || valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    file="$(resolve_compose_file)"
+    port="${port:-$(_docker_default_port "${file}")}"
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    _require_docker
+    _require_compose_file "${file}"
+    if [[ -z "$(_compose_ps "${file}" -a -q)" ]]; then
+        docker_start --host "${host}" --port "${port}" --timeout "${timeout}"
+        return 0
+    fi
+    log "Restarting: docker compose -f ${file} restart"
+    docker compose -f "${file}" restart
+    local rc=0
+    _docker_wait_healthy "${file}" "${host}" "${port}" "${timeout}" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        die "Docker deployment restarted but did not become healthy at $(_health_url "${host}" "${port}") within ${timeout}s. Check logs: docker compose -f ${file} logs --tail=100"
+    fi
+    log_ok "Docker deployment restarted and healthy at $(_health_url "${host}" "${port}")."
+}
+
+docker_status() {
+    local port=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            *) die "unknown status option '$1'. Use: openfy status" ;;
+        esac
+    done
+    [[ -z "${port}" ]] || valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    local file
+    file="$(resolve_compose_file)"
+    port="${port:-$(_docker_default_port "${file}")}"
+    _require_docker
+    _require_compose_file "${file}"
+    if [[ -n "$(_compose_ps "${file}" --status running -q)" ]]; then
+        echo "State: running"
+    else
+        echo "State: stopped"
+    fi
+    echo "Compose: ${file}"
+    echo "URL: http://localhost:${port}"
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" 2>/dev/null; then
+            echo "Health: healthy at http://localhost:${port}/health"
+        else
+            echo "Health: not responding at http://localhost:${port}/health"
+        fi
+    fi
+    docker compose -f "${file}" ps 2>/dev/null || true
+}
+
+# ------------------------------------------------- manual (uvicorn + PID file)
+manual_data_dir() {
+    if [[ -n "${OPENFY_DATA_DIR:-}" ]]; then
+        printf '%s\n' "${OPENFY_DATA_DIR}"
+    else
+        printf '%s/data\n' "$1"
+    fi
+}
+
+manual_pid_file() { printf '%s\n' "$(manual_data_dir "$1")/openfy.pid"; }
+manual_log_file() { printf '%s\n' "$(manual_data_dir "$1")/openfy.log"; }
+manual_endpoint_file() { printf '%s\n' "$(manual_data_dir "$1")/openfy.endpoint"; }
+
+_write_endpoint() {
+    # Persist the resolved HOST PORT for status/restart; private (0600).
+    local file="$1" host="$2" port="$3"
+    (umask 077; printf '%s %s\n' "${host}" "${port}" >"${file}")
+    chmod 600 "${file}" 2>/dev/null || true
+}
+
+require_repo_root() {
+    local root
+    root="$(resolve_repo_root)"
+    _is_repo_checkout "${root}" \
+        || die "manual mode needs a repo checkout with server/app/main.py (set OPENFY_REPO_ROOT)."
+    printf '%s\n' "${root}"
+}
+
+manual_python() {
+    local root="$1"
+    if [[ -n "${OPENFY_PYTHON:-}" ]]; then
+        printf '%s\n' "${OPENFY_PYTHON}"
+    elif [[ -x "${root}/venv/bin/python" ]]; then
+        printf '%s\n' "${root}/venv/bin/python"
+    elif [[ -x "${root}/.venv/bin/python" ]]; then
+        printf '%s\n' "${root}/.venv/bin/python"
+    else
+        printf 'python3\n'
+    fi
+}
+
+_pid_alive() {
+    local pid="$1"
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+    if [[ -d "/proc/${pid}" ]]; then return 0; fi
+    kill -0 "${pid}" 2>/dev/null
+}
+
+_process_identity_ok() {
+    # True when PID is alive and its command line is our uvicorn app.
+    # On systems without /proc we fall back to `ps -o command= -p PID`.
+    local pid="$1" cmd=""
+    _pid_alive "${pid}" || return 1
+    if [[ -r "/proc/${pid}/cmdline" ]]; then
+        cmd="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+    fi
+    if [[ -z "${cmd}" ]]; then
+        cmd="$(ps -o command= -p "${pid}" 2>/dev/null || true)"
+    fi
+    [[ "${cmd}" == *uvicorn* && "${cmd}" == *app.main:app* ]]
+}
+
+_manual_spawn() {
+    # Launch uvicorn detached from this shell; prints the new PID on stdout.
+    local root="$1" py="$2" host="$3" port="$4" logfile="$5"
+    cd "${root}/server" || return 1
+    nohup "${py}" -m uvicorn app.main:app --host "${host}" --port "${port}" \
+        >>"${logfile}" 2>&1 &
+    echo $!
+}
+
+_manual_wait_healthy() {
+    # _manual_wait_healthy <host> <port> <timeout> <pid>
+    # Requires the launched PID to stay alive AND /health to answer.
+    local host="$1" port="$2" timeout="$3" pid="$4" waited=0 probe
+    while [[ "${waited}" -lt "${timeout}" ]]; do
+        if ! _pid_alive "${pid}"; then
+            return 1
+        fi
+        probe=0
+        _health_ok "${host}" "${port}" 2 || probe=$?
+        if [[ "${probe}" -eq 0 ]]; then
+            if _pid_alive "${pid}"; then
+                return 0
+            fi
+            return 1
+        fi
+        if [[ "${probe}" -eq 2 && "${waited}" -ge 2 ]] && _pid_alive "${pid}"; then
+            # No probe tool (python3/curl) at all: liveness is the best signal.
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+_manual_fail_start() {
+    # Print the tail of the log then die; used when startup verification fails.
+    local pid="$1" logfile="$2" pidfile="$3" endpointfile="$4" reason="$5"
+    if _pid_alive "${pid}"; then
+        warn "${reason}"
+    else
+        warn "Openfy process ${pid} exited during startup (port may already be in use)."
+    fi
+    if [[ -f "${logfile}" ]]; then
+        echo "----- last 20 lines of ${logfile} -----"
+        tail -n 20 "${logfile}" 2>/dev/null || true
+    fi
+    if ! _pid_alive "${pid}"; then
+        rm -f "${pidfile}" "${endpointfile}"
+        die "start failed; the process is not running. See ${logfile}."
+    fi
+    die "start failed; the process may still be running (PID ${pid}, stop with: openfy stop --manual). See ${logfile}."
+}
+
+manual_start() {
+    local host="0.0.0.0" port="8000" timeout=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host) host="${2:?--host requires a value}"; shift 2 ;;
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown start option '$1'. Use: openfy start [--host H] [--port P]" ;;
+        esac
+    done
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    timeout="${timeout:-${OPENFY_START_TIMEOUT:-30}}"
+    [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    local root pidfile logfile endpointfile py pid oldpid datadir
+    root="$(require_repo_root)"
+    datadir="$(manual_data_dir "${root}")"
+    pidfile="${datadir}/openfy.pid"
+    logfile="${datadir}/openfy.log"
+    endpointfile="${datadir}/openfy.endpoint"
+    if [[ -f "${pidfile}" ]]; then
+        oldpid="$(tr -d '[:space:]' < "${pidfile}" || true)"
+        if _process_identity_ok "${oldpid}"; then
+            # Preserve the endpoint of the already-running server; do not
+            # overwrite it with this call's defaults (host/port).
+            if [[ ! -f "${endpointfile}" ]]; then
+                _write_endpoint "${endpointfile}" "${host}" "${port}"
+            fi
+            log "Openfy is already running (PID ${oldpid})."
+            return 0
+        fi
+        warn "Removing stale PID file ${pidfile} (PID ${oldpid:-unknown} is not a running Openfy server)."
+        rm -f "${pidfile}"
+    fi
+    py="$(manual_python "${root}")"
+    command -v "${py}" >/dev/null 2>&1 || [[ -x "${py}" ]] \
+        || die "Python interpreter '${py}' not found (set OPENFY_PYTHON)."
+    if ! "${py}" -c "import uvicorn" >/dev/null 2>&1; then
+        die "'${py}' cannot import uvicorn; install dependencies: ${py} -m pip install -r ${root}/server/requirements.txt"
+    fi
+    if [[ ! -d "${datadir}" ]]; then
+        (umask 077; mkdir -p "${datadir}")
+    fi
+    # Access logs can contain invite codes in query strings; keep them private.
+    (umask 077; : >>"${logfile}")
+    chmod 600 "${logfile}" 2>/dev/null || true
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        warn "Running the manual server as root is not recommended; prefer a non-root user."
+    fi
+    log "Starting Openfy (manual): ${py} -m uvicorn app.main:app --host ${host} --port ${port}"
+    pid="$(_manual_spawn "${root}" "${py}" "${host}" "${port}" "${logfile}")"
+    [[ "${pid}" =~ ^[0-9]+$ ]] || die "failed to launch uvicorn; see ${logfile}."
+    (umask 077; printf '%s\n' "${pid}" >"${pidfile}")
+    chmod 600 "${pidfile}" 2>/dev/null || true
+    if _manual_wait_healthy "${host}" "${port}" "${timeout}" "${pid}"; then
+        _write_endpoint "${endpointfile}" "${host}" "${port}"
+        log_ok "Openfy started (PID ${pid}) at $(_base_url "${host}" "${port}") — log: ${logfile}"
+    else
+        _manual_fail_start "${pid}" "${logfile}" "${pidfile}" "${endpointfile}" \
+            "Openfy did not become healthy at $(_health_url "${host}" "${port}") within ${timeout}s."
+    fi
+}
+
+manual_stop() {
+    local timeout="${OPENFY_STOP_TIMEOUT:-12}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown stop option '$1'. Use: openfy stop [--timeout S]" ;;
+        esac
+    done
+    [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    local root pidfile endpointfile pid waited
+    root="$(require_repo_root)"
+    pidfile="$(manual_pid_file "${root}")"
+    endpointfile="$(manual_endpoint_file "${root}")"
+    if [[ ! -f "${pidfile}" ]]; then
+        rm -f "${endpointfile}"
+        log "Openfy is not running (no PID file at ${pidfile})."
+        return 0
+    fi
+    pid="$(tr -d '[:space:]' < "${pidfile}" || true)"
+    if ! _process_identity_ok "${pid}"; then
+        warn "PID file ${pidfile} does not point at a running Openfy server; removing it (nothing signalled)."
+        rm -f "${pidfile}" "${endpointfile}"
+        return 0
+    fi
+    log "Stopping Openfy (PID ${pid}) ..."
+    kill -TERM "${pid}" 2>/dev/null || true
+    waited=0
+    while [[ "${waited}" -lt "${timeout}" ]] && _pid_alive "${pid}"; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if _pid_alive "${pid}"; then
+        # Never signal a PID whose identity changed underneath us.
+        if ! _process_identity_ok "${pid}"; then
+            warn "PID ${pid} no longer matches Openfy; refusing to send SIGKILL (PID file kept at ${pidfile})."
+            exit 1
+        fi
+        warn "PID ${pid} still alive after ${timeout}s; sending SIGKILL."
+        kill -KILL "${pid}" 2>/dev/null || true
+        waited=0
+        while [[ "${waited}" -lt 2 ]] && _pid_alive "${pid}"; do
+            sleep 1
+            waited=$((waited + 1))
+        done
+        if _pid_alive "${pid}"; then
+            warn "PID ${pid} is still alive after SIGKILL; PID file kept at ${pidfile}."
+            exit 1
+        fi
+    fi
+    rm -f "${pidfile}" "${endpointfile}"
+    log_ok "Openfy stopped (data untouched)."
+}
+
+manual_restart() {
+    local host="" port="" timeout=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host) host="${2:?--host requires a value}"; shift 2 ;;
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown restart option '$1'. Use: openfy restart [--host H] [--port P] [--timeout S]" ;;
+        esac
+    done
+    [[ -z "${timeout}" || "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    local root endpointfile ehost eport
+    root="$(require_repo_root)"
+    endpointfile="$(manual_endpoint_file "${root}")"
+    if [[ -z "${host}" || -z "${port}" ]] && [[ -f "${endpointfile}" ]]; then
+        read -r ehost eport < "${endpointfile}" || true
+        if [[ -z "${host}" && -n "${ehost:-}" ]]; then host="${ehost}"; fi
+        if [[ -z "${port}" ]] && valid_port "${eport:-}"; then port="${eport}"; fi
+    fi
+    host="${host:-0.0.0.0}"
+    port="${port:-8000}"
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    manual_stop
+    if [[ -n "${timeout}" ]]; then
+        manual_start --host "${host}" --port "${port}" --timeout "${timeout}"
+    else
+        manual_start --host "${host}" --port "${port}"
+    fi
+}
+
+manual_status() {
+    local port="" host="" endpoint_host="" endpoint_port=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --port) port="${2:?--port requires a value}"; shift 2 ;;
+            *) die "unknown status option '$1'. Use: openfy status" ;;
+        esac
+    done
+    local root pidfile endpointfile pid state="stopped"
+    root="$(require_repo_root)"
+    pidfile="$(manual_pid_file "${root}")"
+    endpointfile="$(manual_endpoint_file "${root}")"
+    if [[ -f "${endpointfile}" ]]; then
+        read -r endpoint_host endpoint_port < "${endpointfile}" || true
+        if [[ -n "${endpoint_host:-}" ]]; then
+            host="${endpoint_host}"
+        fi
+        if [[ -z "${port}" ]] && valid_port "${endpoint_port:-}"; then
+            port="${endpoint_port}"
+        fi
+    fi
+    if [[ -z "${port}" ]]; then port="8000"; fi
+    if [[ -z "${host}" ]]; then host="0.0.0.0"; fi
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    pid=""
+    if [[ -f "${pidfile}" ]]; then
+        pid="$(tr -d '[:space:]' < "${pidfile}" || true)"
+        if _process_identity_ok "${pid}"; then
+            state="running"
+        else
+            state="stopped (stale PID file ${pidfile})"
+        fi
+    fi
+    echo "State: ${state}"
+    if [[ -n "${pid}" ]]; then echo "PID: ${pid}"; fi
+    echo "PID file: ${pidfile}"
+    echo "Log: $(manual_log_file "${root}")"
+    echo "URL: $(_base_url "${host}" "${port}")"
+    local probe=0
+    _health_ok "${host}" "${port}" 3 || probe=$?
+    if [[ "${probe}" -eq 0 ]]; then
+        echo "Health: healthy at $(_health_url "${host}" "${port}")"
+    elif [[ "${probe}" -ne 2 ]]; then
+        echo "Health: not responding at $(_health_url "${host}" "${port}")"
+    fi
+}
+
+# ------------------------------------------------- start/stop/restart/status
+cmd_control() {
+    local action="$1"; shift
+    local forced="" host="0.0.0.0" port="8000" timeout=""
+    local host_set="false" port_set="false"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --systemd) forced="systemd"; shift ;;
+            --docker) forced="docker"; shift ;;
+            --manual) forced="manual"; shift ;;
+            --host) host="${2:?--host requires a value}"; host_set="true"; shift 2 ;;
+            --port) port="${2:?--port requires a value}"; port_set="true"; shift 2 ;;
+            --timeout) timeout="${2:?--timeout requires a value}"; shift 2 ;;
+            *) die "unknown option '$1' for 'openfy ${action}'. Use: openfy --help" ;;
+        esac
+    done
+    valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
+    if [[ -n "${timeout}" && ! "${timeout}" =~ ^[0-9]+$ ]]; then
+        die "invalid timeout '${timeout}' (seconds)."
+    fi
+    local mode
+    mode="$(resolve_deployment_mode "${forced}")"
+    log "Deployment mode: ${mode}"
+    case "${mode}" in
+        systemd)
+            case "${action}" in
+                start|stop|restart)
+                    local svc_args=(--host "${host}")
+                    [[ "${port_set}" == "true" ]] && svc_args+=(--port "${port}")
+                    [[ -n "${timeout}" ]] && svc_args+=(--timeout "${timeout}")
+                    cmd_service "${action}" "${svc_args[@]}"
+                    ;;
+                *) cmd_status ;;
+            esac
+            ;;
+        docker)
+            case "${action}" in
+                start|restart)
+                    local docker_args=(--host "${host}")
+                    [[ "${port_set}" == "true" ]] && docker_args+=(--port "${port}")
+                    [[ -n "${timeout}" ]] && docker_args+=(--timeout "${timeout}")
+                    if [[ "${action}" == "start" ]]; then
+                        docker_start "${docker_args[@]}"
+                    else
+                        docker_restart "${docker_args[@]}"
+                    fi
+                    ;;
+                stop) docker_stop ;;
+                *)
+                    if [[ "${port_set}" == "true" ]]; then
+                        docker_status --port "${port}"
+                    else
+                        docker_status
+                    fi
+                    ;;
+            esac
+            ;;
+        manual)
+            case "${action}" in
+                start)
+                    local start_args=(--host "${host}" --port "${port}")
+                    if [[ -n "${timeout}" ]]; then
+                        start_args+=(--timeout "${timeout}")
+                    fi
+                    manual_start "${start_args[@]}"
+                    ;;
+                stop)
+                    if [[ -n "${timeout}" ]]; then
+                        manual_stop --timeout "${timeout}"
+                    else
+                        manual_stop
+                    fi
+                    ;;
+                restart)
+                    local restart_args=()
+                    [[ "${host_set}" == "true" ]] && restart_args+=(--host "${host}")
+                    [[ "${port_set}" == "true" ]] && restart_args+=(--port "${port}")
+                    [[ -n "${timeout}" ]] && restart_args+=(--timeout "${timeout}")
+                    manual_restart ${restart_args[@]+"${restart_args[@]}"}
+                    ;;
+                *)
+                    if [[ "${port_set}" == "true" ]]; then
+                        manual_status --port "${port}"
+                    else
+                        manual_status
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
 }
 
 cmd_update() {
@@ -363,13 +1120,15 @@ cmd_uninstall() {
 }
 
 usage() {
-    sed -n '2,30p' "${BASH_SOURCE[0]}"
+    sed -n '2,32p' "${BASH_SOURCE[0]}"
     if [[ "${_ui_has_color}" == "true" ]]; then
         local c="${_ui_green}" d="${_ui_dim}" r="${_ui_reset}" b="${_ui_bold}"
         printf '\n  %sCommands:%s\n' "${b}" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "status" "${r}" "${d}" "show service + health" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "logs [--follow] [-n N]" "${r}" "${d}" "view logs (default: last 100 lines)" "${r}"
-        printf '    %s%-28s%s %s%s%s\n' "${c}" "start | stop | restart" "${r}" "${d}" "control the service (needs root)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "start | stop | restart" "${r}" "${d}" "control systemd / docker / manual (needs root for systemd)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "  --systemd|--docker|--manual" "${r}" "${d}" "force a deployment style" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "  --host H --port P --timeout S" "${r}" "${d}" "endpoint / health-wait options (all modes)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "update --latest" "${r}" "${d}" "upgrade to latest stable (needs root)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "update --version X.Y.Z" "${r}" "${d}" "upgrade or downgrade (needs root)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "port PORT" "${r}" "${d}" "change service port (needs root)" "${r}"
@@ -384,7 +1143,9 @@ usage() {
 Commands:
   status                      show service + health
   logs [--follow] [-n N]       view logs (default: last 100 lines)
-  start | stop | restart       control the service (needs root)
+  start | stop | restart       control systemd / docker / manual deployment
+      --systemd|--docker|--manual  force a deployment style
+      --host H --port P --timeout S  endpoint / health-wait options (all modes)
   update --latest             upgrade to latest stable (needs root)
   update --version X.Y.Z      upgrade or downgrade (needs root)
   port PORT                   change service port (needs root)
@@ -520,7 +1281,7 @@ menu() {
             1) cmd_status; _ui_pause ;;
             2) cmd_logs; _ui_pause ;;
             3) cmd_logs --follow ;;
-            4) cmd_service restart; _ui_pause ;;
+            4) cmd_control restart; _ui_pause ;;
             5) cmd_update --latest; _ui_pause ;;
             6)
                 local v=""
@@ -588,10 +1349,13 @@ main() {
         menu
         return 0
     fi
+    local action
     case "$1" in
-        status) shift; cmd_status "$@" ;;
+        status|start|stop|restart)
+            action="$1"; shift
+            cmd_control "${action}" "$@"
+            ;;
         logs) shift; cmd_logs "$@" ;;
-        start|stop|restart) cmd_service "$@" ;;
         update) shift; cmd_update "$@" ;;
         port) shift; cmd_port "$@" ;;
         rotate-credential) shift; cmd_rotate "$@" ;;

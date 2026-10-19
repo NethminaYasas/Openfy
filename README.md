@@ -190,6 +190,7 @@ Available environment variables (all prefixed with `OPENFY_`, except `SPOTIFLAC_
 | `OPENFY_ADMIN_USERNAME` | `` | Admin username (auto-created on startup) |
 | `OPENFY_ADMIN_HASH` | `` | Random admin credential (`of1_...`, 64 chars) from `scripts/generate_hash.py` |
 | `OPENFY_MAX_UPLOAD_SIZE_MB` | `200` | Maximum upload file size in MB |
+| `OPENFY_REGISTRATION_MODE` | `invite` | Initial registration mode (`open` or `invite`). Only seeds the database value on first startup; after that the dashboard/API value wins and this variable is ignored. |
 | `SPOTIFLAC_PIN_VERSION` | `` | Pin SpotiFLAC to a specific version (e.g. `0.7.0`). Leave empty for latest. No `OPENFY_` prefix. |
 
 ## Generating an Admin Hash
@@ -213,6 +214,78 @@ one transaction, preserving its library and playlists. Sign in again with the ne
 credential; the old credential no longer works. Repeat for each existing administrator.
 
 The `scripts/` directory contains developer/admin utilities.
+
+## Registration modes and invites
+
+Openfy supports two registration modes:
+
+- **Open** — anyone can create an account; invite codes are not required (any
+  code supplied is ignored and not consumed).
+- **Invite** — a valid, unused invite code is required to sign up.
+
+Admins can switch modes at runtime in the admin dashboard (**Admin Panel →
+Registration Mode** on desktop, **Admin** page on mobile) or via the API. The change
+takes effect immediately, is persisted in the database, and survives restarts
+(no restart needed).
+
+`OPENFY_REGISTRATION_MODE` (`open` or `invite`, default `invite`) only seeds
+the initial value: it is written to the database on startup if no mode value
+exists yet, after which the database value wins and the environment variable
+is ignored.
+
+> **Upgrading from an older version?** Existing deployments have no stored mode
+> value, so they start in **invite** mode after upgrading (previously anyone
+> could register). To keep open registration, set
+> `OPENFY_REGISTRATION_MODE=open` in your environment before the first start
+> after the upgrade, or switch to Open in the dashboard afterwards.
+
+Invite codes are created by admins with an optional maximum number of uses
+(default 1), optional expiry in days, and an optional note. The plaintext code
+is shown **exactly once at creation** — only its SHA-256 hash is stored, so
+copy it immediately. Admins can list codes with their status (active / used /
+expired / revoked, use counts, and redeemers) and revoke them. Invites are
+never deleted or invalidated by mode switches, so unused unexpired codes work
+again when invite mode is re-enabled, and codes can be pre-generated while
+registration is open. Redemption is atomic (safe under concurrent signups) and
+is rolled back if registration fails. Invalid codes always return one generic
+error.
+
+Share a signup link with the code prefilled — `<origin>/?invite=CODE`, e.g.
+`https://music.example.com/?invite=AbCdEf...`.
+
+## Managing the server
+
+The `openfy` CLI (Linux only; Windows is not supported by this project)
+controls a systemd install, a Docker Compose deployment, or a manual
+source-checkout run:
+
+```bash
+sudo openfy start
+sudo openfy stop
+sudo openfy restart
+sudo openfy status
+```
+
+With a systemd install these wrap `systemctl`. For other deployments the CLI
+auto-detects the style (systemd unit → Docker Compose file + `docker` → repo
+checkout) or you can force one with `--systemd`, `--docker`, or `--manual`
+(env: `OPENFY_DEPLOYMENT`); the chosen mode is printed before acting. Docker
+control runs `docker compose up -d` when no containers exist and
+`docker compose start` otherwise, stops with `docker compose stop` (containers
+and volumes are kept — never `down`), and never rebuilds images implicitly.
+Manual control launches `uvicorn app.main:app` from `server/` in the
+background (`--host`/`--port`, defaults `0.0.0.0:8000`), logs to
+`data/openfy.log`, and keeps a PID file at `data/openfy.pid` (override the
+directory with `OPENFY_DATA_DIR`; interpreter via `OPENFY_PYTHON`); `stop`
+sends SIGTERM, waits `--timeout` seconds (default 12, env
+`OPENFY_STOP_TIMEOUT`), and escalates to SIGKILL only if needed, after
+verifying the PID belongs to the Openfy server. Stale PID files are cleared.
+
+All subcommands are idempotent ("already running" / "not running" both exit 0),
+and `start` waits for `/health` before reporting success. `openfy status` shows
+the deployment mode, running state, PID/container state, URL, and health. The
+CLI never deletes or modifies the database, music, artwork, or other data. See
+the [Linux installation guide](docs/LINUX_INSTALL.md) for details.
 
 ## Architecture
 

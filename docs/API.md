@@ -981,10 +981,18 @@ Delete the authenticated user's avatar.
 
 Create a new user account. Rate limited (10 requests per 5 minutes per IP).
 
+When the server is in **invite** mode, a valid invite code is required. Missing,
+unknown, expired, revoked, and fully used codes all return the same generic
+`400` error (`Invalid invite code`); the code is consumed (and the consumption
+rolled back if registration fails). In **open** mode `invite_code` is optional
+and ignored if supplied. Check the current mode with
+`GET /auth/registration-mode`.
+
 **Request Body:**
 ```json
 {
-  "name": "new_user"
+  "name": "new_user",
+  "invite_code": "optional_invite_code"
 }
 ```
 
@@ -1016,6 +1024,37 @@ Authenticate a user. Rate limited (15 requests per 5 minutes per IP).
 ```
 
 **Response:** UserOut object (includes auth_hash).
+
+### `GET /auth/registration-mode`
+
+Get the current registration mode. Public (no authentication). Rate limited (30 requests per 5 minutes per IP).
+
+**Response:**
+```json
+{
+  "mode": "invite"
+}
+```
+
+`mode` is `open` or `invite`; the response contains only `mode`.
+
+### `POST /auth/invite/validate`
+
+Check whether an invite code can currently be redeemed, without consuming it. Public (no authentication). Rate limited (20 requests per 5 minutes per IP). Returns `false` for unknown, expired, revoked, or fully used codes.
+
+**Request Body:**
+```json
+{
+  "invite_code": "AbCdEfGh..."
+}
+```
+
+**Response:**
+```json
+{
+  "valid": true
+}
+```
 
 ## Downloads
 
@@ -1138,6 +1177,106 @@ Update system-wide settings.
 }
 ```
 
+### `GET /admin/registration-mode`
+
+Get the current registration mode. (Admin only)
+
+**Response:**
+```json
+{
+  "mode": "invite"
+}
+```
+
+### `PUT /admin/registration-mode`
+
+Set the registration mode. Takes effect immediately (next request), is persisted in the database, and survives restarts. (Admin only)
+
+**Request Body:**
+```json
+{
+  "mode": "open"
+}
+```
+
+`mode` must be `open` or `invite`.
+
+**Response:**
+```json
+{
+  "mode": "open"
+}
+```
+
+### `POST /admin/invites`
+
+Create an invite code. The plaintext `code` is returned **exactly once** in this response; only a SHA-256 hash is stored, so copy it immediately. (Admin only)
+
+**Request Body (all fields optional):**
+```json
+{
+  "max_uses": 1,
+  "expires_in_days": 7,
+  "note": "For Alice"
+}
+```
+
+- `max_uses` (integer, optional): Maximum redemptions (default: 1, range 1-1000)
+- `expires_in_days` (integer, optional): Expiry in days from creation (range 1-3650; omit for no expiry)
+- `note` (string, optional): Free-form admin note (max 200 characters)
+
+**Response:**
+```json
+{
+  "id": "...",
+  "code": "AbCdEfGh1234567890-_",
+  "code_prefix": "AbCdEfGh",
+  "max_uses": 1,
+  "expires_at": "2023-01-08T00:00:00Z",
+  "note": "For Alice",
+  "created_at": "2023-01-01T00:00:00Z"
+}
+```
+
+### `GET /admin/invites`
+
+List invite codes newest-first (up to 200). Never includes code hashes or full plaintext codes — only the 8-character `code_prefix`. (Admin only)
+
+**Response:**
+```json
+{
+  "invites": [
+    {
+      "id": "...",
+      "code_prefix": "AbCdEfGh",
+      "note": "For Alice",
+      "created_by": "admin",
+      "created_at": "2023-01-01T00:00:00Z",
+      "expires_at": "2023-01-08T00:00:00Z",
+      "max_uses": 1,
+      "use_count": 1,
+      "revoked_at": null,
+      "status": "used",
+      "redeemers": ["alice"]
+    }
+  ]
+}
+```
+
+`status` is one of `active`, `used`, `expired`, or `revoked`. `redeemers` lists the usernames of accounts created with the code.
+
+### `DELETE /admin/invites/{invite_id}`
+
+Revoke an invite code. Idempotent (revoking an already-revoked code succeeds) and does not affect accounts already created with it. (Admin only)
+
+**Response:**
+```json
+{
+  "status": "revoked",
+  "invite_id": "..."
+}
+```
+
 ### `GET /admin/users`
 
 List all users with their uploaded track counts.
@@ -1241,6 +1380,8 @@ Delete an album but keep its tracks (tracks are unlinked from the album).
 Rate limiting is implemented for auth endpoints:
 - **Signup**: 10 requests per 5 minutes per IP
 - **Signin**: 15 requests per 5 minutes per IP
+- **Invite validation** (`POST /auth/invite/validate`): 20 requests per 5 minutes per IP
+- **Registration mode** (`GET /auth/registration-mode`): 30 requests per 5 minutes per IP
 
 ## Version History
 

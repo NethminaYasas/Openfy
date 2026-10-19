@@ -2360,3 +2360,299 @@ body.page-detail .detail-gradient {
     animation: queueSlideUp 0.25s ease-out 0.05s forwards;
 }
 
+/* Admin page */
+.admin-mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+}
+
+.admin-mobile-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.admin-mobile-card {
+    background: #181818;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.admin-mobile-card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 0.75rem;
+}
+
+.admin-mobile-card-title i {
+    color: #1db954;
+}
+
+.admin-mobile-mode-text {
+    color: #b3b3b3;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin-bottom: 0.75rem;
+}
+
+.admin-mobile-status {
+    color: #b3b3b3;
+    font-size: 0.8rem;
+    min-height: 1em;
+    margin-top: 0.5rem;
+}
+
+.mode-segmented {
+    display: inline-flex;
+    background: #282828;
+    border: 1px solid #3e3e3e;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.mode-segment {
+    background: transparent;
+    border: none;
+    color: #b3b3b3;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.4rem 0.9rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-segment.active {
+    background: #1db954;
+    color: #000;
+}
+
+.mode-segment.active[data-mode="invite"] {
+    background: #f39c12;
+}
+
+.mode-segment:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.admin-mobile-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.admin-mobile-form label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #b3b3b3;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 0.25rem;
+}
+
+.admin-mobile-form input {
+    background: #282828;
+    color: #fff;
+    border: 1px solid #3e3e3e;
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9rem;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.admin-mobile-form input:focus {
+    border-color: #1db954;
+}
+
+.admin-mobile-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    border: none;
+    background: #2a2a2a;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    align-self: flex-start;
+    transition: background 0.15s ease;
+}
+
+.admin-mobile-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.admin-mobile-create-btn {
+    margin-top: 0.75rem;
+    background: #1db954;
+    color: #000;
+}
+
+.admin-mobile-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.admin-mobile-list-header .admin-mobile-card-title {
+    margin-bottom: 0;
+}
+
+.admin-mobile-invite {
+    background: #232323;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.admin-mobile-invite-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.admin-mobile-invite-code {
+    font-family: monospace;
+    font-weight: 700;
+    color: #fff;
+    font-size: 0.9rem;
+}
+
+.admin-mobile-invite-meta {
+    font-size: 0.78rem;
+    color: #b3b3b3;
+}
+
+.admin-mobile-revoke {
+    align-self: flex-start;
+    margin-top: 0.4rem;
+    background: #e74c3c;
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.admin-mobile-revoke:disabled {
+    opacity: 0.6;
+}
+
+.admin-mobile-empty {
+    color: #727272;
+    font-size: 0.85rem;
+    padding: 0.75rem 0;
+    text-align: center;
+}
+
+.invite-info-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(29, 185, 84, 0.12);
+    border: 1px solid rgba(29, 185, 84, 0.4);
+    color: #fff;
+    padding: 0.65rem 0.9rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
+
+.invite-info-banner i {
+    color: #1db954;
+    flex-shrink: 0;
+}
+
+.invite-reveal {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    padding: 0.9rem;
+    background: #1c2b1f;
+    border: 1px solid #1db954;
+    border-radius: 8px;
+}
+
+.invite-reveal-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #1db954;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.invite-reveal-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.invite-reveal-code {
+    flex: 1;
+    min-width: 0;
+    background: #121212;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    padding: 0.5rem 0.65rem;
+    color: #fff;
+    font-family: monospace;
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
+.invite-reveal-note {
+    color: #b3b3b3;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.invite-status {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 700;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.invite-status.active {
+    background: #1db954;
+    color: #000;
+}
+
+.invite-status.used {
+    background: #3498db;
+    color: #fff;
+}
+
+.invite-status.expired {
+    background: #f39c12;
+    color: #000;
+}
+
+.invite-status.revoked {
+    background: #e74c3c;
+    color: #fff;
+}
+

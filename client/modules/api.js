@@ -322,9 +322,17 @@ export async function tryAutoLogin() {
   return null;
 }
 
-export async function signUp(name) {
-  var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
+export async function signUp(name, inviteCode) {
+  var body = { name: name.trim() };
+  var code = typeof inviteCode === "string" ? inviteCode.trim() : "";
+  if (code) body.invite_code = code;
+  var user = await api("/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return user;
+}
+
+export async function getRegistrationMode() {
+  var data = await api("/auth/registration-mode");
+  return data && data.mode;
 }
 
 export async function signIn(hash) {
@@ -454,6 +462,31 @@ export async function loadAlbumsList(searchQuery = "") {
 
 export async function deleteAlbum(albumId) {
   return await api(`/admin/albums/${albumId}`, { method: "DELETE" });
+}
+
+export async function loadAdminRegistrationMode() {
+  if (!state.isAdmin) return;
+  return await api("/admin/registration-mode");
+}
+
+export async function updateAdminRegistrationMode(mode) {
+  if (!state.isAdmin) return;
+  return await api("/admin/registration-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: mode }) });
+}
+
+export async function createInvite(payload) {
+  if (!state.isAdmin) return;
+  return await api("/admin/invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}) });
+}
+
+export async function loadInvites() {
+  if (!state.isAdmin) return;
+  return await api("/admin/invites");
+}
+
+export async function revokeInvite(inviteId) {
+  if (!state.isAdmin) return;
+  return await api(`/admin/invites/${inviteId}`, { method: "DELETE" });
 }
 
 export async function updateLibraryState(minimized) {
