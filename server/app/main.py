@@ -58,6 +58,7 @@ from .models import (
     User,
     TrackPlay,
     AppSetting,
+    InviteCode,
 )
 from .schemas import (
     TrackOut,
@@ -80,6 +81,10 @@ from .schemas import (
     SystemSettingsUpdate,
     SystemSettingsOut,
     RegistrationModeOut,
+    RegistrationModeUpdate,
+    InviteCreateRequest,
+    InviteCreateResponse,
+    InviteListResponse,
     InviteValidateRequest,
     InviteValidateResponse,
     SpotifyImportRequest,
@@ -89,7 +94,13 @@ from .settings import ADMIN_TOKEN_PATTERN, settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
-from .services.invites import REGISTRATION_MODES, check_invite_code, consume_invite_code
+from .services.invites import (
+    REGISTRATION_MODES,
+    check_invite_code,
+    consume_invite_code,
+    create_invite_code,
+    invite_status,
+)
 
 mimetypes.add_type("font/woff2", ".woff2")
 mimetypes.add_type("font/woff", ".woff")
@@ -4015,6 +4026,141 @@ def update_admin_settings(
         res["timezone"] = tz_row.value if tz_row else "UTC"
 
     return res
+
+
+@app.get("/admin/registration-mode", response_model=RegistrationModeOut)
+def get_admin_registration_mode(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Get the current registration mode (admin only)"""
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return {"mode": _get_registration_mode(db)}
+
+
+@app.put("/admin/registration-mode", response_model=RegistrationModeOut)
+def update_admin_registration_mode(
+    payload: RegistrationModeUpdate,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Update the registration mode (admin only)"""
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    old_mode = _get_registration_mode(db)
+    new_mode = _set_registration_mode(db, payload.mode)
+    logger.info("registration mode changed by %s: %s -> %s", admin_user.name, old_mode, new_mode)
+    return {"mode": new_mode}
+
+
+@app.post("/admin/invites", response_model=InviteCreateResponse)
+def create_admin_invite(
+    payload: InviteCreateRequest | None = None,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Create an invite code (admin only). The plaintext code is returned only once."""
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    data = payload or InviteCreateRequest()
+    invite, code = create_invite_code(
+        db,
+        created_by=admin_user.name,
+        max_uses=data.max_uses,
+        expires_in_days=data.expires_in_days,
+        note=data.note,
+    )
+    return {
+        "id": invite.id,
+        "code": code,
+        "code_prefix": invite.code_prefix,
+        "max_uses": invite.max_uses,
+        "expires_at": invite.expires_at,
+        "note": invite.note,
+        "created_at": invite.created_at,
+    }
+
+
+@app.get("/admin/invites", response_model=InviteListResponse)
+def list_admin_invites(
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """List invite codes newest-first (admin only). Never exposes hashes or plaintext codes."""
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    invites = (
+        db.execute(
+            select(InviteCode)
+            .order_by(InviteCode.created_at.desc(), InviteCode.id.desc())
+            .limit(200)
+        )
+        .scalars()
+        .all()
+    )
+    invite_ids = [invite.id for invite in invites]
+    redeemers_by_invite: dict[str, list[str]] = defaultdict(list)
+    if invite_ids:
+        rows = (
+            db.execute(
+                select(User.invite_code_id, User.name)
+                .where(User.invite_code_id.in_(invite_ids))
+                .order_by(User.name)
+            )
+            .all()
+        )
+        for invite_id, username in rows:
+            redeemers_by_invite[invite_id].append(username)
+
+    return {
+        "invites": [
+            {
+                "id": invite.id,
+                "code_prefix": invite.code_prefix,
+                "note": invite.note,
+                "created_by": invite.created_by,
+                "created_at": invite.created_at,
+                "expires_at": invite.expires_at,
+                "max_uses": invite.max_uses,
+                "use_count": invite.use_count,
+                "revoked_at": invite.revoked_at,
+                "status": invite_status(invite),
+                "redeemers": redeemers_by_invite.get(invite.id, []),
+            }
+            for invite in invites
+        ]
+    }
+
+
+@app.delete("/admin/invites/{invite_id}")
+def revoke_admin_invite(
+    invite_id: str,
+    x_auth_hash: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Revoke an invite code (admin only, idempotent)"""
+    admin_user = _require_user(db, x_auth_hash)
+    if not admin_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    invite = db.get(InviteCode, invite_id)
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+
+    if invite.revoked_at is None:
+        invite.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.commit()
+
+    return {"status": "revoked", "invite_id": invite.id}
 
 
 @app.get("/admin/users")

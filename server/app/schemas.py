@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Literal, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, ConfigDict
 
 from .settings import ADMIN_TOKEN_PATTERN
@@ -155,12 +155,50 @@ class RegistrationModeOut(BaseModel):
     mode: str
 
 
+class RegistrationModeUpdate(BaseModel):
+    mode: Literal["open", "invite"]
+
+
 class InviteValidateRequest(BaseModel):
     invite_code: str = Field(min_length=1, max_length=128)
 
 
 class InviteValidateResponse(BaseModel):
     valid: bool
+
+
+class InviteCreateRequest(BaseModel):
+    max_uses: int = Field(default=1, ge=1, le=1000)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    note: str | None = Field(default=None, max_length=200)
+
+
+class InviteCreateResponse(BaseModel):
+    id: str
+    code: str
+    code_prefix: str
+    max_uses: int
+    expires_at: datetime | None = None
+    note: str | None = None
+    created_at: datetime
+
+
+class InviteOut(BaseModel):
+    id: str
+    code_prefix: str
+    note: str | None = None
+    created_by: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    max_uses: int
+    use_count: int
+    revoked_at: datetime | None = None
+    status: str
+    redeemers: List[str] = Field(default_factory=list)
+
+
+class InviteListResponse(BaseModel):
+    invites: List[InviteOut] = Field(default_factory=list)
 
 
 class UserSignin(BaseModel):
