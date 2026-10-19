@@ -837,7 +837,7 @@ manual_stop() {
 }
 
 manual_restart() {
-    local host="" port="" timeout="${OPENFY_STOP_TIMEOUT:-12}"
+    local host="" port="" timeout=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --host) host="${2:?--host requires a value}"; shift 2 ;;
@@ -846,7 +846,7 @@ manual_restart() {
             *) die "unknown restart option '$1'. Use: openfy restart [--host H] [--port P] [--timeout S]" ;;
         esac
     done
-    [[ "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
+    [[ -z "${timeout}" || "${timeout}" =~ ^[0-9]+$ ]] || die "invalid timeout '${timeout}' (seconds)."
     local root endpointfile ehost eport
     root="$(require_repo_root)"
     endpointfile="$(manual_endpoint_file "${root}")"
@@ -858,8 +858,12 @@ manual_restart() {
     host="${host:-0.0.0.0}"
     port="${port:-8000}"
     valid_port "${port}" || die "invalid port '${port}' (must be 1-65535, no leading zeros)."
-    manual_stop --timeout "${timeout}"
-    manual_start --host "${host}" --port "${port}"
+    manual_stop
+    if [[ -n "${timeout}" ]]; then
+        manual_start --host "${host}" --port "${port}" --timeout "${timeout}"
+    else
+        manual_start --host "${host}" --port "${port}"
+    fi
 }
 
 manual_status() {

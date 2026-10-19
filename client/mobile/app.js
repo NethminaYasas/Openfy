@@ -2942,7 +2942,7 @@ function showMobileInviteReveal(code) {
     const linkEl = $('mobile-invite-link-text');
     if (!reveal || !codeEl || !linkEl) return;
     codeEl.textContent = code;
-    linkEl.textContent = location.origin + '/?invite=' + encodeURIComponent(code);
+    linkEl.textContent = new URL(withBase('/?invite=' + encodeURIComponent(code)), location.origin).href;
     reveal.style.display = 'flex';
 }
 

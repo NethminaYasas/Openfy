@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state, withBase } from './state.js';
 import { loadAdminStats, loadAdminSettings, updateAdminSettings, loadUsersList, deleteUser, loadTracksList, deleteTrack, loadAlbumsList, deleteAlbum, loadAdminRegistrationMode, updateAdminRegistrationMode, createInvite, loadInvites, revokeInvite } from './api.js';
 import { formatDuration, escapeHtml } from './utils.js';
 import { applyPlaylistImportUI, setActivePage } from './ui.js';
@@ -284,7 +284,7 @@ export function showInviteReveal(code) {
   const linkEl = document.getElementById("invite-link-text");
   if (!reveal || !codeEl || !linkEl) return;
   codeEl.textContent = code;
-  linkEl.textContent = location.origin + "/?invite=" + encodeURIComponent(code);
+  linkEl.textContent = new URL(withBase("/?invite=" + encodeURIComponent(code)), location.origin).href;
   reveal.style.display = "flex";
 }
 

@@ -1184,6 +1184,9 @@ async function importSpotifyPlaylist() {
   document.getElementById("signup-name").addEventListener("keydown", function(e) {
     if (e.key === "Enter") document.getElementById("signup-btn").click();
   });
+  document.getElementById("signup-invite-code").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("signup-btn").click();
+  });
 
   // Toggle between signin and signup forms
   document.getElementById("show-signup")?.addEventListener("click", function(e) {

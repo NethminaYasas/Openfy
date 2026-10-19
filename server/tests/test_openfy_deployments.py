@@ -492,6 +492,29 @@ echo "explicit-rc=$?"
     assert "URL: http://127.0.0.1:9200" in lines
 
 
+def test_manual_restart_timeout_applies_to_start_not_stop(tmp_path, repo):
+    extra = """
+manual_stop() { echo "STOP:$*"; }
+manual_start() { echo "START:$*"; }
+manual_restart --port 9123 --timeout 7
+echo "restart-rc=$?"
+manual_restart --port 9123
+echo "default-rc=$?"
+"""
+    snippet, rec, pidfile = _manual_snippet(
+        tmp_path, repo, extra, kill_rc=0, ps_cmd="",
+    )
+    proc = _run_snippet(snippet)
+    assert proc.returncode == 0, proc.stderr
+    assert "restart-rc=0" in proc.stdout
+    assert "default-rc=0" in proc.stdout
+    lines = proc.stdout.splitlines()
+    assert "START:--host 0.0.0.0 --port 9123 --timeout 7" in lines
+    assert "START:--host 0.0.0.0 --port 9123" in lines
+    assert "STOP:" in lines
+    assert "STOP:--timeout 7" not in lines
+
+
 def test_manual_stop_refuses_kill_when_identity_changes(tmp_path, repo):
     extra = """
 _identity_calls=0
