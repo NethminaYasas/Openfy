@@ -12,7 +12,9 @@ Status checklist (update after each phase):
 - [x] Slice 7 — `openfy` CLI: start/stop/restart/status (systemd/docker/manual) + tests — 16 passed
 - [x] Slice 8 — docs: README, .env.example, CHANGELOG, docs/API.md
 - [x] Phase 2 — fresh-reviewer audit + 8 findings fixed + end-to-end verification (manual HTTP 25/25, CLI manual mode start/status/stop x2, Docker HTTP 10/10, CLI docker status/stop/start/restart with data persistence)
-- [ ] Phase 3 — CodeRabbit local review, push, PR, triage its comments (max 3 rounds)
+- [ ] Phase 3 — CodeRabbit local review (3 findings fixed), branch pushed, PR #21 opened, PR review triggered; triaging its comments (max 3 rounds)
+  - Local CodeRabbit review round 1: 3 findings fixed in commit 8facda8
+  - PR: https://github.com/NethminaYasas/Openfy/pull/21 (auto-review disabled in .coderabbit.yaml; triggered manually)
 
 Branch: `feat(reg)-invite/open-registration` (already checked out, clean).
 
