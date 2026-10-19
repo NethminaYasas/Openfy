@@ -40,6 +40,9 @@ OPENFY_PORT=8000
 OPENFY_ADMIN_USERNAME=admin
 OPENFY_ADMIN_HASH=$credential
 OPENFY_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+# Only seeds the initial registration mode in the database on first startup;
+# dashboard/API changes win afterwards.
+OPENFY_REGISTRATION_MODE=invite
 ENV
     mv -- "$scratch/env" .env
 fi
