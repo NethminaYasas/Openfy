@@ -181,9 +181,14 @@ never rebuilt implicitly). Manual control launches `uvicorn app.main:app` from
 `server/` in the background:
 
 ```bash
-sudo openfy start --manual --host 0.0.0.0 --port 8000
-sudo openfy stop --manual --timeout 12
+openfy start --manual --host 0.0.0.0 --port 8000
+openfy stop --manual --timeout 12
 ```
+
+`sudo` is only needed for systemd mode. Docker mode needs access to the Docker
+daemon instead — typically by adding your user to the `docker` group rather
+than using `sudo`. Manual mode runs entirely as the invoking user; never run
+it as root, or Uvicorn (including the `0.0.0.0` bind above) inherits root.
 
 Manual mode logs to `data/openfy.log` with a PID file at `data/openfy.pid`
 under the checkout (override the directory with `OPENFY_DATA_DIR`; interpreter
@@ -192,8 +197,9 @@ via `OPENFY_PYTHON`). `stop` sends SIGTERM, waits `--timeout` seconds
 needed — after verifying the PID really belongs to the Openfy server. Stale
 PID files are cleared automatically. All subcommands are idempotent
 ("already running" / "not running" both exit 0), `start` waits for `/health`
-before reporting success, and no command ever deletes or modifies the
-database, music, artwork, or config. `openfy status` reports the deployment
+before reporting success, and management commands never delete user data,
+music, artwork, or config — though `openfy start` may apply automatic schema
+migrations to the database on startup. `openfy status` reports the deployment
 mode, running state, PID/container state, URL, and health.
 
 To try things manually in the foreground (uses the installed virtualenv and

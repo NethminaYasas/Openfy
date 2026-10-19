@@ -223,8 +223,8 @@ Openfy supports two registration modes:
   code supplied is ignored and not consumed).
 - **Invite** — a valid, unused invite code is required to sign up.
 
-Admins can switch modes at runtime in the admin dashboard (**System
-Settings → Registration mode**, desktop and mobile) or via the API. The change
+Admins can switch modes at runtime in the admin dashboard (**Admin Panel →
+Registration Mode** on desktop, **Admin** page on mobile) or via the API. The change
 takes effect immediately, is persisted in the database, and survives restarts
 (no restart needed).
 

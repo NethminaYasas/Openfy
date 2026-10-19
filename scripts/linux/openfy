@@ -9,6 +9,7 @@
 #   sudo openfy logs [--follow] [-n N]
 #   sudo openfy start|stop|restart [--systemd|--docker|--manual]
 #   sudo openfy start|stop|restart [--host H] [--port P] [--timeout S]
+#       (--host/--port/--timeout are endpoint / health-wait options for all modes)
 #   sudo openfy update --latest
 #   sudo openfy update --version 1.5.0   (older versions downgrade)
 #   sudo openfy port 9000
@@ -733,6 +734,9 @@ manual_start() {
     # Access logs can contain invite codes in query strings; keep them private.
     (umask 077; : >>"${logfile}")
     chmod 600 "${logfile}" 2>/dev/null || true
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        warn "Running the manual server as root is not recommended; prefer a non-root user."
+    fi
     log "Starting Openfy (manual): ${py} -m uvicorn app.main:app --host ${host} --port ${port}"
     pid="$(_manual_spawn "${root}" "${py}" "${host}" "${port}" "${logfile}")"
     [[ "${pid}" =~ ^[0-9]+$ ]] || die "failed to launch uvicorn; see ${logfile}."
@@ -1071,7 +1075,7 @@ cmd_uninstall() {
 }
 
 usage() {
-    sed -n '2,30p' "${BASH_SOURCE[0]}"
+    sed -n '2,32p' "${BASH_SOURCE[0]}"
     if [[ "${_ui_has_color}" == "true" ]]; then
         local c="${_ui_green}" d="${_ui_dim}" r="${_ui_reset}" b="${_ui_bold}"
         printf '\n  %sCommands:%s\n' "${b}" "${r}"
@@ -1079,7 +1083,7 @@ usage() {
         printf '    %s%-28s%s %s%s%s\n' "${c}" "logs [--follow] [-n N]" "${r}" "${d}" "view logs (default: last 100 lines)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "start | stop | restart" "${r}" "${d}" "control systemd / docker / manual (needs root for systemd)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "  --systemd|--docker|--manual" "${r}" "${d}" "force a deployment style" "${r}"
-        printf '    %s%-28s%s %s%s%s\n' "${c}" "  --host H --port P --timeout S" "${r}" "${d}" "manual-mode options" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "  --host H --port P --timeout S" "${r}" "${d}" "endpoint / health-wait options (all modes)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "update --latest" "${r}" "${d}" "upgrade to latest stable (needs root)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "update --version X.Y.Z" "${r}" "${d}" "upgrade or downgrade (needs root)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "port PORT" "${r}" "${d}" "change service port (needs root)" "${r}"
@@ -1096,7 +1100,7 @@ Commands:
   logs [--follow] [-n N]       view logs (default: last 100 lines)
   start | stop | restart       control systemd / docker / manual deployment
       --systemd|--docker|--manual  force a deployment style
-      --host H --port P --timeout S  manual-mode options
+      --host H --port P --timeout S  endpoint / health-wait options (all modes)
   update --latest             upgrade to latest stable (needs root)
   update --version X.Y.Z      upgrade or downgrade (needs root)
   port PORT                   change service port (needs root)

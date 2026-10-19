@@ -1265,9 +1265,13 @@ async function importSpotifyPlaylist() {
     const adminDashboard = document.getElementById("admin-dashboard");
     const adminUsersView = document.getElementById("admin-users-view");
     const adminLibraryView = document.getElementById("admin-library-view");
+    const adminAlbumsView = document.getElementById("admin-albums-view");
+    const adminInvitesView = document.getElementById("admin-invites-view");
     if (adminDashboard) adminDashboard.style.display = "block";
     if (adminUsersView) adminUsersView.style.display = "none";
     if (adminLibraryView) adminLibraryView.style.display = "none";
+    if (adminAlbumsView) adminAlbumsView.style.display = "none";
+    if (adminInvitesView) adminInvitesView.style.display = "none";
     loadAdminStatsUI();
     loadAdminSettingsUI();
     setActivePage("admin");
