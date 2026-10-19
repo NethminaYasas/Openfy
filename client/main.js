@@ -764,13 +764,24 @@ function initEventListeners() {
       applyManualUploadUI(state.manualAudioUploadEnabled);
       if (window.refreshLibraryState) window.refreshLibraryState();
     } catch (err) {
-      if (inviteCode) {
-        await refreshRegistrationMode();
-        if (registrationMode === "open") {
-          showAuthStatus("signup-status", "Registration is now open — please try again without a code.", "error");
+      var submittedCode = inviteCode;
+      var inviteField = document.getElementById("signup-invite-field");
+      var inviteInput = document.getElementById("signup-invite-code");
+      var prevFieldDisplay = inviteField ? inviteField.style.display : "";
+      var prevRequired = inviteInput ? inviteInput.required : false;
+      var refreshedMode = await refreshRegistrationMode();
+      if (refreshedMode === null) {
+        if (inviteField) inviteField.style.display = prevFieldDisplay;
+        if (inviteInput) inviteInput.required = prevRequired;
+        showAuthStatus("signup-status", err.message || "Sign up failed.", "error");
+      } else if (refreshedMode === "invite") {
+        if (!submittedCode) {
+          showAuthStatus("signup-status", "Registration now requires an invite code. Enter one and try again.", "error");
         } else {
           showAuthStatus("signup-status", "Signup failed. Check your invite code and try again.", "error");
         }
+      } else if (submittedCode) {
+        showAuthStatus("signup-status", "Registration is now open — please try again without a code.", "error");
       } else {
         showAuthStatus("signup-status", err.message || "Sign up failed.", "error");
       }

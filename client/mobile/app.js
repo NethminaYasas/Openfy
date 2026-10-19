@@ -199,13 +199,22 @@ signupBtn.addEventListener('click', async () => {
         await initApp();
         signupStatus.textContent = '';
     } catch (e) {
-        if (inviteCode) {
-            await refreshRegistrationMode();
-            if (signupRegistrationMode === 'open') {
-                signupStatus.textContent = 'Registration is now open — please try again without a code.';
+        const submittedCode = inviteCode;
+        const prevFieldDisplay = signupInviteField ? signupInviteField.style.display : '';
+        const prevRequired = signupInviteCode ? signupInviteCode.required : false;
+        const refreshedMode = await refreshRegistrationMode();
+        if (refreshedMode === null) {
+            if (signupInviteField) signupInviteField.style.display = prevFieldDisplay;
+            if (signupInviteCode) signupInviteCode.required = prevRequired;
+            signupStatus.textContent = e.message || 'Sign up failed';
+        } else if (refreshedMode === 'invite') {
+            if (!submittedCode) {
+                signupStatus.textContent = 'Registration now requires an invite code. Enter one and try again.';
             } else {
                 signupStatus.textContent = 'Signup failed. Check your invite code and try again.';
             }
+        } else if (submittedCode) {
+            signupStatus.textContent = 'Registration is now open — please try again without a code.';
         } else {
             signupStatus.textContent = e.message || 'Sign up failed';
         }
