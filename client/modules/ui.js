@@ -1206,6 +1206,11 @@ export async function openPlaylist(playlistId, isAlbum = false) {
       ownerAvatarElement.src = withBase('/users/' + ownerId + '/avatar?t=' + Date.now());
       ownerAvatarElement.className = 'playlist-owner-avatar';
       ownerAvatarElement.alt = ownerName;
+    } else if (pl.type !== 'album') {
+      ownerAvatarElement = document.createElement('img');
+      ownerAvatarElement.src = withBase('/static/images/user.png');
+      ownerAvatarElement.className = 'playlist-owner-avatar';
+      ownerAvatarElement.alt = ownerName;
     }
 
     const ownerNameElement = document.createElement('span');
@@ -1874,9 +1879,11 @@ export async function populateProfilePage() {
       img.className = 'avatar-img';
       profileAvatar.appendChild(img);
     } else {
-      const icon = document.createElement('i');
-      icon.className = 'fa-solid fa-user';
-      profileAvatar.appendChild(icon);
+      const img = document.createElement('img');
+      img.src = withBase('/static/images/user.png');
+      img.alt = 'Default avatar';
+      img.className = 'avatar-img';
+      profileAvatar.appendChild(img);
     }
   }
 

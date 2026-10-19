@@ -27,74 +27,33 @@ window.handleArtistClick = function(event, artistId) {
 
 const MAX_QUEUE_CAPACITY = 20;
 
-// Gradient animation for auth page
+// Soft breathing glow behind the login card
+let authGradientRun = 0;
 function animateAuthGradient() {
   const gradientEl = document.getElementById('auth-bg-gradient');
   if (!gradientEl) return;
-  
-  // First: fade in the green gradient
-  let startTime = performance.now();
-  const fadeInDuration = 300; // 300ms fade-in
-  
-  function fadeInGradient(currentTime) {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(elapsed / fadeInDuration, 1);
-    
-    gradientEl.style.opacity = progress;
-    
-    if (progress < 1) {
-      requestAnimationFrame(fadeInGradient);
-    } else {
-      // After fade-in completes, start color transition
-      startColorTransition();
-    }
+
+  const run = ++authGradientRun;
+  gradientEl.style.opacity = 1;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const base = { r: 29, g: 185, b: 84 };
+  const breatheDuration = 6000;
+  const start = performance.now();
+
+  function updateGlow(currentTime) {
+    if (run !== authGradientRun) return;
+    const t = ((currentTime - start) % breatheDuration) / breatheDuration;
+    const k = 0.75 + 0.25 * Math.sin(t * Math.PI * 2);
+    applyGradientColor(gradientEl, {
+      r: Math.round(base.r * k),
+      g: Math.round(base.g * k),
+      b: Math.round(base.b * k),
+    });
+    requestAnimationFrame(updateGlow);
   }
-  
-  function startColorTransition() {
-    const colors = [
-      { r: 29, g: 185, b: 84 },   // green
-      { r: 120, g: 185, b: 29 },  // yellow-green
-      { r: 185, g: 185, b: 29 },  // yellow
-      { r: 185, g: 120, b: 29 },  // orange
-      { r: 220, g: 38, b: 38 }    // red
-    ];
-    
-    const duration = 4000; // 4 seconds for color transition
-    startTime = performance.now();
-    
-    function updateGradient(currentTime) {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      
-      // Calculate which segment
-      const segment = progress * (colors.length - 1);
-      const index = Math.floor(segment);
-      const localProgress = segment - index;
-      
-      if (index >= colors.length - 1) {
-        applyGradientColor(gradientEl, colors[colors.length - 1]);
-        return;
-      }
-      
-      const start = colors[index];
-      const end = colors[index + 1];
-      
-      const r = Math.round(start.r + (end.r - start.r) * localProgress);
-      const g = Math.round(start.g + (end.g - start.g) * localProgress);
-      const b = Math.round(start.b + (end.b - start.b) * localProgress);
-      
-      applyGradientColor(gradientEl, { r, g, b });
-      
-      if (progress < 1) {
-        requestAnimationFrame(updateGradient);
-      }
-    }
-    
-    requestAnimationFrame(updateGradient);
-  }
-  
-  // Start the fade-in animation
-  requestAnimationFrame(fadeInGradient);
+
+  requestAnimationFrame(updateGlow);
 }
 
 function applyGradientColor(element, color) {
@@ -134,10 +93,15 @@ function updateUserAvatarDisplay(avatarPath, user = null) {
     img.className = "user-avatar-sm";
     userIcon.appendChild(img);
   } else {
-    // Revert to default FA icon
-    userIcon.classList.remove("user-avatar-mode");
-    userIcon.classList.add("fa-solid", "fa-user");
+    // No custom avatar — show the default user image
+    userIcon.classList.add("user-avatar-mode");
+    userIcon.classList.remove("fa-solid", "fa-user");
     userIcon.innerHTML = "";
+    const img = document.createElement("img");
+    img.src = withBase("/static/images/user.png");
+    img.alt = "Default avatar";
+    img.className = "user-avatar-sm";
+    userIcon.appendChild(img);
   }
 }
 

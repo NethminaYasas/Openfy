@@ -2019,15 +2019,22 @@ a {
 }
 
 @media (max-width: 480px) {
-    .auth-box {
-        padding: 2.5rem 1.5rem 2rem;
-        width: calc(100vw - 1rem);
+    .auth-overlay {
+        padding: 0.75rem;
     }
-    
+
+    .auth-box {
+        padding: 2rem 1.25rem 1.75rem;
+    }
+
     .auth-title {
         font-size: 1.5rem;
     }
-    
+
+    .auth-subtitle {
+        font-size: 0.85rem;
+    }
+
     .auth-logo {
         width: 56px;
         height: 56px;
@@ -2140,11 +2147,15 @@ a {
 .auth-overlay {
     position: fixed;
     inset: 0;
-    background: #000;
+    background:
+        radial-gradient(720px 420px at 50% 0%, rgba(29, 185, 84, 0.12), transparent 65%),
+        #050505;
     display: none;
     align-items: center;
     justify-content: center;
     z-index: 9999;
+    overflow: auto;
+    padding: 1.5rem 1rem;
     animation: fadeIn 0.3s ease-out;
 }
 
@@ -2164,16 +2175,18 @@ a {
 
 .auth-box {
     background: #121212;
-    padding: 3rem 2.5rem 2.5rem;
-    border-radius: 12px;
-    width: 420px;
-    max-width: calc(100vw - 2rem);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 2.5rem 2rem 2rem;
+    border-radius: 16px;
+    width: 400px;
+    max-width: 100%;
     text-align: center;
     box-sizing: border-box;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
-    animation: authSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+    animation: authSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
     z-index: 1;
+    margin: auto;
 }
 
 @keyframes authSlideUp {
@@ -2188,15 +2201,12 @@ a {
 }
 
 .auth-logo {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
+    width: 56px;
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 1.5rem;
-    background: transparent;
-    overflow: hidden;
+    margin: 0 auto 1.25rem;
 }
 
 .auth-logo img {
@@ -2206,11 +2216,17 @@ a {
 }
 
 .auth-title {
-    margin-bottom: 0.5rem;
-    font-size: 1.75rem;
+    margin-bottom: 0.35rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: #fff;
     letter-spacing: -0.5px;
+}
+
+.auth-subtitle {
+    margin: 0 0 1.75rem;
+    font-size: 0.875rem;
+    color: #a0a0a0;
 }
 
 .auth-form {
@@ -2240,14 +2256,14 @@ a {
 .input-wrapper input {
     width: 100%;
     box-sizing: border-box;
-    background: #282828;
-    border: 2px solid transparent;
-    border-radius: 8px;
-    padding: 0.875rem 1rem 0.875rem 2.75rem;
+    background: #1e1e1e;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+    padding: 0.8rem 1rem 0.8rem 2.75rem;
     font-size: 0.95rem;
     color: #fff;
     font-family: inherit;
-    transition: all 0.2s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .input-wrapper input::placeholder {
@@ -2257,7 +2273,8 @@ a {
 .input-wrapper input:focus {
     outline: none;
     border-color: #1db954;
-    background: #2a2a2a;
+    background: #232323;
+    box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.25);
 }
 
 .input-wrapper input:focus + .input-icon,
@@ -2272,21 +2289,21 @@ a {
     color: #000;
     border: none;
     border-radius: 999px;
-    padding: 0.875rem 1rem;
+    padding: 0.8rem 1rem;
     font-size: 1rem;
     font-weight: 700;
     cursor: pointer;
     font-family: inherit;
-    letter-spacing: 0.5px;
-    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    transition: background 0.15s ease;
     position: relative;
-    overflow: hidden;
 }
 
 .auth-btn:hover {
     background: #1ed760;
-    transform: scale(1.02);
-    box-shadow: 0 8px 24px rgba(29, 185, 84, 0.3);
+}
+
+.auth-btn:active {
+    transform: translateY(1px);
 }
 
 .auth-btn:active {
@@ -2358,6 +2375,13 @@ a {
     gap: 0.4rem;
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .auth-overlay,
+    .auth-box {
+        animation: none;
+    }
+}
+
 .auth-hint i {
     color: #1db954;
     font-size: 0.7rem;
@@ -2404,15 +2428,6 @@ a {
     text-transform: uppercase;
     letter-spacing: 1px;
     font-size: 0.75rem;
-}
-
-.auth-status {
-    margin-top: 0.75rem;
-    font-size: 0.75rem;
-    color: #b3b3b3;
-    word-break: break-all;
-    width: 100%;
-    box-sizing: border-box;
 }
 
 .user-menu {
