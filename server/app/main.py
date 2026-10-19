@@ -79,6 +79,9 @@ from .schemas import (
     UserQueueUpdate,
     SystemSettingsUpdate,
     SystemSettingsOut,
+    RegistrationModeOut,
+    InviteValidateRequest,
+    InviteValidateResponse,
     SpotifyImportRequest,
     SearchResultOut,
 )
@@ -86,7 +89,7 @@ from .settings import ADMIN_TOKEN_PATTERN, settings
 from .services.storage import ensure_dirs, store_upload, store_avatar, is_audio_file
 from .services.library import scan_default_library, scan_paths, compute_universal_track_id
 from .services.spotiflac import queue_download
-from .services.invites import REGISTRATION_MODES
+from .services.invites import REGISTRATION_MODES, check_invite_code, consume_invite_code
 
 mimetypes.add_type("font/woff2", ".woff2")
 mimetypes.add_type("font/woff", ".woff")
@@ -185,7 +188,7 @@ def _set_registration_mode(db: Session, mode: str) -> str:
     return normalized
 
 
-def rate_limit(max_requests: int, window_seconds: int = 60):
+def rate_limit(max_requests: int, window_seconds: int = 60, scope: str = "auth"):
     """
     Simple in-memory rate limiter.
     Limits requests based on client IP address.
@@ -193,7 +196,7 @@ def rate_limit(max_requests: int, window_seconds: int = 60):
     def limiter(request: Request):
         # Get client IP (consider X-Forwarded-For if behind proxy)
         client_ip = request.client.host if request.client else "unknown"
-        key = f"auth:{client_ip}"
+        key = f"{scope}:{client_ip}"
         now = monotonic()
         window_start = now - window_seconds
 
@@ -3554,18 +3557,54 @@ def signup(
     db: Session = Depends(get_db),
     _: bool = Depends(rate_limit(max_requests=10, window_seconds=300)),  # 10 per 5 minutes per IP
 ):
+    mode = _get_registration_mode(db)
+    invite = None
+    if mode == "invite":
+        code = (payload.invite_code or "").strip()
+        if not code:
+            raise HTTPException(status_code=400, detail="Invalid invite code")
+        invite = consume_invite_code(db, code)
+        if invite is None:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="Invalid invite code")
+
     existing = db.execute(
         select(User).where(User.name == payload.name)
     ).scalar_one_or_none()
     if existing:
+        if invite is not None:
+            db.rollback()
         raise HTTPException(status_code=409, detail="Username taken")
     auth_hash = secrets.token_hex(32)
     user = User(name=payload.name, auth_hash=auth_hash)
+    if invite is not None:
+        user.invite_code_id = invite.id
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(user)
     _ensure_liked_songs(db, user.auth_hash)
     return user
+
+
+@app.get("/auth/registration-mode", response_model=RegistrationModeOut)
+def get_registration_mode_endpoint(
+    db: Session = Depends(get_db),
+    _: bool = Depends(rate_limit(30, 300, scope="registration_mode")),
+):
+    return {"mode": _get_registration_mode(db)}
+
+
+@app.post("/auth/invite/validate", response_model=InviteValidateResponse)
+def validate_invite(
+    payload: InviteValidateRequest,
+    db: Session = Depends(get_db),
+    _: bool = Depends(rate_limit(20, 300, scope="invite_validate")),
+):
+    return {"valid": check_invite_code(db, payload.invite_code) is not None}
 
 
 @app.post("/auth/signin", response_model=UserOut)

@@ -148,6 +148,19 @@ class PlaylistOut(BaseModel):
 
 class UserSignup(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    invite_code: str | None = Field(default=None, max_length=128)
+
+
+class RegistrationModeOut(BaseModel):
+    mode: str
+
+
+class InviteValidateRequest(BaseModel):
+    invite_code: str = Field(min_length=1, max_length=128)
+
+
+class InviteValidateResponse(BaseModel):
+    valid: bool
 
 
 class UserSignin(BaseModel):
