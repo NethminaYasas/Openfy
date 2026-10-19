@@ -3,14 +3,14 @@
 Status checklist (update after each phase):
 - [x] Phase 0 — exploration complete
 - [x] Plan written
-- [ ] Slice 1 — backend core: mode setting + InviteCode model/migration + invite service
-- [ ] Slice 2 — registration endpoint (both modes) + public endpoints + rate-limit scopes
-- [ ] Slice 3 — admin API (mode get/set, invite create/list/revoke)
-- [ ] Slice 4 — frontend admin: mode toggle + Invites UI (desktop + mobile)
-- [ ] Slice 5 — frontend signup: mode-aware invite field (desktop + mobile)
-- [ ] Slice 6 — backend tests (registration/invites)
-- [ ] Slice 7 — `openfy` CLI: start/stop/restart/status (systemd/docker/manual) + tests
-- [ ] Slice 8 — docs: README, .env.example, CHANGELOG, docs/API.md
+- [x] Slice 1 — backend core: mode setting + InviteCode model/migration + invite service
+- [x] Slice 2 — registration endpoint (both modes) + public endpoints + rate-limit scopes
+- [x] Slice 3 — admin API (mode get/set, invite create/list/revoke)
+- [x] Slice 4 — frontend admin: mode toggle + Invites UI (desktop + mobile)
+- [x] Slice 5 — frontend signup: mode-aware invite field (desktop + mobile)
+- [x] Slice 6 — backend tests (registration/invites) — 17 passed
+- [x] Slice 7 — `openfy` CLI: start/stop/restart/status (systemd/docker/manual) + tests — 16 passed
+- [x] Slice 8 — docs: README, .env.example, CHANGELOG, docs/API.md
 - [ ] Phase 2 — fresh-reviewer audit + fixes + end-to-end verification
 - [ ] Phase 3 — CodeRabbit local review, push, PR, triage its comments (max 3 rounds)
 
