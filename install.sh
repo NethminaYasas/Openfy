@@ -97,6 +97,10 @@ NO_GENERATE_CREDENTIAL="false"
 ROTATE_CREDENTIAL="false"
 NO_INSTALL_DEPS="false"
 PURGE="false"
+KEEP_DATA="false"
+KEEP_CONFIG="false"
+KEEP_BACKUPS="false"
+KEEP_SERVICE_USER="false"
 DRY_RUN="false"
 
 # ------------------------------------------------------------------ UI / logging
@@ -225,6 +229,9 @@ Options:
   -m, --method M          native | docker (default: ask, or native with --yes)
   --action A              install | upgrade | repair | reinstall | uninstall
                           (default: auto-detect, or ask when interactive)
+                          uninstall removes the application AND all data,
+                          config (admin credential) and backups; use the
+                          --keep-* options to preserve parts of it
   -y, --yes               non-interactive: accept defaults, assume yes
   --no-start              install but do not start the service/container
   --allow-unsupported-os  proceed on untested Linux distributions
@@ -242,7 +249,11 @@ Options:
   --include-prerelease    allow installing an explicitly requested prerelease
                           version (stable versions never need this; drafts are
                           always refused)
-  --purge                 with --action uninstall: also delete data + config
+  --keep-data             with --action uninstall: keep the data directory
+  --keep-config           with --action uninstall: keep the configuration
+                          (admin credential)
+  --keep-backups          with --action uninstall: keep the pre-update backups
+  --keep-service-user     with --action uninstall: keep the 'openfy' account
   --dry-run               print the plan and exit without changing anything
   -h, --help              show this help
 
@@ -289,6 +300,10 @@ parse_args() {
             --no-install-deps) NO_INSTALL_DEPS="true"; shift ;;
             --include-prerelease) INCLUDE_PRERELEASE="true"; shift ;;
             --purge) PURGE="true"; shift ;;
+            --keep-data) KEEP_DATA="true"; shift ;;
+            --keep-config) KEEP_CONFIG="true"; shift ;;
+            --keep-backups) KEEP_BACKUPS="true"; shift ;;
+            --keep-service-user) KEEP_SERVICE_USER="true"; shift ;;
             --dry-run) DRY_RUN="true"; shift ;;
             --) shift; break ;;
             -*) die "unknown option '$1'. See --help." ;;
@@ -300,6 +315,10 @@ parse_args() {
     case "${METHOD}" in ""|native|docker) ;; *) die "--method must be native or docker, got '${METHOD}'." ;; esac
     case "${ACTION}" in auto|install|upgrade|repair|reinstall|uninstall) ;; *) die "--action must be install|upgrade|repair|reinstall|uninstall, got '${ACTION}'." ;; esac
     case "${ARCH_OVERRIDE}" in ""|linux-amd64|linux-arm64) ;; *) die "--arch must be linux-amd64 or linux-arm64, got '${ARCH_OVERRIDE}'." ;; esac
+    if [[ "${PURGE}" == "true" ]]; then
+        echo "[openfy] NOTE: --purge is obsolete - an uninstall removes data and config by default." >&2
+        PURGE="false"
+    fi
     if [[ -n "${ADMIN_USER}" ]]; then
         [[ "${ADMIN_USER}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || die "invalid --admin-user '${ADMIN_USER}' (letters, digits, . _ -; max 64 chars)."
     else
@@ -916,7 +935,7 @@ run_wizard() {
             "Upgrade / change version (backs up config + database, rolls back on failure)" \
             "Repair current installation (verify files, fix permissions, reinstall service)" \
             "Reinstall (explicit; replaces application files, keeps data + config)" \
-            "Uninstall (keeps data + config unless --purge)" \
+            "Uninstall (removes data + config too; use --keep-data/--keep-config to preserve them)" \
             "Abort")"
         case "${c}" in
             1) ACTION="upgrade" ;;
@@ -1069,7 +1088,10 @@ run_uninstall_delegate() {
     fi
     local args=()
     [[ "${ASSUME_YES}" == "true" ]] && args+=(--yes)
-    [[ "${PURGE}" == "true" ]] && args+=(--purge)
+    [[ "${KEEP_DATA}" == "true" ]] && args+=(--keep-data)
+    [[ "${KEEP_CONFIG}" == "true" ]] && args+=(--keep-config)
+    [[ "${KEEP_BACKUPS}" == "true" ]] && args+=(--keep-backups)
+    [[ "${KEEP_SERVICE_USER}" == "true" ]] && args+=(--keep-service-user)
     if [[ "${DRY_RUN}" == "true" ]]; then
         log "DRY RUN: would execute: ${APP_DIR}/uninstall.sh ${args[*]}"
         return
@@ -1092,31 +1114,72 @@ run_docker_uninstall() {
     local cname="${OPENFY_CONTAINER_NAME:-openfy}"
     local docker_dir="${OPENFY_DOCKER_DIR:-/opt/openfy-docker}"
     if [[ "${DRY_RUN}" == "true" ]]; then
-        log "DRY RUN: would stop/remove container '${cname}' (volume openfy_data and ${docker_dir}/.env preserved unless --purge)."
+        log "DRY RUN: would stop/remove container '${cname}' and delete the data volume, ${docker_dir} (incl. .env) and the Openfy image."
         return
     fi
     have_cmd docker || die "docker not found; nothing to do."
+    if [[ "${ASSUME_YES}" != "true" ]]; then
+        [[ "${KEEP_DATA}" == "true" ]] || warn "the Openfy data volume(s) WILL BE PERMANENTLY DELETED (database, music, artwork)."
+        [[ "${KEEP_CONFIG}" == "true" ]] || warn "${docker_dir} (incl. the admin credential) WILL BE PERMANENTLY DELETED."
+        ask_yes_no "Proceed with the Docker uninstall? [y/N]" "n" || die "aborted; nothing changed."
+        if [[ "${KEEP_DATA}" != "true" || "${KEEP_CONFIG}" != "true" ]]; then
+            ask_yes_no "CONFIRM AGAIN: permanently delete ALL Openfy data (music, database, admin credential)? [y/N]" "n" \
+                || die "aborted; nothing changed."
+        fi
+    fi
+    # Remember the image and the volumes before the container disappears.
+    local image=""
+    local volumes=()
     if docker ps -a --format '{{.Names}}' | grep -qx "${cname}"; then
+        image="$(docker inspect -f '{{.Config.Image}}' "${cname}" 2>/dev/null || true)"
+        while read -r vol; do
+            # Only the volume the installer created; a volume an operator
+            # mounted on the container is not ours to delete.
+            if [[ "${vol}" == "openfy_data" ]]; then volumes+=("${vol}"); fi
+        done < <(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}' "${cname}" 2>/dev/null || true)
         log "Stopping and removing container '${cname}'."
         docker stop "${cname}" >/dev/null 2>&1 || true
         docker rm "${cname}" >/dev/null 2>&1 || true
     else
         log "No container named '${cname}'; nothing to remove."
     fi
-    if [[ "${PURGE}" == "true" ]]; then
-        if [[ "${ASSUME_YES}" != "true" ]] && is_interactive; then
-            echo "WARNING: --purge will PERMANENTLY delete the openfy_data volume (music, database) and ${docker_dir}/.env." >&2
-            ask_yes_no "Delete all Docker data and config? [y/N]" "n" || die "aborted; container removal (above) is kept."
+    # The installer creates the volume "openfy_data"; the volumes that were
+    # attached to the container are removed with it. Volumes of unrelated
+    # projects are never touched.
+    while read -r vol; do
+        if [[ "${vol}" == "openfy_data" ]]; then
+            if [[ " ${volumes[*]:-} " != *" ${vol} "* ]]; then
+                volumes+=("${vol}")
+            fi
         fi
-        docker volume rm openfy_data >/dev/null 2>&1 \
-            || warn "volume openfy_data could not be removed (it may not exist or still be in use)."
-        if [[ -d "${docker_dir}" ]]; then
-            rm -rf "${docker_dir}"
-            log "Removed ${docker_dir}."
-        fi
+    done < <(docker volume ls --format '{{.Name}}' 2>/dev/null || true)
+    if [[ "${KEEP_DATA}" == "true" ]]; then
+        log "Preserved Docker volume(s): ${volumes[*]:-<none>}"
     else
-        log "Preserved volume openfy_data and ${docker_dir}/.env (rerun with --purge to delete them)."
+        for vol in ${volumes[@]+"${volumes[@]}"}; do
+            docker volume rm "${vol}" >/dev/null 2>&1 \
+                || warn "volume ${vol} could not be removed (it may not exist or still be in use)."
+        done
     fi
+    if [[ "${KEEP_CONFIG}" == "true" ]]; then
+        log "Preserved ${docker_dir} (it holds the admin credential)."
+    elif [[ -d "${docker_dir}" ]]; then
+        # Only the files the installer created are removed: the directory
+        # itself may be a user-owned location that holds unrelated files.
+        rm -f -- "${docker_dir}/.env" "${docker_dir}/${cname}-failed.log"
+        log "Removed the admin credential from ${docker_dir}."
+        rmdir -- "${docker_dir}" 2>/dev/null \
+            || log "Left ${docker_dir} in place (it holds files that Openfy did not create)."
+    fi
+    # The image is re-pullable, but it is still an Openfy artefact on disk.
+    if [[ -n "${image}" ]]; then
+        docker rmi "${image}" >/dev/null 2>&1 || warn "image ${image} could not be removed (it may be in use by another container)."
+    fi
+    while read -r img; do
+        if [[ -n "${img}" ]]; then
+            docker rmi "${img}" >/dev/null 2>&1 || warn "image ${img} could not be removed (it may be in use by another container)."
+        fi
+    done < <(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -F "${OPENFY_GHCR_IMAGE}" || true)
 }
 
 run_docker_install() {

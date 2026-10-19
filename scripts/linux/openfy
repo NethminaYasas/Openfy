@@ -16,7 +16,7 @@
 #   sudo openfy rotate-credential
 #   sudo openfy set-username NAME
 #   sudo openfy repair
-#   sudo openfy uninstall [--purge]
+#   sudo openfy uninstall [--keep-data|--keep-config|--keep-backups|--keep-service-user]
 #   openfy --help
 #
 # Deployment styles: systemd (auto when an installed unit exists), docker
@@ -574,6 +574,66 @@ docker_restart() {
     log_ok "Docker deployment restarted and healthy at $(_health_url "${host}" "${port}")."
 }
 
+docker_uninstall() {
+    # docker_uninstall <keep_data> <keep_config> <assume_yes> : remove the
+    # compose deployment completely - containers, images, named volumes, the
+    # local .env (admin credential) and the bind-mounted data directory.
+    local keep_data="$1" keep_config="$2" assume_yes="$3" file dir env_file
+    file="$(resolve_compose_file)"
+    _require_docker
+    _require_compose_file "${file}"
+    dir="$(cd -- "$(dirname -- "${file}")" && pwd)"
+    if [[ "${assume_yes}" != "true" ]]; then
+        [[ "${keep_data}" == "true" ]] || log "WARNING: the Openfy data volume(s) WILL BE PERMANENTLY DELETED (database, music, artwork)."
+        [[ "${keep_config}" == "true" ]] || log "WARNING: ${dir}/.env (the admin credential) WILL BE PERMANENTLY DELETED."
+        local answer=""
+        read -r -p "Proceed with the Docker uninstall? [y/N] " answer || true
+        if [[ "${answer}" != "y" && "${answer}" != "Y" ]]; then
+            log "Aborted; nothing changed."
+            return 0
+        fi
+    fi
+    log "Removing the Docker deployment described by ${file}."
+    # --keep-data must survive the teardown: without -v the named volumes
+    # stay, and the explicit volume sweep below is skipped as well.
+    local down_args=(down --remove-orphans --rmi local)
+    if [[ "${keep_data}" != "true" ]]; then
+        down_args+=(-v)
+    fi
+    docker compose -f "${file}" "${down_args[@]}" >/dev/null 2>&1 \
+        || warn "docker compose down failed (the deployment may already be gone)."
+    # Images pulled for the deployment.
+    while read -r img; do
+        if [[ -n "${img}" ]]; then
+            docker rmi "${img}" >/dev/null 2>&1 || warn "image ${img} could not be removed (it may still be in use)."
+        fi
+    done < <(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -F "ghcr.io/nethminayasas/openfy" || true)
+    env_file="${dir}/.env"
+    if [[ "${keep_config}" == "true" ]]; then
+        log "Preserved ${env_file} (it holds the admin credential)."
+    elif [[ -f "${env_file}" ]] && grep -q "OPENFY_" "${env_file}" 2>/dev/null; then
+        log "Removing ${env_file} (it holds the admin credential)."
+        rm -f -- "${env_file}" || warn "could not remove ${env_file}."
+    fi
+    if [[ "${keep_data}" == "true" ]]; then
+        log "Preserved the Docker data volumes and ${dir}/data."
+    else
+        local data_dir="${dir}/data" bind_mount="false"
+        if grep -qE '\./data:/data' "${file}" 2>/dev/null; then
+            bind_mount="true"
+        fi
+        # Never let a misplaced compose file turn this into "rm -rf /data",
+        # and never touch a directory that is not an Openfy data directory.
+        if [[ "${dir}" == "/" || "${dir}" != /*/* ]]; then
+            warn "refusing to remove ${data_dir}: '${dir}' is not a dedicated Openfy project directory."
+        elif [[ -d "${data_dir}" && ( "${bind_mount}" == "true" || -f "${data_dir}/openfy.db" ) ]]; then
+            log "Removing ${data_dir} (the bind-mounted database, music and artwork)."
+            rm -rf -- "${data_dir}" || warn "could not remove ${data_dir}."
+        fi
+    fi
+    log_ok "Docker deployment removed (containers, images, volumes, config and data)."
+}
+
 docker_status() {
     local port=""
     while [[ $# -gt 0 ]]; do
@@ -1113,10 +1173,40 @@ cmd_repair() {
 
 cmd_uninstall() {
     require_root
-    if [[ ! -x "${APP_DIR}/uninstall.sh" ]]; then
-        die "no uninstaller at ${APP_DIR}/uninstall.sh."
+    local args=() keep_data="false" keep_config="false" assume_yes="false" compose
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --yes|-y) assume_yes="true" ;;
+            --keep-data) keep_data="true"; args+=("$1") ;;
+            --keep-config) keep_config="true"; args+=("$1") ;;
+            *) args+=("$1") ;;
+        esac
+        shift
+    done
+    if [[ -x "${APP_DIR}/uninstall.sh" ]]; then
+        if [[ "${assume_yes}" == "true" ]]; then
+            args=(--yes ${args[@]+"${args[@]}"})
+        fi
+        bash "${APP_DIR}/uninstall.sh" ${args[@]+"${args[@]}"}
+        return
     fi
-    bash "${APP_DIR}/uninstall.sh" "$@"
+    # No native installer: fall back to a Docker Compose deployment.
+    compose="$(resolve_compose_file)"
+    if [[ -f "${compose}" ]] && _docker_available; then
+        # The native uninstaller rejects unknown options; the Docker path has
+        # to do it itself, so a typo never silently drops a --keep flag.
+        local opt
+        for opt in ${args[@]+"${args[@]}"}; do
+            case "${opt}" in
+                --keep-data|--keep-config|--keep-backups|--keep-service-user) ;;
+                --purge|--remove-data|--remove-config) ;;
+                *) die "unknown uninstall option '${opt}'." ;;
+            esac
+        done
+        docker_uninstall "${keep_data}" "${keep_config}" "${assume_yes}"
+        return
+    fi
+    die "no uninstaller at ${APP_DIR}/uninstall.sh."
 }
 
 usage() {
@@ -1135,7 +1225,7 @@ usage() {
         printf '    %s%-28s%s %s%s%s\n' "${c}" "rotate-credential" "${r}" "${d}" "print a new admin credential once (needs root)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "set-username NAME" "${r}" "${d}" "change admin username (needs root)" "${r}"
         printf '    %s%-28s%s %s%s%s\n' "${c}" "repair" "${r}" "${d}" "fix perms/venv/unit in place (needs root)" "${r}"
-        printf '    %s%-28s%s %s%s%s\n' "${c}" "uninstall [--purge]" "${r}" "${d}" "remove app (keeps data + config unless --purge)" "${r}"
+        printf '    %s%-28s%s %s%s%s\n' "${c}" "uninstall [--keep-data ...]" "${r}" "${d}" "remove app + all data (use --keep-* to preserve)" "${r}"
         printf '\n  Run with no arguments for the interactive menu:  %ssudo openfy%s\n' "${b}" "${r}"
     else
         cat <<'EOF'
@@ -1152,7 +1242,7 @@ Commands:
   rotate-credential           print a new admin credential once (needs root)
   set-username NAME           change admin username (needs root)
   repair                      fix perms/venv/unit in place (needs root)
-  uninstall [--purge]         remove app (keeps data + config unless --purge)
+  uninstall [--keep-data ...]  remove app + all data (use --keep-* to preserve)
 
 Run with no arguments for the interactive menu:  sudo openfy
 EOF
@@ -1265,7 +1355,7 @@ menu() {
         _menu_row 9 "Change admin username" "needs root"
         _menu_section "Maintenance"
         _menu_row 10 "Repair" "perms / venv / unit"
-        _menu_row 11 "Uninstall" "keeps data unless --purge"
+        _menu_row 11 "Uninstall" "removes data + config too"
         _menu_row 0 "Exit" ""
         _ui_hr
         if [[ -n "${menu_error}" ]]; then

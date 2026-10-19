@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `server/tests/test_bootstrap_installer.py`: installer/version/checksum/credential/lifecycle tests against a mocked GitHub API (no network, no root).
 - CI pins all third-party actions to commit SHAs and syntax-checks the root `install.sh`.
 - Automatic release pipeline (`.github/workflows/release.yml`): publishing a GitHub Release builds, tests, and publishes the multi-arch (`linux/amd64`, `linux/arm64`) Docker image to GHCR plus `linux-amd64`/`linux-arm64` bare-metal bundles, `SHA256SUMS`, and an SPDX SBOM as release assets. Stable tags publish `X.Y.Z`, `X.Y`, `X`, `latest`; prereleases (`-rc.N`/`-beta.N`/`-alpha.N`) publish only their exact version.
-- Bare-metal Linux distribution: `install.sh` / `start.sh` / `update.sh` / `uninstall.sh` + hardened `openfy.service` systemd unit (see `scripts/linux/`); app in `/opt/openfy`, config in `/etc/openfy/openfy.env`, data in `/var/lib/openfy` (preserved across updates and normal uninstalls).
+- Bare-metal Linux distribution: `install.sh` / `start.sh` / `update.sh` / `uninstall.sh` + hardened `openfy.service` systemd unit (see `scripts/linux/`); app in `/opt/openfy`, config in `/etc/openfy/openfy.env`, data in `/var/lib/openfy` (preserved across updates and reinstalls, removed by an uninstall).
 - CI packaging validation job, bundle packaging/validation scripts (`scripts/release/`), and `server/tests/test_release_packaging.py`.
 - `docker-compose.prod.yml` for running version-pinned published images without building.
 - `docs/RELEASING.md` (maintainer workflow) and `docs/LINUX_INSTALL.md` (bare-metal guide); `THIRD_PARTY_NOTICES.md`; OCI labels on the Docker image.
@@ -37,6 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `print()` warning replaced with `logger.warning()` for duration mismatch
 
 ### Changed
+- **Uninstall now wipes everything (behavior change)**: `uninstall.sh` (and `openfy uninstall` / `install.sh --action uninstall`) remove the application, the data directory (database, music, artwork, avatars), the configuration **including the admin credential**, the pre-update backups under `/var/backups/openfy/`, the `openfy` service account and the `openfy` command wrapper. The old `--purge` / `--remove-data` / `--remove-config` flags are obsolete and ignored; use `--keep-data`, `--keep-config`, `--keep-backups` or `--keep-service-user` to preserve a part of the installation. Docker deployments lose their containers, images, volumes, `.env` and bind-mounted data too.
 - **Invite-only registration by default (upgrade behavior change)**: registration is now gated by invite codes. On startup, if the database has no stored mode, it is seeded from `OPENFY_REGISTRATION_MODE` (**default `invite`**); after that the DB value wins and the env var is ignored. Existing deployments upgrading without a stored value therefore become invite-only (previously anyone could register). Workaround: set `OPENFY_REGISTRATION_MODE=open` before the first start after upgrading, or switch to Open in the admin dashboard.
 - SpotiFLAC upstream auto-updates to latest version (v0.7.0) during Docker build
 - Dockerfile no longer overwrites pip-installed SpotiFLAC with local copy

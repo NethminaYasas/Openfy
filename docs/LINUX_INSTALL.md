@@ -69,7 +69,8 @@ Useful options: `--method native|docker`, `--action
 install|upgrade|repair|reinstall|uninstall`, `--admin-user NAME`,
 `--no-start`, `--allow-unsupported-os`, `--force`, `--arch
 linux-amd64|linux-arm64`, `--no-install-deps`, `--no-generate-credential`,
-`--rotate-credential`, `--purge` (with `--action uninstall`), `--dry-run`.
+`--rotate-credential`, `--keep-data` / `--keep-config` / `--keep-backups` /
+`--keep-service-user` (with `--action uninstall`), `--dry-run`.
 Full list: `bash install.sh --help`.
 
 On a fresh install the wizard asks for the admin username (default `admin`)
@@ -85,7 +86,7 @@ re-verify files and the service without touching config or data.
 |---|---|
 | `/opt/openfy/` | Application code, virtualenv, scripts (replaced on update) |
 | `/etc/openfy/openfy.env` | Your configuration incl. admin credential (preserved across updates/reinstalls) |
-| `/var/lib/openfy/` | Database (`openfy.db`), `music/`, `downloads/`, `artwork/`, `avatars/` (preserved across updates, reinstalls, and normal uninstalls) |
+| `/var/lib/openfy/` | Database (`openfy.db`), `music/`, `downloads/`, `artwork/`, `avatars/` (preserved across updates and reinstalls, removed by an uninstall) |
 | `/etc/systemd/system/openfy.service` | systemd unit (logs to the journal) |
 
 The service runs as the dedicated `openfy` system user and reads config from
@@ -283,22 +284,47 @@ why; your data and config are still untouched.
 
 ## Uninstall
 
-```bash
-sudo /opt/openfy/uninstall.sh          # interactive; keeps data + config
-sudo /opt/openfy/uninstall.sh --yes    # non-interactive; still keeps data + config
-```
-
-Data (`/var/lib/openfy`) and config (`/etc/openfy`) survive a normal
-uninstall. Deleting them requires explicit destructive flags plus a second
-confirmation:
+An uninstall removes **everything** Openfy left on the machine: the
+application, the data directory (database, music, artwork, avatars), the
+configuration (including the admin credential), the pre-update backups in
+`/var/backups/openfy/`, the `openfy` service account and the `openfy` command
+wrapper.
 
 ```bash
-sudo /opt/openfy/uninstall.sh --purge  # ALSO deletes data + config (irreversible)
+sudo /opt/openfy/uninstall.sh          # interactive; wipes everything
+sudo /opt/openfy/uninstall.sh --yes    # non-interactive; wipes everything
 ```
 
-`--remove-data` / `--remove-config` delete only that side. The `openfy`
-service account is left in place (remove manually with `userdel openfy` if
-you really want to).
+The run asks for confirmation twice before it deletes anything irreversible.
+
+Keep a part of the installation by asking for it explicitly:
+
+```bash
+sudo /opt/openfy/uninstall.sh --keep-data         # keep /var/lib/openfy
+sudo /opt/openfy/uninstall.sh --keep-config       # keep /etc/openfy (admin credential)
+sudo /opt/openfy/uninstall.sh --keep-backups      # keep /var/backups/openfy
+sudo /opt/openfy/uninstall.sh --keep-service-user # keep the 'openfy' account
+```
+
+A Docker deployment created with `bash install.sh --method docker` is a
+plain container with the `openfy_data` named volume. Remove it with:
+
+```bash
+sudo bash install.sh --action uninstall --method docker
+```
+
+That removes the container, the Openfy volumes and images, and the
+installer-created files in `OPENFY_DOCKER_DIR` (the `.env` with the admin
+credential); other files in that directory are preserved. The uninstall asks
+for confirmation.
+
+`sudo openfy uninstall` is the command for native installations and for
+Docker Compose deployments (it needs the matching Compose file). It is not
+the equivalent of the installer command for the plain-container deployment.
+
+Traces outside the uninstaller's control: systemd journal entries for the
+unit, and the browser `localStorage` (`openfy_auth`) of clients that used
+Openfy — clear it in the browser.
 
 ## Backups
 
