@@ -456,6 +456,31 @@ export async function deleteAlbum(albumId) {
   return await api(`/admin/albums/${albumId}`, { method: "DELETE" });
 }
 
+export async function loadAdminRegistrationMode() {
+  if (!state.isAdmin) return;
+  return await api("/admin/registration-mode");
+}
+
+export async function updateAdminRegistrationMode(mode) {
+  if (!state.isAdmin) return;
+  return await api("/admin/registration-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: mode }) });
+}
+
+export async function createInvite(payload) {
+  if (!state.isAdmin) return;
+  return await api("/admin/invites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}) });
+}
+
+export async function loadInvites() {
+  if (!state.isAdmin) return;
+  return await api("/admin/invites");
+}
+
+export async function revokeInvite(inviteId) {
+  if (!state.isAdmin) return;
+  return await api(`/admin/invites/${inviteId}`, { method: "DELETE" });
+}
+
 export async function updateLibraryState(minimized) {
   return await api("/user/library-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ library_minimized: minimized }) });
 }

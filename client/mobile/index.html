@@ -231,6 +231,61 @@
             </div>
         </main>
 
+        <!-- Page: Admin -->
+        <main class="page" id="page-admin">
+            <div class="page-header admin-mobile-header">
+                <button class="top-bar-btn" id="admin-mobile-back"><i class="fa-solid fa-chevron-left"></i></button>
+                <h1>Admin</h1>
+            </div>
+            <div class="section">
+                <div class="admin-mobile-card">
+                    <div class="admin-mobile-card-title"><i class="fa-solid fa-user-plus"></i> Registration Mode</div>
+                    <p class="admin-mobile-mode-text" id="mobile-registration-mode-text">Current mode: Open — anyone can register without an invite.</p>
+                    <div class="mode-segmented" id="mobile-registration-mode-control">
+                        <button type="button" class="mode-segment active" id="mobile-registration-mode-open" data-mode="open">Open</button>
+                        <button type="button" class="mode-segment" id="mobile-registration-mode-invite" data-mode="invite">Invite-only</button>
+                    </div>
+                    <p class="admin-mobile-status" id="mobile-registration-mode-status"></p>
+                </div>
+                <div class="admin-mobile-card">
+                    <div class="admin-mobile-card-title"><i class="fa-solid fa-envelope-open-text"></i> Invites</div>
+                    <div class="invite-info-banner" id="mobile-invites-mode-hint" style="display:none;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <span>Invites aren't required right now (registration mode is Open).</span>
+                    </div>
+                    <div class="admin-mobile-form">
+                        <label for="mobile-invite-max-uses">Max uses</label>
+                        <input type="number" id="mobile-invite-max-uses" min="1" step="1" value="1" />
+                        <label for="mobile-invite-expires-days">Expires in days (optional)</label>
+                        <input type="number" id="mobile-invite-expires-days" min="1" step="1" placeholder="Never" />
+                        <label for="mobile-invite-note">Note (optional)</label>
+                        <input type="text" id="mobile-invite-note" placeholder="e.g. For a friend" autocomplete="off" />
+                        <button class="admin-mobile-btn admin-mobile-create-btn" id="mobile-invite-create-btn">Create Invite</button>
+                    </div>
+                    <div class="invite-reveal" id="mobile-invite-reveal" style="display:none;">
+                        <div class="invite-reveal-title"><i class="fa-solid fa-key"></i> Invite code (shown once)</div>
+                        <div class="invite-reveal-row">
+                            <code class="invite-reveal-code" id="mobile-invite-code-text"></code>
+                            <button class="admin-mobile-btn" id="mobile-invite-code-copy">Copy Code</button>
+                        </div>
+                        <div class="invite-reveal-row">
+                            <code class="invite-reveal-code" id="mobile-invite-link-text"></code>
+                            <button class="admin-mobile-btn" id="mobile-invite-link-copy">Copy Link</button>
+                        </div>
+                        <p class="invite-reveal-note">Save this code now — it won't be shown again after you dismiss it.</p>
+                        <button class="admin-mobile-btn" id="mobile-invite-reveal-dismiss">Dismiss</button>
+                    </div>
+                </div>
+                <div class="admin-mobile-card">
+                    <div class="admin-mobile-list-header">
+                        <div class="admin-mobile-card-title"><i class="fa-solid fa-ticket"></i> All Invites</div>
+                        <button class="admin-mobile-btn" id="mobile-invites-refresh">Refresh</button>
+                    </div>
+                    <div id="mobile-invites-list"></div>
+                </div>
+            </div>
+        </main>
+
         <!-- Queue Panel (Bottom Sheet) -->
         <div class="queue-sheet-overlay" id="queue-sheet-overlay" style="display:none;"></div>
         <div class="queue-sheet" id="queue-sheet" style="display:none;">

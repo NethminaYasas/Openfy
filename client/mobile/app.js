@@ -1,6 +1,6 @@
 // Openfy Mobile Web Player
 import { state, setAuth, clearAuth, updateUser, withBase } from '../modules/state.js';
-import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, removeTrackFromPlaylist, loadTrackPlaylists, runSearch, getArtist, getTrackStreamUrl, savePlayerState, followPlaylist, followAlbum, followArtist, unfollowPlaylist, unfollowAlbum, unfollowArtist, updateRegularPlaylistTrackCache, togglePlaylistShuffle, updateAlbumShuffle, checkIfLiked as apiCheckIfLiked } from '../modules/api.js';
+import { api, loadTracks, loadUserUploads, loadMostPlayed, loadLastTrackPaused, loadUserQueue, loadUserPlayerState, signUp, signIn, tryAutoLogin as apiTryAutoLogin, createPlaylist, toggleLiked, loadPlaylists as apiLoadPlaylists, addTrackToPlaylist, removeTrackFromPlaylist, loadTrackPlaylists, runSearch, getArtist, getTrackStreamUrl, savePlayerState, followPlaylist, followAlbum, followArtist, unfollowPlaylist, unfollowAlbum, unfollowArtist, updateRegularPlaylistTrackCache, togglePlaylistShuffle, updateAlbumShuffle, checkIfLiked as apiCheckIfLiked, loadAdminRegistrationMode, updateAdminRegistrationMode, createInvite, loadInvites, revokeInvite } from '../modules/api.js';
 import { formatDuration, getArtistDisplay, extractVibrantColors, seededColor } from '../modules/utils.js';
 import { loadRecentSearches, addRecentSearch, removeRecentSearch } from '../modules/recent-searches.js';
 import { queueSetList, queueJumpTo, queueInsert, queueSave, queueGet, queueLength, queueCurrentIndex, queueCurrentTrack, queueReorder as _queueReorder, setRenderCallback } from '../modules/queue-manager.js';
@@ -79,6 +79,7 @@ let playlists = [];
 let currentLibraryFilter = 'all';
 var currentDetailId = null;
 var currentDetailType = null;
+let mobileRegistrationMode = null;
 
 // Playlist sheet state
 let sheetPlaylists = [];
@@ -96,6 +97,7 @@ const pages = {
     library: $('page-library'),
     detail: $('page-detail'),
     nowPlaying: $('page-now-playing'),
+    admin: $('page-admin'),
 };
 
 // ─── Auth ────────────────────────────────────────────
@@ -485,7 +487,7 @@ if (state.currentUser && state.currentUser.is_admin) {
 }
 $('profile-dropdown-admin').addEventListener('click', () => {
     $('profile-dropdown').classList.remove('active');
-    window.location.href = '/admin';
+    openAdminPage();
 });
 
 // ─── Load Data ───────────────────────────────────────
@@ -2655,6 +2657,316 @@ audio.addEventListener('pause', () => {
     isPlaying = false;
     updatePlayButtons();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+});
+
+// ─── Admin ───────────────────────────────────────────
+function openAdminPage() {
+    showPage('admin', null, null, true);
+    loadMobileAdminPage();
+}
+
+function loadMobileAdminPage() {
+    if (!state.isAdmin) return;
+    loadMobileRegistrationMode();
+    loadMobileInvites();
+}
+
+async function loadMobileRegistrationMode() {
+    try {
+        const data = await loadAdminRegistrationMode();
+        applyMobileRegistrationModeUI(data && data.mode);
+    } catch (e) {
+        console.error('Failed to load registration mode:', e);
+    }
+}
+
+function applyMobileRegistrationModeUI(mode) {
+    mobileRegistrationMode = mode === 'invite' ? 'invite' : 'open';
+
+    const textEl = $('mobile-registration-mode-text');
+    const openBtn = $('mobile-registration-mode-open');
+    const inviteBtn = $('mobile-registration-mode-invite');
+    const hint = $('mobile-invites-mode-hint');
+
+    if (textEl) {
+        textEl.textContent = mobileRegistrationMode === 'open'
+            ? 'Current mode: Open — anyone can register without an invite.'
+            : 'Current mode: Invite-only — a valid invite code is required to register.';
+    }
+    if (openBtn) openBtn.classList.toggle('active', mobileRegistrationMode === 'open');
+    if (inviteBtn) inviteBtn.classList.toggle('active', mobileRegistrationMode === 'invite');
+    if (hint) hint.style.display = mobileRegistrationMode === 'open' ? 'flex' : 'none';
+}
+
+function updateMobileRegistrationMode(mode) {
+    if (mode === mobileRegistrationMode) return;
+    if (mode === 'open') {
+        showMobileConfirm(
+            'Enable Open Registration?',
+            'Anyone will be able to register without an invite. Continue?',
+            'Continue',
+            function() { performMobileRegistrationModeUpdate('open'); }
+        );
+        return;
+    }
+    performMobileRegistrationModeUpdate(mode);
+}
+
+async function performMobileRegistrationModeUpdate(mode) {
+    const openBtn = $('mobile-registration-mode-open');
+    const inviteBtn = $('mobile-registration-mode-invite');
+    const statusEl = $('mobile-registration-mode-status');
+    if (openBtn) openBtn.disabled = true;
+    if (inviteBtn) inviteBtn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Updating...';
+
+    try {
+        const data = await updateAdminRegistrationMode(mode);
+        applyMobileRegistrationModeUI(data && data.mode);
+        if (statusEl) statusEl.textContent = 'Registration mode updated.';
+    } catch (e) {
+        console.error('Failed to update registration mode:', e);
+        alert('Failed to update registration mode: ' + e.message);
+        if (statusEl) statusEl.textContent = '';
+        if (mobileRegistrationMode) applyMobileRegistrationModeUI(mobileRegistrationMode);
+    } finally {
+        if (openBtn) openBtn.disabled = false;
+        if (inviteBtn) inviteBtn.disabled = false;
+    }
+}
+
+function showMobileConfirm(title, message, confirmText, onConfirm) {
+    const overlay = $('confirm-overlay');
+    const titleEl = $('confirm-title-text');
+    const msgEl = $('confirm-message');
+    const delBtn = $('confirm-delete-btn');
+    const cancelBtn = $('confirm-cancel-btn');
+
+    titleEl.textContent = title;
+    msgEl.textContent = message;
+    delBtn.textContent = confirmText || 'Confirm';
+    overlay.style.display = 'flex';
+
+    delBtn.onclick = function() {
+        overlay.style.display = 'none';
+        delBtn.onclick = null;
+        cancelBtn.onclick = null;
+        onConfirm();
+    };
+    cancelBtn.onclick = function() {
+        overlay.style.display = 'none';
+        delBtn.onclick = null;
+        cancelBtn.onclick = null;
+    };
+}
+
+function formatInviteDate(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString();
+}
+
+async function loadMobileInvites() {
+    const container = $('mobile-invites-list');
+    if (!container) return;
+    try {
+        const data = await loadInvites();
+        renderMobileInvites((data && data.invites) || []);
+    } catch (e) {
+        console.error('Failed to load invites:', e);
+        container.innerHTML = '<div class="admin-mobile-empty">Failed to load invites.</div>';
+    }
+}
+
+function renderMobileInvites(invites) {
+    const container = $('mobile-invites-list');
+    if (!container) return;
+
+    if (!invites.length) {
+        container.innerHTML = '<div class="admin-mobile-empty">No invites yet.</div>';
+        return;
+    }
+
+    container.innerHTML = '';
+    invites.forEach(invite => {
+        const status = ['active', 'used', 'expired', 'revoked'].includes(invite.status) ? invite.status : 'expired';
+        const redeemers = Array.isArray(invite.redeemers) && invite.redeemers.length ? invite.redeemers.join(', ') : '—';
+
+        const row = document.createElement('div');
+        row.className = 'admin-mobile-invite';
+        row.innerHTML = `
+            <div class="admin-mobile-invite-top">
+                <span class="admin-mobile-invite-code">${escapeHtml(invite.code_prefix || '')}…</span>
+                <span class="invite-status ${status}">${status}</span>
+            </div>
+            <div class="admin-mobile-invite-meta">Uses: ${invite.use_count || 0}/${invite.max_uses || 1} · By: ${escapeHtml(invite.created_by || 'Unknown')}</div>
+            <div class="admin-mobile-invite-meta">Created: ${formatInviteDate(invite.created_at)} · Expires: ${invite.expires_at ? formatInviteDate(invite.expires_at) : 'Never'}</div>
+            ${invite.note ? `<div class="admin-mobile-invite-meta">Note: ${escapeHtml(invite.note)}</div>` : ''}
+            <div class="admin-mobile-invite-meta">Redeemers: ${escapeHtml(redeemers)}</div>
+            ${status === 'active' ? '<button class="admin-mobile-revoke">Revoke</button>' : ''}
+        `;
+
+        const revokeBtn = row.querySelector('.admin-mobile-revoke');
+        if (revokeBtn) {
+            revokeBtn.addEventListener('click', () => {
+                showMobileConfirm(
+                    'Revoke Invite?',
+                    'Anyone holding the code will no longer be able to register with it.',
+                    'Revoke',
+                    async function() {
+                        revokeBtn.disabled = true;
+                        revokeBtn.textContent = 'Revoking...';
+                        try {
+                            await revokeInvite(invite.id);
+                            await loadMobileInvites();
+                        } catch (e) {
+                            console.error('Failed to revoke invite:', e);
+                            alert('Failed to revoke invite: ' + e.message);
+                            revokeBtn.disabled = false;
+                            revokeBtn.textContent = 'Revoke';
+                        }
+                    }
+                );
+            });
+        }
+
+        container.appendChild(row);
+    });
+}
+
+async function createMobileInvite() {
+    const maxUsesInput = $('mobile-invite-max-uses');
+    const expiresInput = $('mobile-invite-expires-days');
+    const noteInput = $('mobile-invite-note');
+    const createBtn = $('mobile-invite-create-btn');
+
+    const payload = {};
+    const maxUses = parseInt(maxUsesInput && maxUsesInput.value, 10);
+    payload.max_uses = (!isNaN(maxUses) && maxUses > 0) ? maxUses : 1;
+    const days = parseInt(expiresInput && expiresInput.value, 10);
+    if (!isNaN(days) && days > 0) payload.expires_in_days = days;
+    const note = noteInput ? noteInput.value.trim() : '';
+    if (note) payload.note = note;
+
+    if (createBtn) {
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+    }
+
+    try {
+        const invite = await createInvite(payload);
+        if (invite && invite.code) showMobileInviteReveal(invite.code);
+        if (maxUsesInput) maxUsesInput.value = '1';
+        if (expiresInput) expiresInput.value = '';
+        if (noteInput) noteInput.value = '';
+        await loadMobileInvites();
+    } catch (e) {
+        console.error('Failed to create invite:', e);
+        alert('Failed to create invite: ' + e.message);
+    } finally {
+        if (createBtn) {
+            createBtn.disabled = false;
+            createBtn.textContent = 'Create Invite';
+        }
+    }
+}
+
+function showMobileInviteReveal(code) {
+    const reveal = $('mobile-invite-reveal');
+    const codeEl = $('mobile-invite-code-text');
+    const linkEl = $('mobile-invite-link-text');
+    if (!reveal || !codeEl || !linkEl) return;
+    codeEl.textContent = code;
+    linkEl.textContent = location.origin + '/?invite=' + encodeURIComponent(code);
+    reveal.style.display = 'flex';
+}
+
+function dismissMobileInviteReveal() {
+    const reveal = $('mobile-invite-reveal');
+    const codeEl = $('mobile-invite-code-text');
+    const linkEl = $('mobile-invite-link-text');
+    if (!reveal) return;
+    reveal.style.display = 'none';
+    if (codeEl) codeEl.textContent = '';
+    if (linkEl) linkEl.textContent = '';
+}
+
+function copyMobileInviteValue(el, btn) {
+    if (!el) return;
+    const text = el.textContent || '';
+    if (!text) return;
+
+    const succeeded = () => {
+        if (!btn) return;
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+    };
+
+    const legacyCopy = () => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(textarea);
+        return ok;
+    };
+
+    const manualFallback = () => {
+        const selection = window.getSelection && window.getSelection();
+        if (selection) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+        alert('Automatic copy failed. The text is selected — press and hold to copy it.');
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(succeeded).catch(() => {
+            if (legacyCopy()) succeeded(); else manualFallback();
+        });
+    } else if (legacyCopy()) {
+        succeeded();
+    } else {
+        manualFallback();
+    }
+}
+
+$('admin-mobile-back').addEventListener('click', () => {
+    showPage('home', null, null, true);
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const homeNav = document.querySelector('.nav-item[data-page="home"]');
+    if (homeNav) homeNav.classList.add('active');
+    history.replaceState({ pageIndex: 0 }, '', '/');
+});
+
+$('mobile-registration-mode-open').addEventListener('click', () => {
+    updateMobileRegistrationMode('open');
+});
+$('mobile-registration-mode-invite').addEventListener('click', () => {
+    updateMobileRegistrationMode('invite');
+});
+$('mobile-invite-create-btn').addEventListener('click', () => {
+    createMobileInvite();
+});
+$('mobile-invites-refresh').addEventListener('click', () => {
+    loadMobileInvites();
+});
+$('mobile-invite-code-copy').addEventListener('click', function() {
+    copyMobileInviteValue($('mobile-invite-code-text'), this);
+});
+$('mobile-invite-link-copy').addEventListener('click', function() {
+    copyMobileInviteValue($('mobile-invite-link-text'), this);
+});
+$('mobile-invite-reveal-dismiss').addEventListener('click', () => {
+    dismissMobileInviteReveal();
 });
 
 // ─── Bootstrap ──────────────────────────────────────
