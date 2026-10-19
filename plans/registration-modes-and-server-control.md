@@ -17,6 +17,11 @@ Status checklist (update after each phase):
   - PR review round 1: 5 comments all fixed in 55c3ec1 (admin view reset, docs sudo/migration claims, README location, CLI help text); replies posted, all threads verified + resolved by CodeRabbit
   - PR review round 2: no new findings
   - CI failure fixed in 05e723b (install-docker.sh generated .env now matches docker.env.example after adding OPENFY_REGISTRATION_MODE) → CI green
+  - PR review round 3: 1 comment (docker group = root warning) fixed + thread resolved
+  - Local CodeRabbit CLI round 2: 2 findings (Docker port ignored OPENFY_PORT) fixed in 11224f8 — `_docker_default_port` reads env/.env when compose maps via OPENFY_PORT, `cmd_control` forwards `--port` only when explicit; +4 tests
+  - Local CodeRabbit CLI round 3: 1 finding (manual status explicit `--port` vs saved endpoint) fixed in feda8c1; +1 test
+  - Local CodeRabbit CLI round 4: 3 findings fixed in 511d8f7 (manual restart `--timeout` now health-wait for start not stop grace; Enter submits desktop signup from invite field; invite links built with `withBase` in admin + mobile)
+  - Local CodeRabbit CLI round 5: 0 findings; PR incremental review: "Review finished", 0 comments; CI green on 511d8f7
   - PR: https://github.com/NethminaYasas/Openfy/pull/21 (auto-review disabled in .coderabbit.yaml; triggered manually)
 
 Branch: `feat(reg)-invite/open-registration` (already checked out, clean).
