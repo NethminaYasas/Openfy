@@ -22,6 +22,8 @@ Status checklist (update after each phase):
   - Local CodeRabbit CLI round 3: 1 finding (manual status explicit `--port` vs saved endpoint) fixed in feda8c1; +1 test
   - Local CodeRabbit CLI round 4: 3 findings fixed in 511d8f7 (manual restart `--timeout` now health-wait for start not stop grace; Enter submits desktop signup from invite field; invite links built with `withBase` in admin + mobile)
   - Local CodeRabbit CLI round 5: 0 findings; PR incremental review: "Review finished", 0 comments; CI green on 511d8f7
+  - Local CodeRabbit CLI round 6: 1 finding (open-mode signup hint masked unrelated errors) fixed in 921e08d
+  - Local CodeRabbit CLI rounds 7-8: two consecutive fresh reviews with 0 findings; CI green on 921e08d
   - PR: https://github.com/NethminaYasas/Openfy/pull/21 (auto-review disabled in .coderabbit.yaml; triggered manually)
 
 Branch: `feat(reg)-invite/open-registration` (already checked out, clean).
